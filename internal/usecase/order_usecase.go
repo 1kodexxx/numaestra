@@ -230,3 +230,12 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)
 	return nil
 }
+
+// GetOrder возвращает заказ по ID для отображения клиенту.
+func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
+	order, err := uc.orderRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения заказа: %w", err)
+	}
+	return order, nil
+}

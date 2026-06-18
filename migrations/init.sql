@@ -1,4 +1,5 @@
--- Таблица аккаунтов Suno
+-- scripts/init.sql
+
 CREATE TABLE IF NOT EXISTS suno_accounts (
     id UUID PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
@@ -12,12 +13,10 @@ CREATE TABLE IF NOT EXISTS suno_accounts (
     updated_at TIMESTAMPTZ NOT NULL
 );
 
--- Шедевральный частичный индекс для FetchAndLockAvailable (SKIP LOCKED)
 CREATE INDEX IF NOT EXISTS idx_suno_accounts_available 
 ON suno_accounts (last_used_at ASC NULLS FIRST, created_at ASC)
 WHERE status = 'active' AND token_balance > 0;
 
--- Таблица заказов
 CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY,
     invoice_id BIGINT NOT NULL UNIQUE,
@@ -39,7 +38,6 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS idx_orders_customer_email ON orders(customer_email);
 CREATE INDEX IF NOT EXISTS idx_orders_invoice_id ON orders(invoice_id);
 
--- Таблица треков, жестко связанных с заказами (один к многим)
 CREATE TABLE IF NOT EXISTS tracks (
     id UUID PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -49,3 +47,8 @@ CREATE TABLE IF NOT EXISTS tracks (
     suno_track_id VARCHAR(255) NOT NULL,
     UNIQUE(order_id, index)
 );
+
+-- ДОБАВЛЯЕМ ТЕСТОВЫЙ АККАУНТ В ПУЛ
+INSERT INTO suno_accounts (id, email, encrypted_session, status, token_balance, failure_count, created_at, updated_at)
+VALUES ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'test@suno.com', 'fake_session_data', 'active', 100, 0, NOW(), NOW())
+ON CONFLICT DO NOTHING;

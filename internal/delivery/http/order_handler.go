@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
 
@@ -30,6 +31,7 @@ func (h *OrderHandler) Routes() chi.Router {
 
 	// API для клиентов (фронтенд)
 	r.Post("/", h.CreateOrder)
+	r.Get("/{id}", h.GetOrder)
 
 	// API для сервисов (вебхуки кассы)
 	r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
@@ -121,4 +123,53 @@ func (h *OrderHandler) successResponse(w http.ResponseWriter, code int, data int
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(data)
+}
+
+type TrackResponse struct {
+	Index       int    `json:"index"`
+	AudioURL    string `json:"audio_url"`
+	DurationSec int    `json:"duration_sec"`
+}
+
+type OrderDetailResponse struct {
+	ID               string          `json:"id"`
+	Brief            string          `json:"brief"`
+	PaymentStatus    string          `json:"payment_status"`
+	GenerationStatus string          `json:"generation_status"`
+	Tracks           []TrackResponse `json:"tracks,omitempty"`
+}
+
+// GetOrder возвращает детальную информацию о заказе и его треках.
+func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	idParam := chi.URLParam(r, "id")
+	orderID, err := uuid.Parse(idParam)
+	if err != nil {
+		h.errorResponse(w, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	order, err := h.uc.GetOrder(r.Context(), orderID)
+	if err != nil {
+		h.errorResponse(w, http.StatusNotFound, "заказ не найден")
+		return
+	}
+
+	var tracks []TrackResponse
+	for _, t := range order.Tracks() {
+		tracks = append(tracks, TrackResponse{
+			Index:       t.Index,
+			AudioURL:    t.AudioURL,
+			DurationSec: t.DurationSec,
+		})
+	}
+
+	res := OrderDetailResponse{
+		ID:               order.ID().String(),
+		Brief:            order.Brief(),
+		PaymentStatus:    string(order.PaymentStatus()),
+		GenerationStatus: string(order.GenerationStatus()),
+		Tracks:           tracks,
+	}
+
+	h.successResponse(w, http.StatusOK, res)
 }
