@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -193,4 +194,19 @@ func (a *SunoAccount) ResetFailures() {
 
 func (a *SunoAccount) touch() {
 	a.updatedAt = time.Now().UTC()
+}
+
+// AccountRepository - контракт для работы с хранилищем аккаунтов Suno.
+type AccountRepository interface {
+	// FetchAndLockAvailable атомарно находит и блокирует один свободный аккаунт
+	// (в PostgreSQL-реализации - через "SELECT ... FOR UPDATE SKIP LOCKED" в транзакции),
+	// переводит его в статус Busy и возвращает вызывающей стороне. Это критическая
+	// операция для предотвращения race condition при параллельных запросах на генерацию.
+	// Если свободных аккаунтов нет, возвращает ErrNoAvailableAccount.
+	FetchAndLockAvailable(ctx context.Context) (*SunoAccount, error)
+
+	GetByID(ctx context.Context, id uuid.UUID) (*SunoAccount, error)
+	Create(ctx context.Context, account *SunoAccount) error
+	Update(ctx context.Context, account *SunoAccount) error
+	ListByStatus(ctx context.Context, status AccountStatus) ([]*SunoAccount, error)
 }

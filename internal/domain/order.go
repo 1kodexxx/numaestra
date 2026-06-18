@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -253,4 +254,15 @@ func (o *Order) RequeueForRetry() error {
 
 func (o *Order) touch() {
 	o.updatedAt = time.Now().UTC()
+}
+
+// QueuePublisher - контракт для постановки задач в очередь (реализация поверх Asynq).
+// Передаются только идентификаторы агрегатов, а не их данные: это исключает
+// рассинхронизацию состояния между моментом постановки задачи и её обработкой воркером.
+type QueuePublisher interface {
+	// EnqueueGenerationTask ставит задачу на генерацию музыки для указанного заказа.
+	EnqueueGenerationTask(ctx context.Context, orderID uuid.UUID) error
+
+	// EnqueueStatusCheckTask ставит задачу на опрос статуса генерации в Suno (polling).
+	EnqueueStatusCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string) error
 }
