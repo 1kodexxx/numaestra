@@ -287,3 +287,12 @@ func (o *Order) Snapshot() OrderSnapshot {
 		CompletedAt:       o.completedAt,
 	}
 }
+
+// OrderRepository - контракт для персистентности заказов.
+type OrderRepository interface {
+	Create(ctx context.Context, order *Order) error
+	GetByID(ctx context.Context, id uuid.UUID) (*Order, error)
+	GetByInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
+	Update(ctx context.Context, order *Order) error
+	ListByCustomerEmail(ctx context.Context, email string) ([]*Order, error)
+}
