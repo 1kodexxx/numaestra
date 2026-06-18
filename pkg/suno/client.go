@@ -1,58 +1,138 @@
+// pkg/suno/client.go
 package suno
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 )
 
-// Client - абстрактный контракт клиента для генерации музыки через
-// Suno-совместимый API. За этим интерфейсом может стоять обёртка над
-// сторонним реселлером (GoAPI, Apiframe, Sunoapi.org и т.п.), собственный
-// anti-detect клиент или мок для тестов - пакет suno описывает только форму
-// взаимодействия, не способ его реализации.
-type Client interface {
-	// Generate запускает генерацию и возвращает идентификатор задачи у провайдера.
-	Generate(ctx context.Context, req GenerateRequest) (Job, error)
-
-	// GetJob возвращает текущее состояние ранее запущенной задачи.
-	GetJob(ctx context.Context, jobID string) (Job, error)
-}
-
-// GenerateRequest - параметры запроса генерации в максимально общем виде,
-// покрывающем подавляющее большинство Suno-совместимых API.
-type GenerateRequest struct {
-	Prompt       string
-	Style        string
-	Title        string
-	Instrumental bool
-	TrackCount   int
-	CallbackURL  string // опционально: webhook, если провайдер его поддерживает
-}
-
-// JobStatus - статус задачи генерации на стороне конкретного провайдера.
-type JobStatus string
-
+// Клиентские константы статусов Suno API
 const (
-	JobStatusQueued    JobStatus = "queued"
-	JobStatusRunning   JobStatus = "running"
-	JobStatusCompleted JobStatus = "completed"
-	JobStatusFailed    JobStatus = "failed"
+	StatusSubmitted = "submitted"
+	StatusQueued    = "queued"
+	StatusStreaming = "streaming"
+	StatusComplete  = "complete"
+	StatusError     = "error"
 )
 
-// Job - состояние задачи генерации.
-type Job struct {
-	ID       string
-	Status   JobStatus
-	Tracks   []Track
-	ErrorMsg string
+type APIClient interface {
+	Generate(ctx context.Context, req GenerateRequest) ([]Clip, error)
+	GetFeed(ctx context.Context, ids []string) ([]Clip, error)
 }
 
-// Track - один сгенерированный аудио-трек по версии конкретного провайдера.
-type Track struct {
-	ID          string
-	AudioURL    string
-	DurationSec int
+type httpClient struct {
+	baseURL string
+	apiKey  string
+	client  *http.Client
 }
 
-// ErrJobNotFound возвращается, если задача с указанным ID неизвестна клиенту.
-var ErrJobNotFound = errors.New("задача генерации не найдена")
+func NewClient(baseURL, apiKey string) APIClient {
+	return &httpClient{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		apiKey:  apiKey,
+		client: &http.Client{
+			Timeout: 30 * time.Second, // Адекватный таймаут для внешних интеграций
+		},
+	}
+}
+
+// DTO контракты внешнего API
+
+type GenerateRequest struct {
+	Prompt           string `json:"prompt"`
+	Tags             string `json:"tags,omitempty"`
+	Title            string `json:"title,omitempty"`
+	MakeInstrumental bool   `json:"make_instrumental"`
+	WaitAudio        bool   `json:"wait_audio"` // Обычно false для асинхронной работы
+}
+
+type Clip struct {
+	ID           string  `json:"id"`
+	Status       string  `json:"status"`
+	AudioURL     string  `json:"audio_url"`
+	VideoURL     string  `json:"video_url,omitempty"`
+	Duration     float64 `json:"duration,omitempty"`
+	Title        string  `json:"title,omitempty"`
+	Tags         string  `json:"tags,omitempty"`
+	ErrorMessage string  `json:"error_message,omitempty"`
+}
+
+// Generate инициирует процесс генерации музыки. Возвращает массив предварительных данных (обычно 2 клипа).
+func (c *httpClient) Generate(ctx context.Context, req GenerateRequest) ([]Clip, error) {
+	endpoint := fmt.Sprintf("%s/api/custom_generate", c.baseURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	var clips []Clip
+	if err := json.NewDecoder(resp.Body).Decode(&clips); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return clips, nil
+}
+
+// GetFeed запрашивает актуальный статус сгенерированных треков по их идентификаторами.
+func (c *httpClient) GetFeed(ctx context.Context, ids []string) ([]Clip, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	endpoint := fmt.Sprintf("%s/api/get?ids=%s", c.baseURL, strings.Join(ids, ","))
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	var clips []Clip
+	if err := json.NewDecoder(resp.Body).Decode(&clips); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return clips, nil
+}

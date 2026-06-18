@@ -3,16 +3,19 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
-// Config - конфигурация приложения, загружаемая из переменных окружения.
-// На проде значения приходят из секрет-менеджера (Vault, Kubernetes Secrets и т.д.).
+// Config - главная структура конфигурации, собирающая настройки всех подсистем.
 type Config struct {
-	Env      string // dev | staging | production
-	HTTP     HTTPConfig
-	Postgres PostgresConfig
-	Redis    RedisConfig
+	Env       string // dev | staging | production
+	HTTP      HTTPConfig
+	Postgres  PostgresConfig
+	Redis     RedisConfig
+	Robokassa RobokassaConfig
+	Suno      SunoConfig
+	OpenAI    OpenAIConfig
 }
 
 type HTTPConfig struct {
@@ -29,7 +32,24 @@ type RedisConfig struct {
 	Password string
 }
 
-// Load читает конфигурацию из переменных окружения с безопасными дефолтами для dev.
+type RobokassaConfig struct {
+	MerchantLogin string
+	Password1     string // Для генерации платежной ссылки
+	Password2     string // Для проверки подписи вебхука
+	IsTest        bool   // Флаг тестового режима
+}
+
+type SunoConfig struct {
+	APIURL string
+	APIKey string
+}
+
+type OpenAIConfig struct {
+	APIKey string
+}
+
+// Load считывает переменные окружения и собирает их в структуру Config.
+// Если обязательные переменные отсутствуют, возвращает ошибку.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Env: getEnv("APP_ENV", "dev"),
@@ -44,14 +64,29 @@ func Load() (*Config, error) {
 			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
 			Password: getEnv("REDIS_PASSWORD", ""),
 		},
+		Robokassa: RobokassaConfig{
+			MerchantLogin: getEnv("ROBOKASSA_MERCHANT_LOGIN", "numaestra_test"),
+			Password1:     getEnv("ROBOKASSA_PASS1", "test_pass1"),
+			Password2:     getEnv("ROBOKASSA_PASS2", "test_pass2"),
+			IsTest:        getBoolEnv("ROBOKASSA_IS_TEST", true),
+		},
+		Suno: SunoConfig{
+			APIURL: getEnv("SUNO_API_URL", "https://api.custom-suno.local"),
+			APIKey: getEnv("SUNO_API_KEY", ""),
+		},
+		OpenAI: OpenAIConfig{
+			APIKey: getEnv("OPENAI_API_KEY", ""),
+		},
 	}
 
 	if cfg.Postgres.DSN == "" {
-		return nil, fmt.Errorf("POSTGRES_DSN не может быть пустым")
+		return nil, fmt.Errorf("POSTGRES_DSN является обязательным параметром")
 	}
 
 	return cfg, nil
 }
+
+// --- Вспомогательные функции для парсинга ---
 
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
@@ -70,4 +105,13 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func getBoolEnv(key string, fallback bool) bool {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	vLower := strings.ToLower(v)
+	return vLower == "1" || vLower == "true" || vLower == "yes"
 }

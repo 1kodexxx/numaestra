@@ -80,9 +80,9 @@ func run(ctx context.Context) error {
 	orderRepo := postgres.NewOrderRepository(pgPool)
 	queuePublisher := queue.NewAsynqPublisher(asynqClient)
 
-	// Провайдер (пока используем мок для тестов)
-	sunoMock := suno.NewMockClient()
-	musicProvider := sunorepo.NewProviderAdapter(sunoMock)
+	// Боевой клиент Suno
+	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
+	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
 	// Бизнес-логика (Use-Case)
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, log)
