@@ -33,7 +33,7 @@ func main() {
 	}
 }
 
-// run содержит всю логику инициализации и работы приложения.
+// run содержат всю логику инициализация и работа приложения.
 // Вынесена из main, чтобы все defer-ы (закрытие пула БД, клиента Asynq) корректно
 // отработали перед завершением процесса.
 func run(ctx context.Context) error {
@@ -45,7 +45,7 @@ func run(ctx context.Context) error {
 
 	// 2. Логгер.
 	log := logger.New(cfg.Env)
-	log.Info("запуск сервиса Numaestra", "env", cfg.Env, "http_port", cfg.HTTP.Port)
+	log.Info("Запуск сервиса Numaestra", "env", cfg.Env, "http_port", cfg.HTTP.Port)
 
 	// 3. Инфраструктурные зависимости.
 	pgPool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
@@ -110,15 +110,6 @@ func run(ctx context.Context) error {
 	case <-ctx.Done():
 		log.Info("получен сигнал завершения, начинаем graceful shutdown")
 	}
-
-	// 7. Graceful shutdown: даём активным запросам время на завершение.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
-	defer cancel()
-
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown http-сервера: %w", err)
-	}
-
 	log.Info("сервис Numaestra остановлен корректно")
 	return nil
 }
@@ -140,7 +131,6 @@ func newRouter(log *slog.Logger) http.Handler {
 
 	// TODO: r.Mount("/api/v1/orders", orderHandler.Routes())
 	// TODO: r.Mount("/api/v1/payments", paymentHandler.Routes()) // вебхук Robokassa ResultURL
-
 	return r
 }
 

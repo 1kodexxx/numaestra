@@ -7,11 +7,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
-
 	"github.com/numaestra/numaestra/internal/domain"
 )
 
-// Имена задач Asynq. Хранятся здесь, а не в domain: это деталь инфраструктуры очередей.
+// Имена задач Asynq. Хранятся здесь, а не в domain: эта деталь инфраструктуры очреедей.
 const (
 	TaskTypeGenerateTrack = "suno:generate"
 	TaskTypeCheckStatus   = "suno:check_status"
@@ -58,10 +57,10 @@ func (p *AsynqPublisher) EnqueueGenerationTask(ctx context.Context, orderID uuid
 
 func (p *AsynqPublisher) EnqueueStatusCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string) error {
 	payload, err := json.Marshal(StatusCheckTaskPayload{OrderID: orderID, SunoJobID: sunoJobID})
-	if err != nil {
-		return fmt.Errorf("сериализация задачи проверки статуса: %w", err)
-	}
 
+	if err != nil {
+		return fmt.Errorf("серилизация задачи проверки статуса: %w", err)
+	}
 	task := asynq.NewTask(TaskTypeCheckStatus, payload)
 	if _, err := p.client.EnqueueContext(ctx, task, asynq.Queue("polling")); err != nil {
 		return fmt.Errorf("постановка задачи проверки статуса в очередь: %w", err)

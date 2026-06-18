@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// AccountRepository - контракт для работы с хранилищем аккаунтов Suno
+// AccountRepository - контракт для работы с хранилищем аккаунтов Suno.
 type AccountRepository interface {
 	// FetchAndLockAvailable атомарно находит и блокирует один свободный аккаунт
 	// (в PostgreSQL-реализации - через "SELECT ... FOR UPDATE SKIP LOCKED" в транзакции),
@@ -21,7 +21,7 @@ type AccountRepository interface {
 	ListByStatus(ctx context.Context, status AccountStatus) ([]*SunoAccount, error)
 }
 
-// OrderRepository - контракт для персистентности заказов
+// OrderRepository - контракт для персистентности заказов.
 type OrderRepository interface {
 	Create(ctx context.Context, order *Order) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Order, error)
