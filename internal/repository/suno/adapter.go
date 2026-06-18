@@ -1,4 +1,3 @@
-// internal/repository/suno/adapter.go
 package sunorepo
 
 import (
@@ -23,7 +22,6 @@ func NewProviderAdapter(client suno.APIClient) *ProviderAdapter {
 var _ domain.MusicProvider = (*ProviderAdapter)(nil)
 
 func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.MusicGenerationRequest) (string, error) {
-	// Маппинг доменного запроса в формат провайдера
 	apiReq := suno.GenerateRequest{
 		Prompt:           req.Brief,
 		MakeInstrumental: req.Instrumental,
@@ -32,14 +30,13 @@ func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.Music
 
 	clips, err := a.client.Generate(ctx, apiReq)
 	if err != nil {
-		return "", fmt.Errorf("suno generation failed: %w", err)
+		return "", fmt.Errorf("ошибка генерации в Suno: %w", err)
 	}
 
 	if len(clips) == 0 {
-		return "", fmt.Errorf("suno returned empty clip list")
+		return "", fmt.Errorf("провайдер вернул пустой список клипов")
 	}
 
-	// Агрегируем ID клипов в одну строку для хранения в домене
 	var ids []string
 	for _, clip := range clips {
 		ids = append(ids, clip.ID)
@@ -51,13 +48,13 @@ func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.Music
 
 func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string) (domain.MusicGenerationResult, error) {
 	if providerJobID == "" {
-		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusFailed, Error: "empty provider job id"}, nil
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusFailed, Error: "отсутствует provider job id"}, nil
 	}
 
 	ids := strings.Split(providerJobID, ",")
 	clips, err := a.client.GetFeed(ctx, ids)
 	if err != nil {
-		return domain.MusicGenerationResult{}, fmt.Errorf("suno feed query failed: %w", err)
+		return domain.MusicGenerationResult{}, fmt.Errorf("ошибка опроса статуса Suno: %w", err)
 	}
 
 	result := domain.MusicGenerationResult{
@@ -81,12 +78,10 @@ func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string)
 				ExternalID:  clip.ID,
 			})
 		default:
-			// Если хотя бы один трек еще генерируется (submitted, queued, streaming)
 			allCompleted = false
 		}
 	}
 
-	// Стейт-машина трансляции статусов
 	if hasErrors {
 		result.Status = domain.MusicGenerationStatusFailed
 		result.Error = lastError

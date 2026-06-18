@@ -2,13 +2,19 @@
 package http
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/numaestra/numaestra/internal/config"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
 
@@ -16,24 +22,23 @@ import (
 type OrderHandler struct {
 	uc  *usecase.OrderUseCase
 	log *slog.Logger
+	rk  config.RobokassaConfig
 }
 
-func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger) *OrderHandler {
+// Теперь передаем весь конфиг Робокассы
+func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk config.RobokassaConfig) *OrderHandler {
 	return &OrderHandler{
 		uc:  uc,
 		log: log,
+		rk:  rk,
 	}
 }
 
-// Routes возвращает настроенный роутер для подмонтирования в main.go
 func (h *OrderHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	// API для клиентов (фронтенд)
 	r.Post("/", h.CreateOrder)
 	r.Get("/{id}", h.GetOrder)
-
-	// API для сервисов (вебхуки кассы)
 	r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
 
 	return r
@@ -53,12 +58,11 @@ type OrderResponse struct {
 	InvoiceID        int64  `json:"invoice_id"`
 	PaymentStatus    string `json:"payment_status"`
 	GenerationStatus string `json:"generation_status"`
-	// Здесь в будущем можно добавить ссылку на оплату Robokassa
+	PaymentURL       string `json:"payment_url"` // <-- Ссылка для редиректа клиента
 }
 
 // --- Обработчики ---
 
-// CreateOrder принимает запрос на создание нового заказа.
 func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	var req CreateOrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -73,23 +77,61 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. ГЕНЕРАЦИЯ ССЫЛКИ НА ОПЛАТУ
+	// Робокасса принимает сумму в рублях. Kopecks -> Rubles
+	outSum := fmt.Sprintf("%d", req.AmountKopecks/100)
+	invIdStr := fmt.Sprintf("%d", order.InvoiceID())
+	description := "Генерация 4-х версий студийной песни Numaestra"
+
+	// Формула подписи для генерации ссылки: MerchantLogin:OutSum:InvId:Password1
+	signStr := fmt.Sprintf("%s:%s:%s:%s", h.rk.MerchantLogin, outSum, invIdStr, h.rk.Password1)
+	hash := md5.Sum([]byte(signStr))
+	signature := strings.ToUpper(hex.EncodeToString(hash[:]))
+
+	isTest := "0"
+	if h.rk.IsTest {
+		isTest = "1"
+	}
+
+	paymentURL := fmt.Sprintf("https://auth.robokassa.ru/Merchant/Index.aspx?MerchantLogin=%s&OutSum=%s&InvId=%s&Description=%s&SignatureValue=%s&IsTest=%s",
+		h.rk.MerchantLogin, outSum, invIdStr, url.QueryEscape(description), signature, isTest)
+
 	res := OrderResponse{
 		ID:               order.ID().String(),
 		InvoiceID:        order.InvoiceID(),
 		PaymentStatus:    string(order.PaymentStatus()),
 		GenerationStatus: string(order.GenerationStatus()),
+		PaymentURL:       paymentURL, // <-- Фронтенд получит эту ссылку и перенаправит юзера
 	}
 
 	h.successResponse(w, http.StatusCreated, res)
 }
 
-// HandleRobokassaWebhook симулирует прием успешной оплаты (ResultURL от Робокассы).
 func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Request) {
-	// В реальной интеграции Робокасса шлет данные через POST form-urlencoded (x-www-form-urlencoded)
-	// В MVP для простоты теста парсим из URL query parameters: ?InvId=12345
-	invIdStr := r.URL.Query().Get("InvId")
-	if invIdStr == "" {
-		h.errorResponse(w, http.StatusBadRequest, "отсутствует параметр InvId")
+	// ParseForm обрабатывает и POST данные, и Query параметры
+	if err := r.ParseForm(); err != nil {
+		h.errorResponse(w, http.StatusBadRequest, "не удалось разобрать параметры")
+		return
+	}
+
+	outSum := r.Form.Get("OutSum")
+	invIdStr := r.Form.Get("InvId")
+	signature := r.Form.Get("SignatureValue")
+
+	if outSum == "" || invIdStr == "" || signature == "" {
+		h.errorResponse(w, http.StatusBadRequest, "отсутствуют обязательные параметры")
+		return
+	}
+
+	// 2. ВАЛИДАЦИЯ ВЕБХУКА ОТ КАССЫ
+	// Формула подписи ResultURL: OutSum:InvId:Password2
+	signStr := fmt.Sprintf("%s:%s:%s", outSum, invIdStr, h.rk.Password2)
+	hash := md5.Sum([]byte(signStr))
+	expectedSignature := strings.ToUpper(hex.EncodeToString(hash[:]))
+
+	if strings.ToUpper(signature) != expectedSignature {
+		h.log.Warn("попытка подделки вебхука Робокассы!", "expected", expectedSignature, "got", signature)
+		h.errorResponse(w, http.StatusBadRequest, "неверная подпись")
 		return
 	}
 
@@ -99,19 +141,16 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Вызываем бизнес-логику! UseCase сам поменяет статус, сохранит в БД и отправит в Asynq.
 	if err := h.uc.HandlePaymentSuccess(r.Context(), invoiceID); err != nil {
 		h.log.Error("ошибка обработки вебхука оплаты", "invoice_id", invoiceID, "err", err)
 		h.errorResponse(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Робокасса требует ответить просто "OK[InvId]" при успехе
+	// Робокасса требует жесткий формат ответа при успехе
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK" + invIdStr))
 }
-
-// --- Утилиты для ответов ---
 
 func (h *OrderHandler) errorResponse(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -139,7 +178,6 @@ type OrderDetailResponse struct {
 	Tracks           []TrackResponse `json:"tracks,omitempty"`
 }
 
-// GetOrder возвращает детальную информацию о заказе и его треках.
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	idParam := chi.URLParam(r, "id")
 	orderID, err := uuid.Parse(idParam)

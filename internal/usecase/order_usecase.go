@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/openai"
 )
 
 // Пользовательские ошибки слоя Use-Case
@@ -17,18 +18,26 @@ var (
 )
 
 type OrderUseCase struct {
-	orderRepo domain.OrderRepository
-	accRepo   domain.AccountRepository
-	queue     domain.QueuePublisher
-	provider  domain.MusicProvider
+	orderRepo orderRepository
+	accRepo   accountRepository
+	queue     queuePublisher
+	provider  musicProvider
+	llmClient openai.APIClient
 	log       *slog.Logger
 }
+
+// Алиасы для интерфейсов, чтобы сократить код (или используйте напрямую domain.*)
+type orderRepository = domain.OrderRepository
+type accountRepository = domain.AccountRepository
+type queuePublisher = domain.QueuePublisher
+type musicProvider = domain.MusicProvider
 
 func NewOrderUseCase(
 	orderRepo domain.OrderRepository,
 	accRepo domain.AccountRepository,
 	queue domain.QueuePublisher,
 	provider domain.MusicProvider,
+	llmClient openai.APIClient,
 	log *slog.Logger,
 ) *OrderUseCase {
 	return &OrderUseCase{
@@ -36,6 +45,7 @@ func NewOrderUseCase(
 		accRepo:   accRepo,
 		queue:     queue,
 		provider:  provider,
+		llmClient: llmClient,
 		log:       log,
 	}
 }
@@ -44,10 +54,7 @@ func NewOrderUseCase(
 // 1. ПОЛЬЗОВАТЕЛЬСКИЕ СЦЕНАРИИ (Вызываются из HTTP)
 // ==========================================
 
-// CreateOrder создает новый заказ. Возвращает готовый Order,
-// на основе которого хендлер сгенерирует ссылку на оплату Robokassa.
 func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief string, amountKopecks int64) (*domain.Order, error) {
-	// Для простоты MVP используем UnixNano как уникальный ID счета (InvoiceID)
 	invoiceID := time.Now().UnixNano()
 
 	order, err := domain.NewOrder(invoiceID, email, phone, brief, amountKopecks)
@@ -63,32 +70,27 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief str
 	return order, nil
 }
 
-// HandlePaymentSuccess обрабатывает вебхук от кассы об успешной оплате.
 func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int64) error {
 	order, err := uc.orderRepo.GetByInvoiceID(ctx, invoiceID)
 	if err != nil {
 		return fmt.Errorf("поиск заказа по invoice_id: %w", err)
 	}
 
-	// 1. Меняем статус оплаты в домене
 	if err := order.MarkPaid(); err != nil {
 		return fmt.Errorf("переход статуса оплаты: %w", err)
 	}
 
-	// 2. Ставим статус генерации "в очереди"
 	if err := order.Enqueue(); err != nil {
 		return fmt.Errorf("переход статуса генерации: %w", err)
 	}
 
-	// 3. Сохраняем агрегат в БД
 	if err := uc.orderRepo.Update(ctx, order); err != nil {
 		return fmt.Errorf("обновление заказа: %w", err)
 	}
 
-	// 4. Отправляем задачу в Asynq на асинхронную генерацию
 	if err := uc.queue.EnqueueGenerationTask(ctx, order.ID()); err != nil {
 		uc.log.Error("ошибка постановки задачи в очередь", "order_id", order.ID(), "err", err)
-		return err // Ошибка здесь критична, нужен механизм outbox в идеале, но для MVP сойдет
+		return err
 	}
 
 	uc.log.Info("заказ успешно оплачен и поставлен в очередь", "order_id", order.ID())
@@ -99,25 +101,23 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 // 2. ФОНОВЫЕ СЦЕНАРИИ (Вызываются воркерами Asynq)
 // ==========================================
 
-// ProcessGenerationTask берет оплаченный заказ, ищет свободный аккаунт и запускает генерацию.
 func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.UUID) error {
 	order, err := uc.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
 		return fmt.Errorf("заказ не найден: %w", err)
 	}
 
-	// Проверка на идемпотентность: если задача уже в работе, скипаем
 	if order.GenerationStatus() != domain.GenerationStatusQueued {
 		uc.log.Warn("задача генерации пропущена (неверный статус)", "order_id", order.ID(), "status", order.GenerationStatus())
 		return nil
 	}
 
-	// 1. Атомарно захватываем аккаунт (SKIP LOCKED из прошлого шага делает здесь магию!)
+	// 1. Атомарно захватываем аккаунт
 	account, err := uc.accRepo.FetchAndLockAvailable(ctx)
 	if err != nil {
 		if errors.Is(err, domain.ErrNoAvailableAccount) {
 			uc.log.Warn("нет свободных аккаунтов, задача будет отложена (retry)", "order_id", orderID)
-			return err // Возвращаем ошибку, чтобы Asynq сделал retry этой задачи позже
+			return err
 		}
 		return fmt.Errorf("ошибка захвата аккаунта: %w", err)
 	}
@@ -127,19 +127,28 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("недопустимый статус для старта: %w", err)
 	}
 
-	// 3. Дергаем Suno API (через адаптер)
+	// 3. Обогащение ТЗ через LLM
+	uc.log.Info("генерация текста песни через LLM", "order_id", order.ID())
+	lyrics, err := uc.llmClient.GenerateLyrics(ctx, order.Brief())
+	if err != nil {
+		uc.log.Error("ошибка генерации текста, используется fallback к исходному брифу", "err", err)
+		lyrics = order.Brief()
+	} else {
+		uc.log.Info("текст успешно сгенерирован")
+	}
+
+	// 4. Отправка структурированного запроса в Suno API
 	req := domain.MusicGenerationRequest{
-		Brief:        order.Brief(),
+		Brief:        lyrics,
 		Instrumental: false,
-		TrackCount:   4, // Дефолт
+		TrackCount:   4,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 
 	if err != nil {
-		// API упало: освобождаем аккаунт, начисляем штраф, заказ возвращаем в очередь
 		uc.log.Error("ошибка API Suno", "account", account.Email(), "err", err)
 		account.Release()
-		account.RegisterFailure(3) // После 3 ошибок аккаунт улетит в Banned
+		account.RegisterFailure(3)
 		order.RequeueForRetry()
 
 		_ = uc.accRepo.Update(ctx, account)
@@ -147,7 +156,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("сбой провайдера: %w", err)
 	}
 
-	// 4. Всё ок: сохраняем заказ и ставим задачу на периодический опрос (Polling)
+	// 5. Фиксация состояния и инициация поллинга
 	if err := uc.orderRepo.Update(ctx, order); err != nil {
 		return err
 	}
@@ -160,14 +169,12 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	return nil
 }
 
-// CheckGenerationStatus периодически опрашивает Suno о готовности треков.
 func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.UUID, providerJobID string) error {
 	order, err := uc.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
 		return err
 	}
 
-	// Если заказ уже завершен (кто-то другой обработал), выходим
 	if order.GenerationStatus() != domain.GenerationStatusProcessing {
 		return nil
 	}
@@ -177,12 +184,10 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		return fmt.Errorf("ошибка опроса статуса: %w", err)
 	}
 
-	// Если статус еще генерируется — возвращаем спец. ошибку, чтобы Asynq сделал Retry через минуту
 	if result.Status == domain.MusicGenerationStatusPending || result.Status == domain.MusicGenerationStatusRunning {
 		return ErrGenerationNotReady
 	}
 
-	// Загружаем аккаунт, чтобы списать токены и освободить его
 	account, err := uc.accRepo.GetByID(ctx, *order.AssignedAccountID())
 	if err != nil {
 		return fmt.Errorf("ошибка загрузки аккаунта: %w", err)
@@ -190,14 +195,9 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 
 	switch result.Status {
 	case domain.MusicGenerationStatusFailed:
-		// Трек не сгенерировался
 		order.Fail(result.Error)
 		account.Release()
-		// Можно добавить логику ретрая на другом аккаунте через RequeueForRetry
 	case domain.MusicGenerationStatusCompleted:
-		// УСПЕХ!
-
-		// Конвертируем треки провайдера в доменные треки
 		var domainTracks []domain.Track
 		for i, pt := range result.Tracks {
 			domainTracks = append(domainTracks, domain.Track{
@@ -213,13 +213,11 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 			return fmt.Errorf("завершение заказа в домене: %w", err)
 		}
 
-		// Списываем токены и освобождаем аккаунт
-		_ = account.ConsumeTokens(1) // Допустим, 1 запрос = 1 токен
+		_ = account.ConsumeTokens(1)
 		account.ResetFailures()
 		account.Release()
 	}
 
-	// Сохраняем финальные состояния в БД
 	if err := uc.orderRepo.Update(ctx, order); err != nil {
 		return fmt.Errorf("сохранение финального заказа: %w", err)
 	}
@@ -231,7 +229,6 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	return nil
 }
 
-// GetOrder возвращает заказ по ID для отображения клиенту.
 func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
 	order, err := uc.orderRepo.GetByID(ctx, id)
 	if err != nil {

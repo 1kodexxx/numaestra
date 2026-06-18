@@ -25,6 +25,7 @@ import (
 	"github.com/numaestra/numaestra/internal/worker"
 	"github.com/numaestra/numaestra/pkg/banner"
 	"github.com/numaestra/numaestra/pkg/logger"
+	"github.com/numaestra/numaestra/pkg/openai" // <-- ДОБАВЛЕН ИМПОРТ LLM
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
@@ -84,8 +85,11 @@ func run(ctx context.Context) error {
 	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
+	// Инициализируем LLM Клиент (OpenRouter / OpenAI)
+	llmClient := openai.NewClient("", cfg.OpenAI.APIKey) // <-- ДОБАВЛЕНА ИНИЦИАЛИЗАЦИЯ LLM
+
 	// Бизнес-логика (Use-Case)
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, log)
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, llmClient, log) // <-- ПЕРЕДАН llmClient
 
 	// 5. Настройка и запуск Asynq Worker (Фоновые задачи)
 	asynqServer := asynq.NewServer(
@@ -119,7 +123,7 @@ func run(ctx context.Context) error {
 	defer asynqServer.Stop()
 
 	// 6. Инициализация HTTP-хендлеров и роутера.
-	orderHandler := apphttp.NewOrderHandler(orderUC, log)
+	orderHandler := apphttp.NewOrderHandler(orderUC, log, cfg.Robokassa) // <-- ПЕРЕДАН ПАРОЛЬ РОБОКАССЫ
 	router := newRouter(log, orderHandler)
 
 	httpServer := &http.Server{
