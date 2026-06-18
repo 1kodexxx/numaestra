@@ -210,3 +210,18 @@ type AccountRepository interface {
 	Update(ctx context.Context, account *SunoAccount) error
 	ListByStatus(ctx context.Context, status AccountStatus) ([]*SunoAccount, error)
 }
+
+func (a *SunoAccount) Snapshot() SunoAccountSnapshot {
+	return SunoAccountSnapshot{
+		ID:               a.id,
+		Email:            a.email,
+		EncryptedSession: a.encryptedSession,
+		Status:           a.status,
+		TokenBalance:     a.tokenBalance,
+		FailureCount:     a.failureCount,
+		CooldownUntil:    a.cooldownUntil,
+		LastUsedAt:       a.lastUsedAt,
+		CreatedAt:        a.createdAt,
+		UpdatedAt:        a.updatedAt,
+	}
+}

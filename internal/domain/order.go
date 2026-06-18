@@ -266,3 +266,24 @@ type QueuePublisher interface {
 	// EnqueueStatusCheckTask ставит задачу на опрос статуса генерации в Suno (polling).
 	EnqueueStatusCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string) error
 }
+
+func (o *Order) Snapshot() OrderSnapshot {
+	return OrderSnapshot{
+		ID:                o.id,
+		InvoiceID:         o.invoiceID,
+		CustomerEmail:     o.customerEmail,
+		CustomerPhone:     o.customerPhone,
+		Brief:             o.brief,
+		AmountKopecks:     o.amountKopecks,
+		Currency:          o.currency,
+		PaymentStatus:     o.paymentStatus,
+		GenerationStatus:  o.generationStatus,
+		AssignedAccountID: o.assignedAccountID,
+		Tracks:            o.tracks,
+		FailureReason:     o.failureReason,
+		CreatedAt:         o.createdAt,
+		UpdatedAt:         o.updatedAt,
+		PaidAt:            o.paidAt,
+		CompletedAt:       o.completedAt,
+	}
+}
