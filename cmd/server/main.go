@@ -17,14 +17,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/numaestra/numaestra/internal/config"
+	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
+	"github.com/numaestra/numaestra/internal/repository/postgres"
 	"github.com/numaestra/numaestra/internal/repository/queue"
+	sunorepo "github.com/numaestra/numaestra/internal/repository/suno"
+	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/internal/worker"
 	"github.com/numaestra/numaestra/pkg/banner"
 	"github.com/numaestra/numaestra/pkg/logger"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 func main() {
 	// Корневой контекст приложения, отменяемый при получении SIGINT/SIGTERM.
-	// Именно его отмена запускает каскадное graceful-завершение всех компонентов.
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -34,9 +39,6 @@ func main() {
 	}
 }
 
-// run содержат всю логику инициализация и работа приложения.
-// Вынесена из main, чтобы все defer-ы (закрытие пула БД, клиента Asynq) корректно
-// отработали перед завершением процесса.
 func run(ctx context.Context) error {
 	// 1. Конфигурация.
 	cfg, err := config.Load()
@@ -50,7 +52,7 @@ func run(ctx context.Context) error {
 	log := logger.New(cfg.Env)
 	log.Info("Запуск сервиса Numaestra", "env", cfg.Env, "http_port", cfg.HTTP.Port)
 
-	// 3. Инфраструктурные зависимости.
+	// 3. Инфраструктурные зависимости (База данных и Очереди).
 	pgPool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
 	if err != nil {
 		return fmt.Errorf("инициализация пула соединений postgres: %w", err)
@@ -72,18 +74,53 @@ func run(ctx context.Context) error {
 		}
 	}()
 
-	// 4. Сборка зависимостей (Dependency Injection) через конструкторы.
-	// Сейчас подключены только инфраструктурные адаптеры, не зависящие от бизнес-логики.
-	// По мере реализации use-case'ов сюда добавляются:
-	//   accountRepo := postgres.NewAccountRepository(pgPool)
-	//   orderRepo := postgres.NewOrderRepository(pgPool)
-	//   orderUseCase := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, log)
-	//   orderHandler := httphandler.NewOrderHandler(orderUseCase)
+	// 4. Сборка зависимостей (Dependency Injection).
+	// Репозитории
+	accountRepo := postgres.NewAccountRepository(pgPool)
+	orderRepo := postgres.NewOrderRepository(pgPool)
 	queuePublisher := queue.NewAsynqPublisher(asynqClient)
-	_ = queuePublisher // будет передан в use-case при его реализации
 
-	// 5. HTTP-роутер и middleware.
-	router := newRouter(log)
+	// Провайдер (пока используем мок для тестов)
+	sunoMock := suno.NewMockClient()
+	musicProvider := sunorepo.NewProviderAdapter(sunoMock)
+
+	// Бизнес-логика (Use-Case)
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, log)
+
+	// 5. Настройка и запуск Asynq Worker (Фоновые задачи)
+	asynqServer := asynq.NewServer(
+		asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password},
+		asynq.Config{
+			Concurrency: 10,
+			Queues: map[string]int{
+				"generation": 5,
+				"polling":    5,
+			},
+			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
+				if errors.Is(e, usecase.ErrGenerationNotReady) {
+					return 15 * time.Second // Поллинг каждые 15 сек, если трек еще генерируется
+				}
+				return asynq.DefaultRetryDelayFunc(n, e, t)
+			},
+		},
+	)
+
+	processor := worker.NewOrderProcessor(orderUC, log)
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(queue.TaskTypeGenerateTrack, processor.HandleGenerateTask)
+	mux.HandleFunc(queue.TaskTypeCheckStatus, processor.HandleStatusCheckTask)
+
+	go func() {
+		log.Info("запуск Asynq worker-сервера")
+		if err := asynqServer.Run(mux); err != nil {
+			log.Error("ошибка работы Asynq worker", "error", err)
+		}
+	}()
+	defer asynqServer.Stop()
+
+	// 6. Инициализация HTTP-хендлеров и роутера.
+	orderHandler := apphttp.NewOrderHandler(orderUC, log)
+	router := newRouter(log, orderHandler)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -94,7 +131,7 @@ func run(ctx context.Context) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// 6. Запуск сервера в отдельной горутине; основная горутина ждёт сигнал или ошибку.
+	// 7. Запуск сервера в отдельной горутине.
 	serveErrCh := make(chan error, 1)
 	go func() {
 		log.Info("http-сервер слушает", "addr", httpServer.Addr)
@@ -113,13 +150,20 @@ func run(ctx context.Context) error {
 	case <-ctx.Done():
 		log.Info("получен сигнал завершения, начинаем graceful shutdown")
 	}
+
+	// Graceful shutdown HTTP сервера
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Error("ошибка при остановке http-сервера", "error", err)
+	}
+
 	log.Info("сервис Numaestra остановлен корректно")
 	return nil
 }
 
 // newRouter собирает HTTP-роутер с базовыми middleware и служебными эндпоинтами.
-// Бизнес-маршруты подключаются позже через router.Mount при реализации delivery-слоя.
-func newRouter(log *slog.Logger) http.Handler {
+func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
@@ -132,12 +176,12 @@ func newRouter(log *slog.Logger) http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// TODO: r.Mount("/api/v1/orders", orderHandler.Routes())
-	// TODO: r.Mount("/api/v1/payments", paymentHandler.Routes()) // вебхук Robokassa ResultURL
+	// Монтируем маршруты бизнес-логики
+	r.Mount("/api/v1/orders", orderHandler.Routes())
+
 	return r
 }
 
-// requestLoggerMiddleware - тонкая обёртка, логирующая каждый запрос через slog.
 func requestLoggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
