@@ -18,6 +18,7 @@ import (
 
 	"github.com/numaestra/numaestra/internal/config"
 	"github.com/numaestra/numaestra/internal/repository/queue"
+	"github.com/numaestra/numaestra/pkg/banner"
 	"github.com/numaestra/numaestra/pkg/logger"
 )
 
@@ -42,6 +43,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("загрузка конфигурации: %w", err)
 	}
+
+	banner.Print(os.Stdout, "0.1.0", cfg.Env)
 
 	// 2. Логгер.
 	log := logger.New(cfg.Env)

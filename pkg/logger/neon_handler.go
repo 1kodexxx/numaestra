@@ -9,9 +9,6 @@ import (
 	"sync"
 )
 
-// ANSI-коды cyberpunk neon палитры. Продублированы относительно pkg/banner
-// намеренно: pkg/logger и pkg/banner - независимые by design пакеты уровня pkg,
-// и не должны зависеть друг от друга из-за общей палитры.
 const (
 	ansiReset = "\033[0m"
 	ansiBold  = "\033[1m"
@@ -23,9 +20,9 @@ const (
 	neonGreen   = "\033[38;5;48m"
 	neonAmber   = "\033[38;5;214m"
 	neonGrey    = "\033[38;5;102m"
+	neonRed     = "\033[38;5;196m" // Добавлен красный для явных ошибок
 )
 
-// levelStyle возвращает цвет и бейдж уровня лога в стиле неоновых вывесок.
 func levelStyle(level slog.Level) (color, badge string) {
 	switch {
 	case level < slog.LevelInfo:
@@ -35,24 +32,18 @@ func levelStyle(level slog.Level) (color, badge string) {
 	case level < slog.LevelError:
 		return neonAmber, "WARN "
 	default:
-		return neonMagenta, "ERROR"
+		return neonRed, "ERROR"
 	}
 }
 
-// NeonHandler - реализация slog.Handler в стиле cyberpunk neon: цветные
-// бейджи уровней, приглушённые таймстемпы, атрибуты как светящиеся
-// key=value пары. Предназначен для интерактивной работы в терминале при
-// локальной разработке; в production используется обычный JSON-хендлер
-// (см. New в logger.go) - агрегаторы логов не понимают ANSI escape.
 type NeonHandler struct {
 	mu     *sync.Mutex
 	w      io.Writer
 	level  slog.Level
 	attrs  []slog.Attr
-	groups []string
+	prefix string // ОПТИМИЗАЦИЯ: храним уже склеенный префикс группы, а не срез строк
 }
 
-// NewNeonHandler создаёт обработчик логов с неоновой подсветкой для вывода в w.
 func NewNeonHandler(w io.Writer, level slog.Level) *NeonHandler {
 	return &NeonHandler{
 		mu:    &sync.Mutex{},
@@ -69,26 +60,25 @@ func (h *NeonHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	if len(attrs) == 0 {
 		return h
 	}
-	merged := make([]slog.Attr, len(h.attrs)+len(attrs))
+	merged := make([]slog.Attr, len(h.attrs), len(h.attrs)+len(attrs))
 	copy(merged, h.attrs)
-	copy(merged[len(h.attrs):], attrs)
-	return &NeonHandler{mu: h.mu, w: h.w, level: h.level, attrs: merged, groups: h.groups}
+	merged = append(merged, attrs...)
+	return &NeonHandler{mu: h.mu, w: h.w, level: h.level, attrs: merged, prefix: h.prefix}
 }
 
 func (h *NeonHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	merged := make([]string, len(h.groups)+1)
-	copy(merged, h.groups)
-	merged[len(h.groups)] = name
-	return &NeonHandler{mu: h.mu, w: h.w, level: h.level, attrs: h.attrs, groups: merged}
+	// ОПТИМИЗАЦИЯ: склеиваем префикс 1 раз при создании группы, а не на каждом логе
+	return &NeonHandler{mu: h.mu, w: h.w, level: h.level, attrs: h.attrs, prefix: h.prefix + name + "."}
 }
 
 func (h *NeonHandler) Handle(_ context.Context, r slog.Record) error {
 	color, badge := levelStyle(r.Level)
 
 	var b strings.Builder
+	b.Grow(128) // ОПТИМИЗАЦИЯ: предвыделяем память, чтобы избежать реаллокаций при конкатенации
 
 	b.WriteString(neonGrey)
 	b.WriteString(r.Time.Format("15:04:05.000"))
@@ -108,10 +98,10 @@ func (h *NeonHandler) Handle(_ context.Context, r slog.Record) error {
 	b.WriteString(ansiReset)
 
 	for _, a := range h.attrs {
-		writeAttr(&b, h.groups, a)
+		writeAttr(&b, h.prefix, a)
 	}
 	r.Attrs(func(a slog.Attr) bool {
-		writeAttr(&b, h.groups, a)
+		writeAttr(&b, h.prefix, a)
 		return true
 	})
 
@@ -123,13 +113,31 @@ func (h *NeonHandler) Handle(_ context.Context, r slog.Record) error {
 	return err
 }
 
-func writeAttr(b *strings.Builder, groups []string, a slog.Attr) {
+func writeAttr(b *strings.Builder, prefix string, a slog.Attr) {
+	a.Value = a.Value.Resolve() // ВАЖНО: резолвим ленивые значения (LogValuer)
 	if a.Equal(slog.Attr{}) {
 		return
 	}
-	key := a.Key
-	if len(groups) > 0 {
-		key = strings.Join(groups, ".") + "." + key
+
+	// ВАЖНО: правильная обработка вложенных групп
+	if a.Value.Kind() == slog.KindGroup {
+		attrs := a.Value.Group()
+		if len(attrs) == 0 {
+			return
+		}
+		newPrefix := prefix + a.Key + "."
+		for _, ga := range attrs {
+			writeAttr(b, newPrefix, ga)
+		}
+		return
+	}
+
+	key := prefix + a.Key
+
+	// Умная раскраска: если это ошибка, подсвечиваем значение ярко
+	valColor := neonMagenta
+	if key == "error" || key == "err" || strings.HasSuffix(key, ".error") {
+		valColor = neonAmber
 	}
 
 	b.WriteByte(' ')
@@ -139,7 +147,7 @@ func writeAttr(b *strings.Builder, groups []string, a slog.Attr) {
 	b.WriteString(ansiDim)
 	b.WriteString("=")
 	b.WriteString(ansiReset)
-	b.WriteString(neonMagenta)
+	b.WriteString(valColor)
 	fmt.Fprintf(b, "%v", a.Value.Any())
 	b.WriteString(ansiReset)
 }

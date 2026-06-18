@@ -5,24 +5,22 @@ import (
 	"os"
 )
 
-// New создаёт структурированный логгер. В production используется обычный
-// JSON (агрегаторы типа ELK/Loki не понимают ANSI escape), в dev - неоновый
-// цветной хендлер для приятной работы глазами в терминале.
+// New создаёт структурированный глобальный логгер.
+// В "dev" используется цветной NeonHandler (уровень Debug) для удобства в терминале.
+// В любых других окружениях (production, staging) - строгий JSON (уровень Info).
 func New(env string) *slog.Logger {
-	level := slog.LevelInfo
-	if env == "dev" {
-		level = slog.LevelDebug
-	}
-
 	var handler slog.Handler
-	switch env {
-	case "production":
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
-	default:
-		handler = NewNeonHandler(os.Stdout, level)
+
+	if env == "dev" {
+		handler = NewNeonHandler(os.Stdout, slog.LevelDebug)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
 	}
 
 	l := slog.New(handler)
 	slog.SetDefault(l)
+
 	return l
 }

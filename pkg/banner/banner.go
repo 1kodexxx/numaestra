@@ -3,36 +3,23 @@ package banner
 import (
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"unicode/utf8"
 )
 
-// ANSI-коды cyberpunk neon палитры (256-цветной режим терминала).
 const (
 	ansiReset = "\033[0m"
 	ansiBold  = "\033[1m"
-
-	neonCyan    = "\033[38;5;51m"
-	neonBlue    = "\033[38;5;39m"
-	neonPurple  = "\033[38;5;135m"
-	neonPink    = "\033[38;5;161m"
-	neonMagenta = "\033[38;5;201m"
-	neonAmber   = "\033[38;5;214m"
-	neonGreen   = "\033[38;5;48m"
+	orchid    = "\033[38;5;170m"
 )
 
-// gradient - расширенный 6-ступенчатый переход от электрического циана к неоновому красно-розовому
-var gradient = []string{
-	"\033[38;5;51m",  // Cyan
-	"\033[38;5;45m",  // Light Blue
-	"\033[38;5;39m",  // Deep Blue
-	"\033[38;5;135m", // Purple
-	"\033[38;5;161m", // Hot Pink
-	"\033[38;5;196m", // Neon Red
-}
+const (
+	sideMargin      = 2
+	leftValueWidth  = 15
+	rightValueWidth = 25
+)
 
-// logo - ИСПРАВЛЕННЫЙ ASCII-арт "NUMAESTRA" (шрифт ANSI Shadow).
-// Ширина логотипа 79 символов.
 var logo = []string{
 	`███╗   ██╗██╗   ██╗███╗   ███╗ █████╗ ███████╗███████╗████████╗██████╗  █████╗ `,
 	`████╗  ██║██║   ██║████╗ ████║██╔══██╗██╔════╝██╔════╝╚══██╔══╝██╔══██╗██╔══██╗`,
@@ -42,60 +29,84 @@ var logo = []string{
 	`╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝`,
 }
 
-// padRight безопасно дополняет строку пробелами до нужной длины или обрезает её.
-func padRight(s string, l int) string {
-	rc := utf8.RuneCountInString(s)
-	if rc >= l {
-		return string([]rune(s)[:l])
+var contentWidth = func() int {
+	max := 0
+	for _, line := range logo {
+		if n := utf8.RuneCountInString(line); n > max {
+			max = n
+		}
 	}
-	return s + strings.Repeat(" ", l-rc)
+	return max
+}()
+
+func padRight(s string, width int) string {
+	rc := utf8.RuneCountInString(s)
+	if rc >= width {
+		return string([]rune(s)[:width])
+	}
+	return s + strings.Repeat(" ", width-rc)
 }
 
-// Print выводит ASCII-баннер Numaestra в стиле Cyberpunk UI.
-func Print(w io.Writer, version, env string) {
-	fmt.Fprintln(w)
+func border(left, right string) string {
+	return ansiBold + orchid + left + strings.Repeat("─", contentWidth+sideMargin*2) + right + ansiReset
+}
 
-	boxColor := neonPurple
-	// Внутренняя ширина рамки теперь 83 символа (79 лого + по 2 пробела по бокам)
-	divider := boxColor + "├" + strings.Repeat("─", 83) + "┤" + ansiReset
+func row(content string) string {
+	return ansiBold + orchid + "│" + ansiReset + strings.Repeat(" ", sideMargin) +
+		content + strings.Repeat(" ", sideMargin) + ansiBold + orchid + "│" + ansiReset
+}
 
-	// Верхняя граница рамки
-	fmt.Fprintln(w, boxColor+"╭"+strings.Repeat("─", 83)+"╮"+ansiReset)
+func hudRow(leftLabel, leftVal, rightLabel, rightVal string) string {
+	leftVal = padRight(leftVal, leftValueWidth)
+	rightVal = padRight(rightVal, rightValueWidth)
 
-	// Отрисовка логотипа с градиентом и боковыми рамками
-	for i, line := range logo {
-		color := gradient[i%len(gradient)]
-		fmt.Fprintf(w, "%s│%s  %s%s%s  %s│%s\n",
-			boxColor, ansiReset,
-			ansiBold+color, line, ansiReset,
-			boxColor, ansiReset)
+	leftPlain := "[" + leftLabel + "] " + leftVal
+	rightPlain := "[" + rightLabel + "] " + rightVal
+
+	gap := contentWidth - utf8.RuneCountInString(leftPlain) - utf8.RuneCountInString(rightPlain)
+	if gap < 1 {
+		gap = 1
 	}
 
-	// Разделитель между логотипом и метаданными
-	fmt.Fprintln(w, divider)
+	var b strings.Builder
+	// Ещё немного предвыделения памяти не повредит
+	b.Grow(contentWidth + 100)
 
-	// --- Первая строка метаданных (HUD) ---
-	leftLabel1 := neonCyan + " SYSTEM " + ansiReset
-	leftVal1 := neonGreen + padRight("ONLINE", 15) + ansiReset
+	b.WriteString(ansiBold + orchid + "[")
+	b.WriteString(leftLabel)
+	b.WriteString("]")
+	b.WriteString(ansiReset)
+	b.WriteString(orchid + " ")
+	b.WriteString(leftVal)
+	b.WriteString(ansiReset)
+	b.WriteString(strings.Repeat(" ", gap))
+	b.WriteString(ansiBold + orchid + "[")
+	b.WriteString(rightLabel)
+	b.WriteString("]")
+	b.WriteString(ansiReset)
+	b.WriteString(orchid + " ")
+	b.WriteString(rightVal)
+	b.WriteString(ansiReset)
 
-	rightLabel1 := neonCyan + " SERVICE " + ansiReset
-	rightVal1 := neonMagenta + padRight("музыка на заказ (Suno)", 25) + ansiReset
+	return b.String()
+}
 
-	// Отступы пересчитаны под ширину 83: 16 пробелов в центре
-	fmt.Fprintf(w, "%s│%s  [%s] %s                [%s] %s  %s│%s\n",
-		boxColor, ansiReset, leftLabel1, leftVal1, rightLabel1, rightVal1, boxColor, ansiReset)
+// Print выводит ASCII-баннер Numaestra в стиле cyberpunk HUD.
+func Print(w io.Writer, version, env string) {
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, border("╭", "╮"))
 
-	// --- Вторая строка метаданных (HUD) ---
-	leftLabel2 := neonCyan + " CORE   " + ansiReset
-	leftVal2 := neonAmber + padRight(version, 15) + ansiReset
+	for _, line := range logo {
+		fmt.Fprintln(w, row(ansiBold+orchid+padRight(line, contentWidth)+ansiReset))
+	}
 
-	rightLabel2 := neonCyan + " ENV     " + ansiReset
-	rightVal2 := neonAmber + padRight(env, 25) + ansiReset
+	fmt.Fprintln(w, border("├", "┤"))
 
-	fmt.Fprintf(w, "%s│%s  [%s] %s                [%s] %s  %s│%s\n",
-		boxColor, ansiReset, leftLabel2, leftVal2, rightLabel2, rightVal2, boxColor, ansiReset)
+	// Теперь HUD содержит 3 строки для максимальной киберпанк-информативности
+	fmt.Fprintln(w, row(hudRow("SYSTEM", "ONLINE", "SERVICE", "музыка на заказ (Suno)")))
+	fmt.Fprintln(w, row(hudRow("CORE  ", version, "ENV    ", env)))
+	fmt.Fprintln(w, row(hudRow("GO    ", runtime.Version(), "PLATFRM", runtime.GOOS+"/"+runtime.GOARCH)))
 
-	// Нижняя граница рамки
-	fmt.Fprintln(w, boxColor+"╰"+strings.Repeat("─", 83)+"╯"+ansiReset)
+	fmt.Fprintln(w, border("╰", "╯"))
 	fmt.Fprintln(w)
 }

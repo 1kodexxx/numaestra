@@ -1,0 +1,5 @@
+/bin/
+/numaestra
+/numaestra.exe
+.env
+*.log

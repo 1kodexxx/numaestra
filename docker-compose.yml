@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: numaestra-postgres
+    environment:
+      POSTGRES_USER: numaestra
+      POSTGRES_PASSWORD: numaestra
+      POSTGRES_DB: numaestra
+    ports:
+      - "5432:5432"
+    volumes:
+      - numaestra_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U numaestra -d numaestra"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: numaestra-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: numaestra-app
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: dev
+      HTTP_PORT: "8080"
+      HTTP_SHUTDOWN_TIMEOUT: 15s
+      POSTGRES_DSN: postgres://numaestra:numaestra@postgres:5432/numaestra?sslmode=disable
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 20s
+
+volumes:
+  numaestra_pgdata:
