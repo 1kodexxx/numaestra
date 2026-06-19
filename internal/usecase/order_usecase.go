@@ -15,6 +15,9 @@ import (
 // Пользовательские ошибки слоя Use-Case
 var (
 	ErrGenerationNotReady = errors.New("генерация еще не завершена, требуется повторный опрос")
+	// ErrPaymentAmountMismatch возникает, когда оплаченная по вебхуку сумма
+	// не совпадает с суммой заказа. Защищает от подмены суммы при валидной подписи.
+	ErrPaymentAmountMismatch = errors.New("оплаченная сумма не совпадает с суммой заказа")
 )
 
 type OrderUseCase struct {
@@ -81,10 +84,19 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief str
 	return order, nil
 }
 
-func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int64) error {
+func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int64, paidKopecks int64) error {
 	order, err := uc.orderRepo.GetByInvoiceID(ctx, invoiceID)
 	if err != nil {
 		return fmt.Errorf("поиск заказа по invoice_id: %w", err)
+	}
+
+	// Подпись вебхука уже проверена в слое доставки, но это не гарантирует,
+	// что оплачена именно сумма заказа. Сверяем явно, чтобы исключить подмену суммы.
+	if paidKopecks != order.AmountKopecks() {
+		uc.log.Warn("сумма оплаты не совпадает с суммой заказа",
+			"order_id", order.ID(), "invoice_id", invoiceID,
+			"expected_kopecks", order.AmountKopecks(), "paid_kopecks", paidKopecks)
+		return ErrPaymentAmountMismatch
 	}
 
 	if err := order.MarkPaid(); err != nil {

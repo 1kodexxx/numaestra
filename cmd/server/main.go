@@ -18,6 +18,7 @@ import (
 
 	"github.com/numaestra/numaestra/internal/config"
 	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
+	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/repository/postgres"
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	sunorepo "github.com/numaestra/numaestra/internal/repository/suno"
@@ -34,6 +35,9 @@ import (
 	"github.com/numaestra/numaestra/pkg/s3"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
+
+// Проверка на этапе компиляции, что S3-клиент реализует порт хранилища треков.
+var _ domain.TrackStorage = (*s3.Client)(nil)
 
 func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -189,9 +193,16 @@ func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, checker *he
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
+	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(nil)))
 
 	r.Get("/healthz", checker.Handler)
-	r.Mount("/api/v1/orders", orderHandler.Routes())
+
+	// Публичный API заказов ограничиваем по IP: создание заказа и вебхуки —
+	// потенциальные точки злоупотребления.
+	r.Group(func(r chi.Router) {
+		r.Use(apphttp.RateLimiter(10, 20))
+		r.Mount("/api/v1/orders", orderHandler.Routes())
+	})
 
 	return r
 }
@@ -200,10 +211,15 @@ func requestLoggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			next.ServeHTTP(w, r)
+			// Оборачиваем ResponseWriter, чтобы зафиксировать статус ответа и размер.
+			ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
 			log.Info("http запрос обработан",
 				"method", r.Method,
 				"path", r.URL.Path,
+				"status", ww.Status(),
+				"bytes", ww.BytesWritten(),
+				"request_id", chimiddleware.GetReqID(r.Context()),
 				"duration", time.Since(start).String(),
 			)
 		})

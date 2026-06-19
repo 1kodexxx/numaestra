@@ -43,6 +43,23 @@ services:
       POSTGRES_DSN: postgres://numaestra:numaestra@postgres:5432/numaestra?sslmode=disable
       REDIS_ADDR: redis:6379
       REDIS_PASSWORD: ""
+      # Robokassa (тестовые значения; переопредели через .env для прод).
+      ROBOKASSA_MERCHANT_LOGIN: ${ROBOKASSA_MERCHANT_LOGIN:-numaestra_test}
+      ROBOKASSA_PASS1: ${ROBOKASSA_PASS1:-test_pass1}
+      ROBOKASSA_PASS2: ${ROBOKASSA_PASS2:-test_pass2}
+      ROBOKASSA_IS_TEST: ${ROBOKASSA_IS_TEST:-true}
+      # Suno API (через реселлера/прокси).
+      SUNO_API_URL: ${SUNO_API_URL:-https://api.custom-suno.local}
+      SUNO_API_KEY: ${SUNO_API_KEY:-}
+      # S3-совместимое хранилище треков.
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-numaestra-tracks}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      # LLM (OpenRouter по умолчанию).
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,6 +4,7 @@ package apphttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -89,6 +90,9 @@ type OrderResponse struct {
 	PaymentStatus    string `json:"payment_status"`
 	GenerationStatus string `json:"generation_status"`
 	PaymentURL       string `json:"payment_url"` // <-- Ссылка для редиректа клиента
+	// AccessToken выдаётся клиенту один раз при создании заказа и предъявляется
+	// в заголовке X-Access-Token для доступа к защищённым маршрутам заказа.
+	AccessToken string `json:"access_token"`
 }
 
 // --- Обработчики ---
@@ -100,10 +104,26 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Базовая валидация входных данных до обращения к use-case,
+	// чтобы вернуть клиенту понятный 400 вместо общего 500.
+	if req.Email == "" && req.Phone == "" {
+		h.errorResponse(w, http.StatusBadRequest, "укажите email или телефон")
+		return
+	}
+	if req.Brief == "" {
+		h.errorResponse(w, http.StatusBadRequest, "поле brief обязательно")
+		return
+	}
+	if req.AmountKopecks <= 0 {
+		h.errorResponse(w, http.StatusBadRequest, "сумма заказа должна быть положительной")
+		return
+	}
+
 	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.AmountKopecks)
 	if err != nil {
+		// Внутреннюю причину не раскрываем клиенту — только логируем.
 		h.log.Error("ошибка создания заказа", "err", err)
-		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		h.errorResponse(w, http.StatusInternalServerError, "не удалось создать заказ")
 		return
 	}
 
@@ -117,6 +137,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		PaymentStatus:    string(order.PaymentStatus()),
 		GenerationStatus: string(order.GenerationStatus()),
 		PaymentURL:       paymentURL, // <-- Фронтенд получит эту ссылку и перенаправит юзера
+		AccessToken:      order.AccessToken(),
 	}
 
 	h.successResponse(w, http.StatusCreated, res)
@@ -150,9 +171,21 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.uc.HandlePaymentSuccess(r.Context(), invoiceID); err != nil {
+	paidKopecks, err := robokassa.ParseAmountKopecks(outSum)
+	if err != nil {
+		h.log.Warn("некорректная сумма в вебхуке Робокассы", "inv_id", invIdStr, "out_sum", outSum, "err", err)
+		h.errorResponse(w, http.StatusBadRequest, "некорректный формат OutSum")
+		return
+	}
+
+	if err := h.uc.HandlePaymentSuccess(r.Context(), invoiceID, paidKopecks); err != nil {
+		if errors.Is(err, usecase.ErrPaymentAmountMismatch) {
+			h.log.Warn("отклонён вебхук: сумма оплаты не совпадает", "invoice_id", invoiceID, "out_sum", outSum)
+			h.errorResponse(w, http.StatusBadRequest, "сумма оплаты не совпадает с суммой заказа")
+			return
+		}
 		h.log.Error("ошибка обработки вебхука оплаты", "invoice_id", invoiceID, "err", err)
-		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
@@ -232,10 +265,10 @@ type OrderSummaryResponse struct {
 	TracksCount      int    `json:"tracks_count"`
 }
 
-// ListOrders возвращает список заказов клиента по email или телефону.
-// GET /api/v1/orders?email=user@example.com
-// GET /api/v1/orders?phone=+79991234567
-// Параметры взаимоисключающие; email имеет приоритет если указаны оба.
+// ListOrders возвращает все заказы владельца, определённого по X-Access-Token.
+// GET /api/v1/orders с заголовком X-Access-Token.
+// Владелец берётся из заказа, найденного по токену: если у него указан email —
+// возвращаются заказы по email, иначе по телефону.
 func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	// Заказ из токена определяет владельца — возвращаем все его заказы по email или телефону.
 	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)

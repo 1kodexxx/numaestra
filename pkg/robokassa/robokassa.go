@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -72,8 +73,59 @@ func (c *Client) VerifyWebhook(outSum, invID, signature string) bool {
 
 // FormatAmount переводит сумму из копеек в строку рублей, которую принимает Robokassa.
 // Robokassa требует формат с двумя знаками после запятой: "1500.00", а не "1500".
+// Используется целочисленная арифметика, без float — это исключает ошибки округления
+// на больших суммах и гарантирует точное совпадение формата с ParseAmountKopecks.
 func FormatAmount(amountKopecks int64) string {
-	return fmt.Sprintf("%.2f", float64(amountKopecks)/100)
+	sign := ""
+	if amountKopecks < 0 {
+		sign = "-"
+		amountKopecks = -amountKopecks
+	}
+	return fmt.Sprintf("%s%d.%02d", sign, amountKopecks/100, amountKopecks%100)
+}
+
+// ParseAmountKopecks разбирает сумму в рублях из вебхука Robokassa (например "1500.00"
+// или "1500") в целочисленные копейки. Парсинг идёт по строке без float, чтобы
+// исключить ошибки округления при сверке оплаченной суммы с суммой заказа.
+func ParseAmountKopecks(outSum string) (int64, error) {
+	s := strings.TrimSpace(outSum)
+	if s == "" {
+		return 0, fmt.Errorf("пустая сумма")
+	}
+	// Robokassa использует точку как десятичный разделитель.
+	rubStr, kopStr, hasFraction := strings.Cut(s, ".")
+	if rubStr == "" {
+		rubStr = "0"
+	}
+
+	rub, err := strconv.ParseInt(rubStr, 10, 64)
+	if err != nil || rub < 0 {
+		return 0, fmt.Errorf("некорректная рублёвая часть суммы %q", outSum)
+	}
+
+	var kop int64
+	if hasFraction {
+		switch len(kopStr) {
+		case 0:
+			kop = 0
+		case 1:
+			d, perr := strconv.ParseInt(kopStr, 10, 64)
+			if perr != nil || d < 0 {
+				return 0, fmt.Errorf("некорректная копеечная часть суммы %q", outSum)
+			}
+			kop = d * 10
+		case 2:
+			d, perr := strconv.ParseInt(kopStr, 10, 64)
+			if perr != nil || d < 0 {
+				return 0, fmt.Errorf("некорректная копеечная часть суммы %q", outSum)
+			}
+			kop = d
+		default:
+			return 0, fmt.Errorf("слишком много знаков после запятой в сумме %q", outSum)
+		}
+	}
+
+	return rub*100 + kop, nil
 }
 
 // signPayment вычисляет MD5-подпись для генерации ссылки оплаты.

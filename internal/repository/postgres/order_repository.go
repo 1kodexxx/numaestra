@@ -37,7 +37,7 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 	_, err = tx.Exec(ctx, queryOrder,
 		snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
 		snap.AmountKopecks, snap.Currency, snap.PaymentStatus, snap.GenerationStatus,
-		snap.AssignedAccountID, snap.FailureReason, snap.CreatedAt, snap.UpdatedAt,
+		snap.AssignedAccountID, snap.FailureReason, snap.AccessToken, snap.CreatedAt, snap.UpdatedAt,
 		snap.PaidAt, snap.CompletedAt,
 	)
 	if err != nil {

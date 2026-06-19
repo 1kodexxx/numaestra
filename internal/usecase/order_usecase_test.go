@@ -1,0 +1,346 @@
+package usecase
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/numaestra/numaestra/internal/domain"
+)
+
+type fixture struct {
+	orderRepo *inMemOrderRepo
+	accRepo   *inMemAccountRepo
+	queue     *mockQueue
+	provider  *mockProvider
+	storage   *mockStorage
+	notifier  *mockNotifier
+	llm       *mockLLM
+	uc        *OrderUseCase
+}
+
+func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := &fixture{
+		orderRepo: newInMemOrderRepo(),
+		accRepo:   newInMemAccountRepo(),
+		queue:     &mockQueue{},
+		provider:  &mockProvider{},
+		storage:   &mockStorage{},
+		notifier:  &mockNotifier{},
+		llm:       &mockLLM{},
+	}
+	f.uc = NewOrderUseCase(f.orderRepo, f.accRepo, f.queue, f.provider, f.storage, f.notifier, f.llm, testLogger())
+	return f
+}
+
+func (f *fixture) addAccount(t *testing.T, tokens int) *domain.SunoAccount {
+	t.Helper()
+	acc, err := domain.NewSunoAccount("acc@example.com", "encrypted-session", tokens)
+	if err != nil {
+		t.Fatalf("создание аккаунта: %v", err)
+	}
+	_ = f.accRepo.Create(context.Background(), acc)
+	return acc
+}
+
+// --- CreateOrder ---
+
+func TestCreateOrder_Success(t *testing.T) {
+	f := newFixture(t)
+	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Песня на ДР", 150000)
+	if err != nil {
+		t.Fatalf("CreateOrder упал: %v", err)
+	}
+	if order.InvoiceID() == 0 {
+		t.Error("InvoiceID должен быть присвоен из sequence")
+	}
+	if order.AccessToken() == "" {
+		t.Error("должен быть сгенерирован access token")
+	}
+	// Заказ должен быть найден по токену (проверяет, что Create реально сохранил данные).
+	got, err := f.uc.GetOrderByToken(context.Background(), order.AccessToken())
+	if err != nil {
+		t.Fatalf("заказ не найден по токену после создания: %v", err)
+	}
+	if got.ID() != order.ID() {
+		t.Error("найденный по токену заказ не совпадает с созданным")
+	}
+}
+
+func TestCreateOrder_ValidationError(t *testing.T) {
+	f := newFixture(t)
+	_, err := f.uc.CreateOrder(context.Background(), "", "", "", 0)
+	if err == nil {
+		t.Fatal("ожидали ошибку валидации при пустых данных")
+	}
+}
+
+func TestCreateOrder_RepoError(t *testing.T) {
+	f := newFixture(t)
+	f.orderRepo.createErr = errors.New("db down")
+	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", 100)
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое сохранения")
+	}
+}
+
+// --- HandlePaymentSuccess ---
+
+func TestHandlePaymentSuccess_Success(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", 150000)
+
+	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
+		t.Fatalf("HandlePaymentSuccess упал: %v", err)
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPaid {
+		t.Errorf("ожидали статус paid, получили %q", got.PaymentStatus())
+	}
+	if got.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("ожидали статус queued, получили %q", got.GenerationStatus())
+	}
+	if len(f.queue.genCalls) != 1 {
+		t.Errorf("ожидали 1 постановку задачи генерации, получили %d", len(f.queue.genCalls))
+	}
+}
+
+func TestHandlePaymentSuccess_AmountMismatch(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", 150000)
+
+	err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 100000)
+	if !errors.Is(err, ErrPaymentAmountMismatch) {
+		t.Fatalf("ожидали ErrPaymentAmountMismatch, получили %v", err)
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPending {
+		t.Error("заказ не должен переходить в paid при несовпадении суммы")
+	}
+	if len(f.queue.genCalls) != 0 {
+		t.Error("задача генерации не должна ставиться при несовпадении суммы")
+	}
+}
+
+func TestHandlePaymentSuccess_UnknownInvoice(t *testing.T) {
+	f := newFixture(t)
+	err := f.uc.HandlePaymentSuccess(context.Background(), 99999, 100)
+	if err == nil {
+		t.Fatal("ожидали ошибку для несуществующего инвойса")
+	}
+}
+
+// --- ProcessGenerationTask ---
+
+func TestProcessGenerationTask_Success(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount(t, 10)
+	order := f.queuedOrder(t)
+
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "job-123", nil
+	}
+
+	if err := f.uc.ProcessGenerationTask(context.Background(), order.ID()); err != nil {
+		t.Fatalf("ProcessGenerationTask упал: %v", err)
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusProcessing {
+		t.Errorf("ожидали processing, получили %q", got.GenerationStatus())
+	}
+	if len(f.queue.statusCalls) != 1 || f.queue.statusCalls[0].SunoJobID != "job-123" {
+		t.Errorf("ожидали постановку задачи опроса с job-123, получили %+v", f.queue.statusCalls)
+	}
+}
+
+func TestProcessGenerationTask_NoAccount(t *testing.T) {
+	f := newFixture(t)
+	f.accRepo.noFree = true
+	order := f.queuedOrder(t)
+
+	err := f.uc.ProcessGenerationTask(context.Background(), order.ID())
+	if !errors.Is(err, domain.ErrNoAvailableAccount) {
+		t.Fatalf("ожидали ErrNoAvailableAccount (для retry), получили %v", err)
+	}
+}
+
+func TestProcessGenerationTask_ProviderError_Requeues(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.queuedOrder(t)
+
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "", errors.New("suno 500")
+	}
+
+	err := f.uc.ProcessGenerationTask(context.Background(), order.ID())
+	if err == nil {
+		t.Fatal("ожидали ошибку провайдера")
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("заказ должен вернуться в queued для повторной попытки, получили %q", got.GenerationStatus())
+	}
+	// Аккаунт не должен застрять в Busy.
+	if st := f.accRepo.statusOf(acc.ID()); st == domain.AccountStatusBusy {
+		t.Error("аккаунт не должен оставаться Busy после ошибки провайдера")
+	}
+}
+
+func TestProcessGenerationTask_WrongStatus_Skipped(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount(t, 10)
+	// Заказ в статусе New (не Queued) — задача должна быть пропущена без ошибки.
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", 100)
+
+	if err := f.uc.ProcessGenerationTask(context.Background(), order.ID()); err != nil {
+		t.Fatalf("пропуск задачи с неверным статусом не должен возвращать ошибку: %v", err)
+	}
+	if len(f.queue.statusCalls) != 0 {
+		t.Error("не должно быть постановки задачи опроса для пропущенного заказа")
+	}
+}
+
+// --- CheckGenerationStatus ---
+
+func TestCheckGenerationStatus_Completed(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{
+				{SourceURL: "https://suno/1.mp3", DurationSec: 180, ExternalID: "ext-1"},
+				{SourceURL: "https://suno/2.mp3", DurationSec: 175, ExternalID: "ext-2"},
+			},
+		}, nil
+	}
+
+	if err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1"); err != nil {
+		t.Fatalf("CheckGenerationStatus упал: %v", err)
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusCompleted {
+		t.Errorf("ожидали completed, получили %q", got.GenerationStatus())
+	}
+	if len(got.Tracks()) != 2 {
+		t.Errorf("ожидали 2 трека, получили %d", len(got.Tracks()))
+	}
+	if got.Tracks()[0].AudioURL == "https://suno/1.mp3" {
+		t.Error("URL трека должен быть заменён на постоянную ссылку S3")
+	}
+	if len(f.notifier.calls) != 1 {
+		t.Errorf("ожидали 1 уведомление клиента, получили %d", len(f.notifier.calls))
+	}
+}
+
+func TestCheckGenerationStatus_StillRunning(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
+	}
+
+	err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1")
+	if !errors.Is(err, ErrGenerationNotReady) {
+		t.Fatalf("ожидали ErrGenerationNotReady, получили %v", err)
+	}
+}
+
+func TestCheckGenerationStatus_Failed(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusFailed, Error: "moderation"}, nil
+	}
+
+	if err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1"); err != nil {
+		t.Fatalf("CheckGenerationStatus упал: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusFailed {
+		t.Errorf("ожидали failed, получили %q", got.GenerationStatus())
+	}
+	if len(f.notifier.calls) != 0 {
+		t.Error("при провале уведомление о готовности не должно отправляться")
+	}
+}
+
+func TestCheckGenerationStatus_S3FailureFallsBack(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	f.storage.uploadFn = func(_ context.Context, sourceURL, _, _ string) (string, error) {
+		return "", errors.New("s3 unavailable")
+	}
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{{SourceURL: "https://suno/temp.mp3", DurationSec: 100, ExternalID: "x"}},
+		}, nil
+	}
+
+	if err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1"); err != nil {
+		t.Fatalf("ошибка S3 не должна ронять весь цикл: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusCompleted {
+		t.Errorf("заказ должен завершиться даже при ошибке S3, статус %q", got.GenerationStatus())
+	}
+	if got.Tracks()[0].AudioURL != "https://suno/temp.mp3" {
+		t.Errorf("при ошибке S3 должна сохраниться исходная ссылка, получили %q", got.Tracks()[0].AudioURL)
+	}
+}
+
+// --- List / Get ---
+
+func TestListOrdersByEmail_EmptyEmail(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.uc.ListOrdersByEmail(context.Background(), ""); err == nil {
+		t.Error("ожидали ошибку при пустом email")
+	}
+}
+
+func TestGetOrderByToken_Empty(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.uc.GetOrderByToken(context.Background(), ""); !errors.Is(err, domain.ErrOrderUnauthorized) {
+		t.Errorf("ожидали ErrOrderUnauthorized, получили %v", err)
+	}
+}
+
+// --- helpers ---
+
+func (f *fixture) queuedOrder(t *testing.T) *domain.Order {
+	t.Helper()
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", 150000)
+	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
+		t.Fatalf("подготовка queued-заказа: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	return got
+}
+
+func (f *fixture) processingOrder(t *testing.T, acc *domain.SunoAccount) *domain.Order {
+	t.Helper()
+	order := f.queuedOrder(t)
+	if err := order.StartProcessing(acc.ID()); err != nil {
+		t.Fatalf("перевод в processing: %v", err)
+	}
+	if err := f.orderRepo.Update(context.Background(), order); err != nil {
+		t.Fatalf("сохранение processing-заказа: %v", err)
+	}
+	return order
+}

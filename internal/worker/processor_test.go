@@ -1,0 +1,260 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"sync"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
+	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/internal/repository/queue"
+	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/pkg/notify"
+)
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// --- Ошибки разбора payload ---
+
+func TestHandleGenerateTask_BadPayload_SkipRetry(t *testing.T) {
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
+	task := asynq.NewTask(queue.TaskTypeGenerateTrack, []byte("{не json"))
+	err := p.HandleGenerateTask(context.Background(), task)
+	if err == nil {
+		t.Fatal("ожидали ошибку при некорректном payload")
+	}
+	if !errors.Is(err, asynq.SkipRetry) {
+		t.Errorf("ошибка разбора payload должна оборачивать asynq.SkipRetry, получили %v", err)
+	}
+}
+
+func TestHandleStatusCheckTask_BadPayload_SkipRetry(t *testing.T) {
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
+	task := asynq.NewTask(queue.TaskTypeCheckStatus, []byte("garbage"))
+	err := p.HandleStatusCheckTask(context.Background(), task)
+	if !errors.Is(err, asynq.SkipRetry) {
+		t.Errorf("ожидали обёртку asynq.SkipRetry, получили %v", err)
+	}
+}
+
+// --- Проброс ErrGenerationNotReady ---
+
+func TestHandleStatusCheckTask_NotReady_PassesThrough(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+
+	// Готовим аккаунт и заказ в статусе processing.
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", 100)
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(account.ID())
+	repo.put(order)
+
+	provider := &wProvider{fetchFn: func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
+	}}
+
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
+	task := asynq.NewTask(queue.TaskTypeCheckStatus, payload)
+
+	err := p.HandleStatusCheckTask(context.Background(), task)
+	if !errors.Is(err, usecase.ErrGenerationNotReady) {
+		t.Errorf("воркер должен пробрасывать ErrGenerationNotReady для повторного опроса, получили %v", err)
+	}
+}
+
+func TestHandleGenerateTask_Success(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", 100)
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	repo.put(order)
+
+	provider := &wProvider{submitFn: func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "job-xyz", nil
+	}}
+	q := &wQueue{}
+	uc := usecase.NewOrderUseCase(repo, acc, q, provider, &wStorage{}, &wNotifier{}, &wLLM{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.GenerationTaskPayload{OrderID: order.ID()})
+	task := asynq.NewTask(queue.TaskTypeGenerateTrack, payload)
+
+	if err := p.HandleGenerateTask(context.Background(), task); err != nil {
+		t.Fatalf("HandleGenerateTask упал: %v", err)
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.statusJobs) != 1 || q.statusJobs[0] != "job-xyz" {
+		t.Errorf("ожидали постановку опроса с job-xyz, получили %+v", q.statusJobs)
+	}
+}
+
+// --- компактные in-memory моки ---
+
+type wOrderRepo struct {
+	mu     sync.Mutex
+	orders map[uuid.UUID]domain.OrderSnapshot
+	byInv  map[int64]uuid.UUID
+}
+
+func newWOrderRepo() *wOrderRepo {
+	return &wOrderRepo{orders: map[uuid.UUID]domain.OrderSnapshot{}, byInv: map[int64]uuid.UUID{}}
+}
+func (r *wOrderRepo) put(o *domain.Order) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s := o.Snapshot()
+	r.orders[s.ID] = s
+	r.byInv[s.InvoiceID] = s.ID
+}
+func (r *wOrderRepo) Create(_ context.Context, o *domain.Order) error { r.put(o); return nil }
+func (r *wOrderRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.orders[id]
+	if !ok {
+		return nil, domain.ErrOrderNotFound
+	}
+	return domain.RestoreOrder(s), nil
+}
+func (r *wOrderRepo) GetByInvoiceID(_ context.Context, inv int64) (*domain.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	id, ok := r.byInv[inv]
+	if !ok {
+		return nil, domain.ErrOrderNotFound
+	}
+	return domain.RestoreOrder(r.orders[id]), nil
+}
+func (r *wOrderRepo) Update(_ context.Context, o *domain.Order) error { r.put(o); return nil }
+func (r *wOrderRepo) ListByCustomerEmail(_ context.Context, _ string) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (r *wOrderRepo) ListByCustomerPhone(_ context.Context, _ string) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (r *wOrderRepo) SaveWithAccount(_ context.Context, o *domain.Order, _ *domain.SunoAccount) error {
+	r.put(o)
+	return nil
+}
+func (r *wOrderRepo) NextInvoiceID(_ context.Context) (int64, error) { return 1, nil }
+func (r *wOrderRepo) GetByAccessToken(_ context.Context, _ string) (*domain.Order, error) {
+	return nil, domain.ErrOrderNotFound
+}
+
+var _ domain.OrderRepository = (*wOrderRepo)(nil)
+
+type wAccountRepo struct {
+	mu   sync.Mutex
+	accs map[uuid.UUID]domain.SunoAccountSnapshot
+}
+
+func newWAccountRepo() *wAccountRepo {
+	return &wAccountRepo{accs: map[uuid.UUID]domain.SunoAccountSnapshot{}}
+}
+func (r *wAccountRepo) FetchAndLockAvailable(_ context.Context) (*domain.SunoAccount, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.accs {
+		a := domain.RestoreSunoAccount(s)
+		if a.Status() == domain.AccountStatusActive {
+			_ = a.MarkBusy()
+			r.accs[a.ID()] = a.Snapshot()
+			return a, nil
+		}
+	}
+	return nil, domain.ErrNoAvailableAccount
+}
+func (r *wAccountRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.SunoAccount, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.accs[id]
+	if !ok {
+		return nil, domain.ErrAccountNotFound
+	}
+	return domain.RestoreSunoAccount(s), nil
+}
+func (r *wAccountRepo) Create(_ context.Context, a *domain.SunoAccount) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accs[a.ID()] = a.Snapshot()
+	return nil
+}
+func (r *wAccountRepo) Update(_ context.Context, a *domain.SunoAccount) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.accs[a.ID()] = a.Snapshot()
+	return nil
+}
+func (r *wAccountRepo) ListByStatus(_ context.Context, _ domain.AccountStatus) ([]*domain.SunoAccount, error) {
+	return nil, nil
+}
+
+var _ domain.AccountRepository = (*wAccountRepo)(nil)
+
+type wQueue struct {
+	mu         sync.Mutex
+	statusJobs []string
+}
+
+func (q *wQueue) EnqueueGenerationTask(_ context.Context, _ uuid.UUID) error { return nil }
+func (q *wQueue) EnqueueStatusCheckTask(_ context.Context, _ uuid.UUID, jobID string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.statusJobs = append(q.statusJobs, jobID)
+	return nil
+}
+
+var _ domain.QueuePublisher = (*wQueue)(nil)
+
+type wProvider struct {
+	submitFn func(ctx context.Context, req domain.MusicGenerationRequest) (string, error)
+	fetchFn  func(ctx context.Context, jobID string) (domain.MusicGenerationResult, error)
+}
+
+func (p *wProvider) SubmitGeneration(ctx context.Context, req domain.MusicGenerationRequest) (string, error) {
+	return p.submitFn(ctx, req)
+}
+func (p *wProvider) FetchResult(ctx context.Context, jobID string) (domain.MusicGenerationResult, error) {
+	return p.fetchFn(ctx, jobID)
+}
+
+var _ domain.MusicProvider = (*wProvider)(nil)
+
+type wStorage struct{}
+
+func (s *wStorage) UploadFromURL(_ context.Context, _, key, _ string) (string, error) {
+	return "https://s3/" + key, nil
+}
+
+var _ domain.TrackStorage = (*wStorage)(nil)
+
+type wNotifier struct{}
+
+func (n *wNotifier) NotifyOrderComplete(_ context.Context, _ notify.OrderCompleteNotification) error {
+	return nil
+}
+
+var _ notify.Notifier = (*wNotifier)(nil)
+
+type wLLM struct{}
+
+func (l *wLLM) GenerateLyrics(_ context.Context, facts string) (string, error) { return facts, nil }
