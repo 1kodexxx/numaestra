@@ -33,7 +33,7 @@ func (passthroughTx) Do(ctx context.Context, fn func(ctx context.Context) error)
 // --- Ошибки разбора payload ---
 
 func TestHandleGenerateTask_BadPayload_SkipRetry(t *testing.T) {
-	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), nil, nil, discardLogger()), discardLogger())
 	task := asynq.NewTask(queue.TaskTypeGenerateTrack, []byte("{не json"))
 	err := p.HandleGenerateTask(context.Background(), task)
 	if err == nil {
@@ -45,7 +45,7 @@ func TestHandleGenerateTask_BadPayload_SkipRetry(t *testing.T) {
 }
 
 func TestHandleStatusCheckTask_BadPayload_SkipRetry(t *testing.T) {
-	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), nil, nil, discardLogger()), discardLogger())
 	task := asynq.NewTask(queue.TaskTypeCheckStatus, []byte("garbage"))
 	err := p.HandleStatusCheckTask(context.Background(), task)
 	if !errors.Is(err, asynq.SkipRetry) {
@@ -63,7 +63,7 @@ func TestHandleStatusCheckTask_NotReady_PassesThrough(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	_ = order.StartProcessing(account.ID())
@@ -73,7 +73,7 @@ func TestHandleStatusCheckTask_NotReady_PassesThrough(t *testing.T) {
 		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
 	}}
 
-	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, nil, passthroughTx{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), nil, passthroughTx{}, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 
 	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
@@ -91,7 +91,7 @@ func TestHandleGenerateTask_Success(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	repo.put(order)
@@ -100,7 +100,7 @@ func TestHandleGenerateTask_Success(t *testing.T) {
 		return "job-xyz", nil
 	}}
 	q := &wQueue{}
-	uc := usecase.NewOrderUseCase(repo, acc, q, provider, &wStorage{}, &wNotifier{}, &wLLM{}, nil, passthroughTx{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, acc, q, provider, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), nil, passthroughTx{}, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 
 	payload, _ := json.Marshal(queue.GenerationTaskPayload{OrderID: order.ID()})
@@ -122,13 +122,13 @@ func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	_ = order.StartProcessing(account.ID())
 	repo.put(order)
 
-	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, &wProvider{}, &wStorage{}, &wNotifier{}, &wLLM{}, nil, passthroughTx{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, &wProvider{}, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), nil, passthroughTx{}, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 
 	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
@@ -147,7 +147,7 @@ func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
 }
 
 func TestHandleDeadTask_BadPayload_NoPanic(t *testing.T) {
-	uc := usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, nil, nil, discardLogger())
+	uc := usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), nil, nil, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 	task := asynq.NewTask(queue.TaskTypeGenerateTrack, []byte("{broken"))
 	// Не должно паниковать и не должно вызывать use-case (orderID не извлечён).

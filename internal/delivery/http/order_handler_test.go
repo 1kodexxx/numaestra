@@ -32,7 +32,7 @@ func newTestHandler(t *testing.T) (*OrderHandler, http.Handler, *hOrderRepo) {
 	t.Helper()
 	repo := newHOrderRepo()
 	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, pricing, hTxManager{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), pricing, hTxManager{}, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
 	h := NewOrderHandler(uc, discardLogger(), rk, nil)
 	return h, h.Routes(), repo
@@ -300,7 +300,7 @@ func TestHandler_ListOrders_Success(t *testing.T) {
 
 func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief, plan string) *domain.Order {
 	t.Helper()
-	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, plan)
+	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, plan, "", nil)
 	if err != nil {
 		t.Fatalf("подготовка заказа: %v", err)
 	}

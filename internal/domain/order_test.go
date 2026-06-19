@@ -10,7 +10,7 @@ import (
 // --- NewOrder ---
 
 func TestNewOrder_Valid(t *testing.T) {
-	o, err := NewOrder(1, "user@example.com", "+79991234567", "Весёлая песня", 150000)
+	o, err := NewOrder(1, "user@example.com", "+79991234567", "Весёлая песня", "", "", 150000)
 	if err != nil {
 		t.Fatalf("ожидали успех, получили ошибку: %v", err)
 	}
@@ -26,8 +26,8 @@ func TestNewOrder_Valid(t *testing.T) {
 }
 
 func TestNewOrder_GeneratesUniqueAccessTokens(t *testing.T) {
-	o1, _ := NewOrder(1, "a@example.com", "", "Бриф 1", 100)
-	o2, _ := NewOrder(2, "b@example.com", "", "Бриф 2", 100)
+	o1, _ := NewOrder(1, "a@example.com", "", "Бриф 1", "", "", 100)
+	o2, _ := NewOrder(2, "b@example.com", "", "Бриф 2", "", "", 100)
 
 	if o1.AccessToken() == "" {
 		t.Error("токен не должен быть пустым")
@@ -41,14 +41,14 @@ func TestNewOrder_GeneratesUniqueAccessTokens(t *testing.T) {
 }
 
 func TestNewOrder_RequiresContact(t *testing.T) {
-	_, err := NewOrder(1, "", "", "Бриф", 100)
+	_, err := NewOrder(1, "", "", "Бриф", "", "", 100)
 	if err == nil {
 		t.Error("ожидали ошибку при отсутствии email и телефона")
 	}
 }
 
 func TestNewOrder_RequiresBrief(t *testing.T) {
-	_, err := NewOrder(1, "user@example.com", "", "", 100)
+	_, err := NewOrder(1, "user@example.com", "", "", "", "", 100)
 	if err == nil {
 		t.Error("ожидали ошибку при пустом брифе")
 	}
@@ -56,7 +56,7 @@ func TestNewOrder_RequiresBrief(t *testing.T) {
 
 func TestNewOrder_RejectsTooLongBrief(t *testing.T) {
 	longBrief := strings.Repeat("я", MaxBriefLength+1)
-	_, err := NewOrder(1, "user@example.com", "", longBrief, 100)
+	_, err := NewOrder(1, "user@example.com", "", longBrief, "", "", 100)
 	if err == nil {
 		t.Fatal("ожидали ошибку при слишком длинном брифе")
 	}
@@ -66,24 +66,24 @@ func TestNewOrder_RejectsTooLongBrief(t *testing.T) {
 
 	// Бриф ровно на границе длины должен приниматься.
 	maxBrief := strings.Repeat("я", MaxBriefLength)
-	if _, err := NewOrder(1, "user@example.com", "", maxBrief, 100); err != nil {
+	if _, err := NewOrder(1, "user@example.com", "", maxBrief, "", "", 100); err != nil {
 		t.Errorf("бриф длиной ровно MaxBriefLength должен приниматься, получили %v", err)
 	}
 }
 
 func TestNewOrder_RequiresPositiveAmount(t *testing.T) {
-	_, err := NewOrder(1, "user@example.com", "", "Бриф", 0)
+	_, err := NewOrder(1, "user@example.com", "", "Бриф", "", "", 0)
 	if err == nil {
 		t.Error("ожидали ошибку при нулевой сумме")
 	}
-	_, err = NewOrder(1, "user@example.com", "", "Бриф", -100)
+	_, err = NewOrder(1, "user@example.com", "", "Бриф", "", "", -100)
 	if err == nil {
 		t.Error("ожидали ошибку при отрицательной сумме")
 	}
 }
 
 func TestNewOrder_OnlyPhone(t *testing.T) {
-	_, err := NewOrder(1, "", "+79991234567", "Бриф", 100)
+	_, err := NewOrder(1, "", "+79991234567", "Бриф", "", "", 100)
 	if err != nil {
 		t.Errorf("телефон без email должен быть допустим: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestOrder_Fail(t *testing.T) {
 // --- Snapshot / Restore ---
 
 func TestOrder_SnapshotRestore_PreservesToken(t *testing.T) {
-	original, _ := NewOrder(42, "user@example.com", "", "Бриф", 100000)
+	original, _ := NewOrder(42, "user@example.com", "", "Бриф", "", "", 100000)
 	snap := original.Snapshot()
 
 	if snap.AccessToken == "" {
@@ -223,7 +223,7 @@ func TestOrder_SnapshotRestore_PreservesToken(t *testing.T) {
 
 func newTestOrder(t *testing.T) *Order {
 	t.Helper()
-	o, err := NewOrder(1, "user@example.com", "", "Тестовый бриф", 150000)
+	o, err := NewOrder(1, "user@example.com", "", "Тестовый бриф", "", "", 150000)
 	if err != nil {
 		t.Fatalf("не удалось создать тестовый заказ: %v", err)
 	}

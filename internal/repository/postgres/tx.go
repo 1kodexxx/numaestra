@@ -33,7 +33,14 @@ func txFromContext(ctx context.Context) (pgx.Tx, bool) {
 	return tx, ok
 }
 
-// TxManager реализует паттерн Unit of Work: открывает одну транзакцию БД и
+// nullableString конвертирует пустую строку в nil для корректной записи
+// в nullable TEXT/VARCHAR колонки PostgreSQL. Непустая строка возвращается как есть.
+func nullableString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+} // открывает одну транзакцию БД и
 // прокидывает её через context во все репозитории, вызванные внутри fn. Это
 // позволяет UseCase атомарно изменять несколько независимых агрегатов (Order и
 // SunoAccount), не давая репозиторию одного агрегата знать о таблицах другого.

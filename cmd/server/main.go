@@ -115,7 +115,7 @@ func run(ctx context.Context) error {
 	// Прайс определяется сервером по тарифу: цена не принимается из запроса клиента.
 	pricing := usecase.NewStaticPricing(cfg.Pricing.Plans, cfg.Pricing.DefaultPlan)
 
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, pricing, txManager, log)
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, pricing, txManager, log)
 
 	// 5. Asynq Worker.
 	processor := worker.NewOrderProcessor(orderUC, log)

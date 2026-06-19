@@ -26,6 +26,9 @@ func NewCategoryHandler(promptUC *usecase.PromptUseCase, log *slog.Logger) *Cate
 func (h *CategoryHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
+	// Те же лимиты, что и для клиентских маршрутов заказов.
+	r.Use(RateLimiter(10, 20))
+
 	r.Get("/", h.HandleGetAll)
 	r.Get("/{id}/wizard", h.HandleGetWizard)
 
@@ -41,7 +44,9 @@ func (h *CategoryHandler) HandleGetAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(categories)
+	if err := json.NewEncoder(w).Encode(categories); err != nil {
+		h.log.Error("ошибка сериализации категорий", "error", err)
+	}
 }
 
 func (h *CategoryHandler) HandleGetWizard(w http.ResponseWriter, r *http.Request) {
@@ -54,5 +59,7 @@ func (h *CategoryHandler) HandleGetWizard(w http.ResponseWriter, r *http.Request
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(category)
+	if err := json.NewEncoder(w).Encode(category); err != nil {
+		h.log.Error("ошибка сериализации визарда", "category_id", id, "error", err)
+	}
 }

@@ -11,9 +11,15 @@ type PromptUseCase struct {
 	categoryRepo domain.CategoryRepository
 }
 
-// Добавлен недостающий конструктор
+// NewPromptUseCase создаёт UseCase для работы с категориями и промптами.
 func NewPromptUseCase(categoryRepo domain.CategoryRepository) *PromptUseCase {
 	return &PromptUseCase{categoryRepo: categoryRepo}
+}
+
+// NewNoopPromptUseCase возвращает UseCase без репозитория — для использования
+// в тестах, где категории не задействованы (CreateOrder с пустым categoryID).
+func NewNoopPromptUseCase() *PromptUseCase {
+	return &PromptUseCase{}
 }
 
 // Обертка для получения всех категорий

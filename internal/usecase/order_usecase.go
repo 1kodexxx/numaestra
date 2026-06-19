@@ -36,6 +36,7 @@ type OrderUseCase struct {
 	storage   domain.TrackStorage
 	notifier  notify.Notifier
 	llmClient openai.APIClient
+	promptUC  *PromptUseCase
 	pricing   Pricing
 	tx        TransactionManager
 	log       *slog.Logger
@@ -55,6 +56,7 @@ func NewOrderUseCase(
 	storage domain.TrackStorage,
 	notifier notify.Notifier,
 	llmClient openai.APIClient,
+	promptUC *PromptUseCase,
 	pricing Pricing,
 	tx TransactionManager,
 	log *slog.Logger,
@@ -67,6 +69,7 @@ func NewOrderUseCase(
 		storage:   storage,
 		notifier:  notifier,
 		llmClient: llmClient,
+		promptUC:  promptUC,
 		pricing:   pricing,
 		tx:        tx,
 		log:       log,
@@ -92,7 +95,7 @@ func (uc *OrderUseCase) saveOrderAndAccount(ctx context.Context, order *domain.O
 // 1. ПОЛЬЗОВАТЕЛЬСКИЕ СЦЕНАРИИ (Вызываются из HTTP)
 // ==========================================
 
-func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, plan string) (*domain.Order, error) {
+func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, plan, categoryID string, answers map[string]string) (*domain.Order, error) {
 	// Цену определяет сервер по выбранному тарифу, а НЕ клиент. Иначе сумму заказа
 	// можно занизить до 1 копейки и пройти сверку в вебхуке оплаты.
 	amountKopecks, err := uc.pricing.PriceFor(plan)
@@ -107,7 +110,22 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		return nil, fmt.Errorf("получение invoice_id: %w", err)
 	}
 
-	order, err := domain.NewOrder(invoiceID, email, phone, brief, amountKopecks)
+	// Если передана категория и ответы квиза — строим готовый Suno-промпт
+	// из шаблона категории. Иначе sunoPrompt остаётся пустым, и воркер
+	// использует сырой brief (обратная совместимость).
+	var sunoPrompt string
+	if categoryID != "" && len(answers) > 0 {
+		sunoPrompt, err = uc.promptUC.BuildFinalPrompt(ctx, categoryID, answers)
+		if err != nil {
+			// Не фатально: категория могла быть удалена. Продолжаем с пустым промптом.
+			uc.log.Warn("не удалось построить промпт по категории, используем brief",
+				"category_id", categoryID, "err", err)
+			sunoPrompt = ""
+			categoryID = ""
+		}
+	}
+
+	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, amountKopecks)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка валидации заказа: %w", err)
 	}
@@ -116,7 +134,7 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		return nil, fmt.Errorf("ошибка сохранения заказа: %w", err)
 	}
 
-	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID)
+	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID, "category_id", categoryID)
 	return order, nil
 }
 
@@ -206,26 +224,36 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	}
 
 	// 3. Обогащение ТЗ через LLM.
-	// Fallback на сырой Brief недопустим: бриф может быть до domain.MaxBriefLength
-	// символов, а у Suno промпт ограничен сильнее — такой запрос провайдер отбросит,
-	// и заказ всё равно упадёт. Поэтому при недоступности LLM мы НЕ генерируем
-	// "как-нибудь", а освобождаем аккаунт и возвращаем заказ в очередь: Asynq
-	// повторит задачу с backoff, пока LLM не поднимется.
-	uc.log.Info("генерация текста песни через LLM", "order_id", order.ID())
-	lyrics, err := uc.llmClient.GenerateLyrics(ctx, order.Brief())
-	if err != nil {
-		uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
-			"order_id", order.ID(), "err", err)
-		// LLM-сбой не вина аккаунта: НЕ инкрементируем failureCount, только
-		// освобождаем слот и откатываем заказ в Queued.
-		account.ReleaseSlot()
-		order.RequeueForRetry()
-		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
-			uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
+	// Если заказ создан через квиз — sunoPrompt уже содержит готовый структурированный
+	// промпт из шаблона категории. В этом случае LLM не нужен — передаём промпт напрямую в Suno.
+	// Если заказ создан через "свободный" бриф — обогащаем через LLM как прежде.
+	var lyrics string
+	if order.SunoPrompt() != "" {
+		lyrics = order.SunoPrompt()
+		uc.log.Info("используем готовый промпт из квиза", "order_id", order.ID(), "category_id", order.CategoryID())
+	} else {
+		// Fallback на сырой Brief недопустим: бриф может быть до domain.MaxBriefLength
+		// символов, а у Suno промпт ограничен сильнее — такой запрос провайдер отбросит,
+		// и заказ всё равно упадёт. Поэтому при недоступности LLM мы НЕ генерируем
+		// "как-нибудь", а освобождаем аккаунт и возвращаем заказ в очередь: Asynq
+		// повторит задачу с backoff, пока LLM не поднимется.
+		uc.log.Info("генерация текста песни через LLM", "order_id", order.ID())
+		var err error
+		lyrics, err = uc.llmClient.GenerateLyrics(ctx, order.Brief())
+		if err != nil {
+			uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
+				"order_id", order.ID(), "err", err)
+			// LLM-сбой не вина аккаунта: НЕ инкрементируем failureCount, только
+			// освобождаем слот и откатываем заказ в Queued.
+			account.ReleaseSlot()
+			order.RequeueForRetry()
+			if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+				uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
+			}
+			return fmt.Errorf("генерация текста LLM недоступна: %w", err)
 		}
-		return fmt.Errorf("генерация текста LLM недоступна: %w", err)
+		uc.log.Info("текст успешно сгенерирован")
 	}
-	uc.log.Info("текст успешно сгенерирован")
 
 	// 4. Отправка структурированного запроса в Suno API
 	req := domain.MusicGenerationRequest{

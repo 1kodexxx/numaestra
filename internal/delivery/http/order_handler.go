@@ -111,6 +111,11 @@ type CreateOrderRequest struct {
 	// Plan — выбранный клиентом тариф. Цену по тарифу определяет сервер,
 	// сумма НЕ принимается из запроса (защита от занижения цены).
 	Plan string `json:"plan"`
+	// CategoryID — идентификатор категории квиза (wedding, birthday и т.д.).
+	// Если указан вместе с Answers — сервер строит Suno-промпт из шаблона категории.
+	CategoryID string            `json:"category_id"`
+	// Answers — ответы пользователя на вопросы квиза. Ключ = mapping_key из questions.
+	Answers    map[string]string `json:"answers"`
 }
 
 type OrderResponse struct {
@@ -149,7 +154,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.Plan)
+	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.Plan, req.CategoryID, req.Answers)
 	if err != nil {
 		// Неизвестный тариф или слишком длинный бриф — ошибка клиента (400),
 		// остальное — внутренняя (500).

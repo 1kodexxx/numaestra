@@ -32,7 +32,7 @@ func newFixture(t *testing.T) *fixture {
 		llm:       &mockLLM{},
 	}
 	pricing := NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	f.uc = NewOrderUseCase(f.orderRepo, f.accRepo, f.queue, f.provider, f.storage, f.notifier, f.llm, pricing, fakeTxManager{}, testLogger())
+	f.uc = NewOrderUseCase(f.orderRepo, f.accRepo, f.queue, f.provider, f.storage, f.notifier, f.llm, &PromptUseCase{}, pricing, fakeTxManager{}, testLogger())
 	return f
 }
 
@@ -50,7 +50,7 @@ func (f *fixture) addAccount(t *testing.T, tokens int) *domain.SunoAccount {
 
 func TestCreateOrder_Success(t *testing.T) {
 	f := newFixture(t)
-	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Песня на ДР", "standard")
+	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Песня на ДР", "standard", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder упал: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestCreateOrder_Success(t *testing.T) {
 
 func TestCreateOrder_ValidationError(t *testing.T) {
 	f := newFixture(t)
-	_, err := f.uc.CreateOrder(context.Background(), "", "", "", "standard")
+	_, err := f.uc.CreateOrder(context.Background(), "", "", "", "standard", "", nil)
 	if err == nil {
 		t.Fatal("ожидали ошибку валидации при пустых данных")
 	}
@@ -84,7 +84,7 @@ func TestCreateOrder_ValidationError(t *testing.T) {
 func TestCreateOrder_RepoError(t *testing.T) {
 	f := newFixture(t)
 	f.orderRepo.createErr = errors.New("db down")
-	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 	if err == nil {
 		t.Fatal("ожидали ошибку при сбое сохранения")
 	}
@@ -92,7 +92,7 @@ func TestCreateOrder_RepoError(t *testing.T) {
 
 func TestCreateOrder_UnknownPlan(t *testing.T) {
 	f := newFixture(t)
-	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "vip-неизвестный")
+	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "vip-неизвестный", "", nil)
 	if !errors.Is(err, ErrUnknownPlan) {
 		t.Fatalf("ожидали ErrUnknownPlan, получили %v", err)
 	}
@@ -101,7 +101,7 @@ func TestCreateOrder_UnknownPlan(t *testing.T) {
 func TestCreateOrder_PriceFromServer_NotClient(t *testing.T) {
 	f := newFixture(t)
 	// Пустой тариф → дефолтный standard. Клиент не может задать произвольную цену.
-	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "")
+	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder упал: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCreateOrder_PriceFromServer_NotClient(t *testing.T) {
 
 func TestHandlePaymentSuccess_Success(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 
 	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
 		t.Fatalf("HandlePaymentSuccess упал: %v", err)
@@ -134,7 +134,7 @@ func TestHandlePaymentSuccess_Success(t *testing.T) {
 
 func TestHandlePaymentSuccess_AmountMismatch(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 
 	err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 100000)
 	if !errors.Is(err, ErrPaymentAmountMismatch) {
@@ -160,7 +160,7 @@ func TestHandlePaymentSuccess_UnknownInvoice(t *testing.T) {
 
 func TestHandlePaymentSuccess_DuplicateWebhook_Idempotent(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 
 	// Первая доставка вебхука.
 	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
@@ -179,7 +179,7 @@ func TestHandlePaymentSuccess_DuplicateWebhook_Idempotent(t *testing.T) {
 // репозитория: повторное применение к уже оплаченному заказу даёт applied=false.
 func TestApplyPaymentSuccess_OnlyFromPending(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 
 	loaded, _ := f.orderRepo.GetByID(context.Background(), order.ID())
 	_ = loaded.MarkPaid()
@@ -339,7 +339,7 @@ func TestProcessGenerationTask_WrongStatus_Skipped(t *testing.T) {
 	f := newFixture(t)
 	f.addAccount(t, 10)
 	// Заказ в статусе New (не Queued) — задача должна быть пропущена без ошибки.
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 
 	if err := f.uc.ProcessGenerationTask(context.Background(), order.ID()); err != nil {
 		t.Fatalf("пропуск задачи с неверным статусом не должен возвращать ошибку: %v", err)
@@ -472,7 +472,7 @@ func TestGetOrderByToken_Empty(t *testing.T) {
 
 func (f *fixture) queuedOrder(t *testing.T) *domain.Order {
 	t.Helper()
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard")
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
 	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
 		t.Fatalf("подготовка queued-заказа: %v", err)
 	}

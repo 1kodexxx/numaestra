@@ -70,6 +70,16 @@ type Order struct {
 	// например: "День рождения дяди Коли, душевная песня в стиле шансон".
 	brief string
 
+	// categoryID — идентификатор категории квиза (wedding, birthday и т.д.).
+	// Пустая строка означает "свободный" заказ без категории.
+	categoryID string
+
+	// sunoPrompt — готовый промпт для Suno API, сформированный из шаблона
+	// категории после подстановки ответов пользователя на вопросы квиза.
+	// Пустая строка означает, что промпт не был сформирован через квиз —
+	// воркер использует brief напрямую.
+	sunoPrompt string
+
 	amountKopecks int64 // сумма в копейках - без float, для точности расчётов
 	currency      string
 
@@ -91,7 +101,7 @@ type Order struct {
 }
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
-func NewOrder(invoiceID int64, customerEmail, customerPhone, brief string, amountKopecks int64) (*Order, error) {
+func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, sunoPrompt string, amountKopecks int64) (*Order, error) {
 	if customerEmail == "" && customerPhone == "" {
 		return nil, errors.New("должен быть указан хотя бы один контакт клиента")
 	}
@@ -118,6 +128,8 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief string, amoun
 		customerEmail:    customerEmail,
 		customerPhone:    customerPhone,
 		brief:            brief,
+		categoryID:       categoryID,
+		sunoPrompt:       sunoPrompt,
 		amountKopecks:    amountKopecks,
 		currency:         "RUB",
 		paymentStatus:    PaymentStatusPending,
@@ -144,6 +156,8 @@ type OrderSnapshot struct {
 	CustomerEmail     string
 	CustomerPhone     string
 	Brief             string
+	CategoryID        string
+	SunoPrompt        string
 	AmountKopecks     int64
 	Currency          string
 	PaymentStatus     PaymentStatus
@@ -163,6 +177,7 @@ func RestoreOrder(s OrderSnapshot) *Order {
 	return &Order{
 		id: s.ID, invoiceID: s.InvoiceID,
 		customerEmail: s.CustomerEmail, customerPhone: s.CustomerPhone, brief: s.Brief,
+		categoryID: s.CategoryID, sunoPrompt: s.SunoPrompt,
 		amountKopecks: s.AmountKopecks, currency: s.Currency,
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
@@ -178,6 +193,8 @@ func (o *Order) InvoiceID() int64                   { return o.invoiceID }
 func (o *Order) CustomerEmail() string              { return o.customerEmail }
 func (o *Order) CustomerPhone() string              { return o.customerPhone }
 func (o *Order) Brief() string                      { return o.brief }
+func (o *Order) CategoryID() string                 { return o.categoryID }
+func (o *Order) SunoPrompt() string                 { return o.sunoPrompt }
 func (o *Order) AmountKopecks() int64               { return o.amountKopecks }
 func (o *Order) Currency() string                   { return o.currency }
 func (o *Order) PaymentStatus() PaymentStatus       { return o.paymentStatus }
@@ -312,6 +329,8 @@ func (o *Order) Snapshot() OrderSnapshot {
 		CustomerEmail:     o.customerEmail,
 		CustomerPhone:     o.customerPhone,
 		Brief:             o.brief,
+		CategoryID:        o.categoryID,
+		SunoPrompt:        o.sunoPrompt,
 		AmountKopecks:     o.amountKopecks,
 		Currency:          o.currency,
 		PaymentStatus:     o.paymentStatus,
