@@ -295,6 +295,7 @@ type OrderRepository interface {
 	GetByInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
 	Update(ctx context.Context, order *Order) error
 	ListByCustomerEmail(ctx context.Context, email string) ([]*Order, error)
+	ListByCustomerPhone(ctx context.Context, phone string) ([]*Order, error)
 
 	// SaveWithAccount атомарно сохраняет заказ и обновляет аккаунт в одной транзакции.
 	// Используется после успешного SubmitGeneration, чтобы исключить ситуацию,

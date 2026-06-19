@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_customer_email ON orders(customer_email);
+CREATE INDEX IF NOT EXISTS idx_orders_customer_phone ON orders(customer_phone);
 CREATE INDEX IF NOT EXISTS idx_orders_invoice_id ON orders(invoice_id);
 
 CREATE TABLE IF NOT EXISTS tracks (

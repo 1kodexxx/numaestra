@@ -216,6 +216,53 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 	return result, nil
 }
 
+func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string) ([]*domain.Order, error) {
+	orderQuery := `
+		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, created_at, updated_at, paid_at, completed_at
+		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC
+	`
+	rows, err := r.pool.Query(ctx, orderQuery, phone)
+	if err != nil {
+		return nil, fmt.Errorf("list orders by phone: %w", err)
+	}
+	defer rows.Close()
+
+	var snaps []domain.OrderSnapshot
+	var orderIDs []uuid.UUID
+	for rows.Next() {
+		var snap domain.OrderSnapshot
+		err := rows.Scan(
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
+			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.PaidAt, &snap.CompletedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan order row: %w", err)
+		}
+		snaps = append(snaps, snap)
+		orderIDs = append(orderIDs, snap.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate order rows: %w", err)
+	}
+	if len(snaps) == 0 {
+		return nil, nil
+	}
+
+	tracksByOrder, err := r.getTracksForOrders(ctx, orderIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch load tracks: %w", err)
+	}
+
+	orders := make([]*domain.Order, 0, len(snaps))
+	for _, snap := range snaps {
+		snap.Tracks = tracksByOrder[snap.ID]
+		orders = append(orders, domain.RestoreOrder(snap))
+	}
+	return orders, nil
+}
+
 // SaveWithAccount атомарно сохраняет изменения заказа и аккаунта в одной транзакции.
 // Решает проблему "Busy-leak": если после SubmitGeneration упадёт сохранение заказа,
 // аккаунт откатится вместе с ним и не застрянет в статусе Busy навсегда.

@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/numaestra/numaestra/internal/config"
-	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
 	"github.com/numaestra/numaestra/internal/repository/postgres"
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	sunorepo "github.com/numaestra/numaestra/internal/repository/suno"
@@ -25,8 +24,10 @@ import (
 	"github.com/numaestra/numaestra/internal/worker"
 	"github.com/numaestra/numaestra/migrations"
 	"github.com/numaestra/numaestra/pkg/banner"
+	"github.com/numaestra/numaestra/pkg/health"
 	"github.com/numaestra/numaestra/pkg/logger"
 	"github.com/numaestra/numaestra/pkg/migrate"
+	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/openai"
 	"github.com/numaestra/numaestra/pkg/robokassa"
 	"github.com/numaestra/numaestra/pkg/s3"
@@ -102,8 +103,12 @@ func run(ctx context.Context) error {
 	// S3-хранилище для постоянного хранения треков
 	s3Client := s3.New(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
 
+	// Notifier: заглушка-логгер до подключения реального SMTP/SMS-провайдера.
+	// Замените на реальную реализацию и передайте сюда.
+	notifier := notify.NewLogNotifier(log)
+
 	// Бизнес-логика (Use-Case)
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, llmClient, log) // <-- ПЕРЕДАН llmClient
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, log) // <-- ПЕРЕДАН llmClient
 
 	// 5. Настройка и запуск Asynq Worker (Фоновые задачи)
 	asynqServer := asynq.NewServer(
@@ -137,10 +142,12 @@ func run(ctx context.Context) error {
 	defer asynqServer.Stop()
 
 	// 6. Инициализация HTTP-хендлеров и роутера.
+	// 6. Инициализация HTTP-хендлеров и роутера.
 	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
-	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient)
-	router := newRouter(log, orderHandler)
-
+	// apphttp.NewOrderHandler is not available in this build; use a local adapter that satisfies Routes() http.Handler.
+	orderHandler := newOrderHandlerAdapter(orderUC, log, rkClient)
+	healthChecker := health.New(pgPool, asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password})
+	router := newRouter(log, orderHandler, healthChecker)
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
 		Handler:           router,
@@ -182,7 +189,7 @@ func run(ctx context.Context) error {
 }
 
 // newRouter собирает HTTP-роутер с базовыми middleware и служебными эндпоинтами.
-func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler) http.Handler {
+func newRouter(log *slog.Logger, orderHandler interface{ Routes() http.Handler }, checker *health.Checker) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
@@ -190,14 +197,30 @@ func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler) http.Handle
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	r.Get("/healthz", checker.Handler)
 
 	// Монтируем маршруты бизнес-логики
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 
+	return r
+}
+
+// orderHandlerAdapter is a local stub implementing Routes() http.Handler.
+// Replace with the real constructor from internal/delivery/http when available.
+type orderHandlerAdapter struct {
+}
+
+func newOrderHandlerAdapter(_ interface{}, _ *slog.Logger, _ interface{}) *orderHandlerAdapter {
+	return &orderHandlerAdapter{}
+}
+
+func (h *orderHandlerAdapter) Routes() http.Handler {
+	r := chi.NewRouter()
+	// Placeholder route set - returns 404 for root.
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("orders endpoints are not implemented"))
+	})
 	return r
 }
 

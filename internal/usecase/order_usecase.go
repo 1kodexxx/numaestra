@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/openai"
 )
 
@@ -22,6 +23,7 @@ type OrderUseCase struct {
 	queue     queuePublisher
 	provider  musicProvider
 	storage   domain.TrackStorage
+	notifier  notify.Notifier
 	llmClient openai.APIClient
 	log       *slog.Logger
 }
@@ -38,6 +40,7 @@ func NewOrderUseCase(
 	queue domain.QueuePublisher,
 	provider domain.MusicProvider,
 	storage domain.TrackStorage,
+	notifier notify.Notifier,
 	llmClient openai.APIClient,
 	log *slog.Logger,
 ) *OrderUseCase {
@@ -47,6 +50,7 @@ func NewOrderUseCase(
 		queue:     queue,
 		provider:  provider,
 		storage:   storage,
+		notifier:  notifier,
 		llmClient: llmClient,
 		log:       log,
 	}
@@ -254,6 +258,24 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		return fmt.Errorf("атомарное сохранение финального статуса: %w", err)
 	}
 
+	// Уведомляем клиента о готовности. Ошибка уведомления не роняет задачу —
+	// треки уже сохранены и доступны через API.
+	if result.Status == domain.MusicGenerationStatusCompleted {
+		var trackURLs []string
+		for _, t := range order.Tracks() {
+			trackURLs = append(trackURLs, t.AudioURL)
+		}
+		if notifyErr := uc.notifier.NotifyOrderComplete(ctx, notify.OrderCompleteNotification{
+			OrderID:     order.ID().String(),
+			Email:       order.CustomerEmail(),
+			Phone:       order.CustomerPhone(),
+			TrackURLs:   trackURLs,
+			TracksCount: len(trackURLs),
+		}); notifyErr != nil {
+			uc.log.Error("ошибка отправки уведомления", "order_id", order.ID(), "err", notifyErr)
+		}
+	}
+
 	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)
 	return nil
 }
@@ -273,6 +295,17 @@ func (uc *OrderUseCase) ListOrdersByEmail(ctx context.Context, email string) ([]
 	orders, err := uc.orderRepo.ListByCustomerEmail(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения заказов: %w", err)
+	}
+	return orders, nil
+}
+
+func (uc *OrderUseCase) ListOrdersByPhone(ctx context.Context, phone string) ([]*domain.Order, error) {
+	if phone == "" {
+		return nil, fmt.Errorf("phone не может быть пустым")
+	}
+	orders, err := uc.orderRepo.ListByCustomerPhone(ctx, phone)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения заказов по телефону: %w", err)
 	}
 	return orders, nil
 }
