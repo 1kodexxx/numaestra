@@ -97,6 +97,11 @@ func run(ctx context.Context) error {
 	txManager := postgres.NewTxManager(pgPool)
 	queuePublisher := queue.NewAsynqPublisher(asynqClient)
 
+	// === НОВЫЙ БЛОК ДЛЯ UI (Server-Driven UI) ===
+	categoryRepo := postgres.NewCategoryRepository(pgPool)
+	promptUC := usecase.NewPromptUseCase(categoryRepo)
+	// ============================================
+
 	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
@@ -105,8 +110,6 @@ func run(ctx context.Context) error {
 	s3Client := s3.New(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
 
 	// Notifier: заглушка-логгер до подключения реального SMTP/SMS-провайдера.
-	// Чтобы подключить реальный провайдер — реализуйте notify.Notifier
-	// и передайте сюда вместо NewLogNotifier.
 	notifier := notify.NewLogNotifier(log)
 
 	// Прайс определяется сервером по тарифу: цена не принимается из запроса клиента.
@@ -131,8 +134,6 @@ func run(ctx context.Context) error {
 				}
 				return asynq.DefaultRetryDelayFunc(n, e, t)
 			},
-			// Терминальный обработчик: при исчерпании всех ретраев переводим заказ
-			// в failed и освобождаем аккаунт, иначе он застрянет в Busy навсегда.
 			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, t *asynq.Task, err error) {
 				retried, _ := asynq.GetRetryCount(ctx)
 				maxRetry, _ := asynq.GetMaxRetry(ctx)
@@ -162,9 +163,17 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)
 	}
+
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets)
+
+	// === НОВЫЙ ХЭНДЛЕР ===
+	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
+	// =====================
+
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, healthChecker, cfg.HTTP)
+
+	// Передаем новый хэндлер в функцию инициализации роутера
+	router := newRouter(log, orderHandler, categoryHandler, healthChecker, cfg.HTTP)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -205,25 +214,25 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, checker *health.Checker, httpCfg config.HTTPConfig) http.Handler {
+// Обновленная сигнатура функции newRouter (добавлен categoryHandler)
+func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, categoryHandler *apphttp.CategoryHandler, checker *health.Checker, httpCfg config.HTTPConfig) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
-	// Ограничиваем размер тела запроса, чтобы защититься от исчерпания памяти.
 	r.Use(apphttp.MaxBodyBytes(httpCfg.MaxBodyBytes))
-	// Список разрешённых Origin берётся из конфигурации (CORS_ALLOWED_ORIGINS).
-	// Пустой список означает "*" — допустимо для dev, в проде стоит ограничить.
 	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(httpCfg.CORSAllowedOrigins)))
 
 	r.Get("/healthz", checker.Handler)
 
-	// Rate limiting вынесен внутрь orderHandler.Routes(): создание заказа и
-	// защищённые маршруты ограничиваются клиентским лимитером, а вебхук Robokassa —
-	// отдельным независимым бакетом, чтобы клиентский трафик не вызывал у него 429.
+	// Маршруты заказов
 	r.Mount("/api/v1/orders", orderHandler.Routes())
+
+	// === НОВЫЕ МАРШРУТЫ ФРОНТЕНДА ===
+	// Маршруты для получения категорий, вопросов квиза и генерации промптов
+	r.Mount("/api/v1/categories", categoryHandler.Routes())
 
 	return r
 }
@@ -232,7 +241,6 @@ func requestLoggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			// Оборачиваем ResponseWriter, чтобы зафиксировать статус ответа и размер.
 			ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
 			log.Info("http запрос обработан",
