@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
@@ -55,7 +54,12 @@ func NewOrderUseCase(
 // ==========================================
 
 func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief string, amountKopecks int64) (*domain.Order, error) {
-	invoiceID := time.Now().UnixNano()
+	// InvoiceID берём из PostgreSQL sequence — атомарно и без коллизий
+	// при параллельных запросах или нескольких инстансах сервиса.
+	invoiceID, err := uc.orderRepo.NextInvoiceID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("получение invoice_id: %w", err)
+	}
 
 	order, err := domain.NewOrder(invoiceID, email, phone, brief, amountKopecks)
 	if err != nil {
@@ -147,18 +151,28 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 
 	if err != nil {
 		uc.log.Error("ошибка API Suno", "account", account.Email(), "err", err)
-		account.Release()
+		// Порядок важен: сначала регистрируем ошибку (она может перевести аккаунт в Banned),
+		// только потом Release — иначе Release выставит Active, а RegisterFailure затрёт его Banned.
 		account.RegisterFailure(3)
+		account.Release()
 		order.RequeueForRetry()
 
-		_ = uc.accRepo.Update(ctx, account)
-		_ = uc.orderRepo.Update(ctx, order)
+		if saveErr := uc.accRepo.Update(ctx, account); saveErr != nil {
+			uc.log.Error("не удалось сохранить состояние аккаунта после ошибки Suno", "account_id", account.ID(), "err", saveErr)
+		}
+		if saveErr := uc.orderRepo.Update(ctx, order); saveErr != nil {
+			uc.log.Error("не удалось откатить заказ в Queued после ошибки Suno", "order_id", order.ID(), "err", saveErr)
+		}
 		return fmt.Errorf("сбой провайдера: %w", err)
 	}
 
-	// 5. Фиксация состояния и инициация поллинга
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
-		return err
+	// 5. Атомарно сохраняем заказ (Processing + sunoJobID) и освобождаем аккаунт.
+	// Важно: если сохранить только заказ и упасть — аккаунт навсегда останется в Busy.
+	// Единственная транзакция гарантирует консистентность обоих агрегатов.
+	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
+		// Аккаунт в БД всё ещё Busy, а транзакция откатилась — аккаунт не утёк.
+		// Asynq сделает retry задачи и снова попробует захватить аккаунт.
+		return fmt.Errorf("атомарное сохранение заказа и аккаунта: %w", err)
 	}
 
 	if err := uc.queue.EnqueueStatusCheckTask(ctx, order.ID(), sunoJobID); err != nil {

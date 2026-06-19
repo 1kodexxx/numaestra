@@ -295,4 +295,13 @@ type OrderRepository interface {
 	GetByInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
 	Update(ctx context.Context, order *Order) error
 	ListByCustomerEmail(ctx context.Context, email string) ([]*Order, error)
+
+	// SaveWithAccount атомарно сохраняет заказ и обновляет аккаунт в одной транзакции.
+	// Используется после успешного SubmitGeneration, чтобы исключить ситуацию,
+	// когда заказ сохранён, а аккаунт остался в Busy из-за сбоя между двумя Update-вызовами.
+	SaveWithAccount(ctx context.Context, order *Order, account *SunoAccount) error
+
+	// NextInvoiceID возвращает следующий InvId из PostgreSQL sequence invoice_id_seq.
+	// Гарантирует уникальность даже при нескольких инстансах сервиса.
+	NextInvoiceID(ctx context.Context) (int64, error)
 }

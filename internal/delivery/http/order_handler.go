@@ -78,8 +78,10 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. ГЕНЕРАЦИЯ ССЫЛКИ НА ОПЛАТУ
-	// Робокасса принимает сумму в рублях. Kopecks -> Rubles
-	outSum := fmt.Sprintf("%d", req.AmountKopecks/100)
+	// Робокасса принимает сумму в рублях с двумя знаками после запятой ("1500.00").
+	// Целочисленное деление kopecks/100 обрезает копейки и ломает подпись —
+	// Robokassa сверяет SignatureValue именно по той строке OutSum, что пришла в вебхуке.
+	outSum := fmt.Sprintf("%.2f", float64(req.AmountKopecks)/100)
 	invIdStr := fmt.Sprintf("%d", order.InvoiceID())
 	description := "Генерация 4-х версий студийной песни Numaestra"
 

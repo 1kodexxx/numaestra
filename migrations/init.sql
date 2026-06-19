@@ -17,9 +17,15 @@ CREATE INDEX IF NOT EXISTS idx_suno_accounts_available
 ON suno_accounts (last_used_at ASC NULLS FIRST, created_at ASC)
 WHERE status = 'active' AND token_balance > 0;
 
+-- Sequence для invoice_id: атомарные монотонно-возрастающие номера счетов.
+-- Передаётся в Robokassa как InvId и должен быть уникальным на уровне мерчанта.
+-- Использование sequence вместо time.Now().UnixNano() исключает коллизии
+-- при параллельных запросах и при запуске нескольких инстансов сервиса.
+CREATE SEQUENCE IF NOT EXISTS invoice_id_seq START WITH 1 INCREMENT BY 1;
+
 CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY,
-    invoice_id BIGINT NOT NULL UNIQUE,
+    invoice_id BIGINT NOT NULL UNIQUE DEFAULT nextval('invoice_id_seq'),
     customer_email VARCHAR(255),
     customer_phone VARCHAR(50),
     brief TEXT NOT NULL,
