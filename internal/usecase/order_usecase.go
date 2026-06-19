@@ -21,6 +21,7 @@ type OrderUseCase struct {
 	accRepo   accountRepository
 	queue     queuePublisher
 	provider  musicProvider
+	storage   domain.TrackStorage
 	llmClient openai.APIClient
 	log       *slog.Logger
 }
@@ -36,6 +37,7 @@ func NewOrderUseCase(
 	accRepo domain.AccountRepository,
 	queue domain.QueuePublisher,
 	provider domain.MusicProvider,
+	storage domain.TrackStorage,
 	llmClient openai.APIClient,
 	log *slog.Logger,
 ) *OrderUseCase {
@@ -44,6 +46,7 @@ func NewOrderUseCase(
 		accRepo:   accRepo,
 		queue:     queue,
 		provider:  provider,
+		storage:   storage,
 		llmClient: llmClient,
 		log:       log,
 	}
@@ -214,10 +217,22 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	case domain.MusicGenerationStatusCompleted:
 		var domainTracks []domain.Track
 		for i, pt := range result.Tracks {
+			// Перезаливаем трек в собственное S3-хранилище.
+			// Временные ссылки Suno протухают через несколько часов —
+			// клиент не сможет скачать трек позже без этого шага.
+			s3Key := fmt.Sprintf("tracks/%s/%d.mp3", order.ID(), i+1)
+			permanentURL, uploadErr := uc.storage.UploadFromURL(ctx, pt.SourceURL, s3Key, "audio/mpeg")
+			if uploadErr != nil {
+				// Падение загрузки в S3 не должно ронять весь цикл:
+				// сохраняем исходную ссылку Suno как fallback и логируем.
+				uc.log.Error("не удалось загрузить трек в S3, используем временную ссылку",
+					"order_id", order.ID(), "track_index", i+1, "err", uploadErr)
+				permanentURL = pt.SourceURL
+			}
 			domainTracks = append(domainTracks, domain.Track{
 				ID:          uuid.New(),
 				Index:       i + 1,
-				AudioURL:    pt.SourceURL,
+				AudioURL:    permanentURL,
 				DurationSec: pt.DurationSec,
 				SunoTrackID: pt.ExternalID,
 			})

@@ -15,6 +15,7 @@ type Config struct {
 	Redis     RedisConfig
 	Robokassa RobokassaConfig
 	Suno      SunoConfig
+	S3        S3Config
 	OpenAI    OpenAIConfig
 }
 
@@ -42,6 +43,14 @@ type RobokassaConfig struct {
 type SunoConfig struct {
 	APIURL string
 	APIKey string
+}
+
+type S3Config struct {
+	Endpoint  string
+	Region    string
+	Bucket    string
+	AccessKey string
+	SecretKey string
 }
 
 type OpenAIConfig struct {
@@ -74,6 +83,13 @@ func Load() (*Config, error) {
 		Suno: SunoConfig{
 			APIURL: getEnv("SUNO_API_URL", "https://api.custom-suno.local"),
 			APIKey: getEnv("SUNO_API_KEY", ""),
+		},
+		S3: S3Config{
+			Endpoint:  getEnv("S3_ENDPOINT", "https://s3.amazonaws.com"),
+			Region:    getEnv("S3_REGION", "us-east-1"),
+			Bucket:    getEnv("S3_BUCKET", "numaestra-tracks"),
+			AccessKey: getEnv("S3_ACCESS_KEY", ""),
+			SecretKey: getEnv("S3_SECRET_KEY", ""),
 		},
 		OpenAI: OpenAIConfig{
 			BaseURL: getEnv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),

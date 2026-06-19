@@ -305,3 +305,11 @@ type OrderRepository interface {
 	// Гарантирует уникальность даже при нескольких инстансах сервиса.
 	NextInvoiceID(ctx context.Context) (int64, error)
 }
+
+// TrackStorage - порт для долгосрочного хранения готовых треков.
+// Домен не знает, с каким конкретным хранилищем работает реализация: S3, Yandex Cloud, MinIO.
+type TrackStorage interface {
+	// UploadFromURL скачивает файл по sourceURL и сохраняет под ключом key.
+	// Возвращает постоянную публичную ссылку на объект в хранилище.
+	UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (publicURL string, err error)
+}

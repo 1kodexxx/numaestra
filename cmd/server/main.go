@@ -29,6 +29,7 @@ import (
 	"github.com/numaestra/numaestra/pkg/migrate"
 	"github.com/numaestra/numaestra/pkg/openai"
 	"github.com/numaestra/numaestra/pkg/robokassa"
+	"github.com/numaestra/numaestra/pkg/s3"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
@@ -98,8 +99,11 @@ func run(ctx context.Context) error {
 	// Инициализируем LLM Клиент (OpenRouter / OpenAI)
 	llmClient := openai.NewClient(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
 
+	// S3-хранилище для постоянного хранения треков
+	s3Client := s3.New(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
+
 	// Бизнес-логика (Use-Case)
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, llmClient, log) // <-- ПЕРЕДАН llmClient
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, llmClient, log) // <-- ПЕРЕДАН llmClient
 
 	// 5. Настройка и запуск Asynq Worker (Фоновые задачи)
 	asynqServer := asynq.NewServer(

@@ -59,10 +59,13 @@ func (p *AsynqPublisher) EnqueueStatusCheckTask(ctx context.Context, orderID uui
 	payload, err := json.Marshal(StatusCheckTaskPayload{OrderID: orderID, SunoJobID: sunoJobID})
 
 	if err != nil {
-		return fmt.Errorf("серилизация задачи проверки статуса: %w", err)
+		return fmt.Errorf("сериализация задачи проверки статуса: %w", err)
 	}
 	task := asynq.NewTask(TaskTypeCheckStatus, payload)
-	if _, err := p.client.EnqueueContext(ctx, task, asynq.Queue("polling")); err != nil {
+	// MaxRetry для polling: трек генерируется ~2–3 минуты, опрашиваем каждые 15 сек.
+	// 40 попыток × 15 сек = 10 минут максимального ожидания на один трек.
+	// Без MaxRetry задача при исчерпании дефолтных ретраев тихо уходит в архив.
+	if _, err := p.client.EnqueueContext(ctx, task, asynq.Queue("polling"), asynq.MaxRetry(40)); err != nil {
 		return fmt.Errorf("постановка задачи проверки статуса в очередь: %w", err)
 	}
 	return nil
