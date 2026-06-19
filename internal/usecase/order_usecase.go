@@ -250,3 +250,14 @@ func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Ord
 	}
 	return order, nil
 }
+
+func (uc *OrderUseCase) ListOrdersByEmail(ctx context.Context, email string) ([]*domain.Order, error) {
+	if email == "" {
+		return nil, fmt.Errorf("email не может быть пустым")
+	}
+	orders, err := uc.orderRepo.ListByCustomerEmail(ctx, email)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения заказов: %w", err)
+	}
+	return orders, nil
+}

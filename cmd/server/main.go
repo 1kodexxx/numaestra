@@ -28,6 +28,7 @@ import (
 	"github.com/numaestra/numaestra/pkg/logger"
 	"github.com/numaestra/numaestra/pkg/migrate"
 	"github.com/numaestra/numaestra/pkg/openai"
+	"github.com/numaestra/numaestra/pkg/robokassa"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
@@ -132,7 +133,8 @@ func run(ctx context.Context) error {
 	defer asynqServer.Stop()
 
 	// 6. Инициализация HTTP-хендлеров и роутера.
-	orderHandler := apphttp.NewOrderHandler(orderUC, log, cfg.Robokassa) // <-- ПЕРЕДАН ПАРОЛЬ РОБОКАССЫ
+	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
+	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient)
 	router := newRouter(log, orderHandler)
 
 	httpServer := &http.Server{

@@ -2,34 +2,27 @@
 package http
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
-
-	"errors"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/numaestra/numaestra/internal/config"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
 // OrderHandler обрабатывает HTTP-запросы, связанные с заказами.
 type OrderHandler struct {
 	uc  *usecase.OrderUseCase
 	log *slog.Logger
-	rk  config.RobokassaConfig
+	rk  *robokassa.Client
 }
 
-// Теперь передаем весь конфиг Робокассы
-func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk config.RobokassaConfig) *OrderHandler {
+func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client) *OrderHandler {
 	return &OrderHandler{
 		uc:  uc,
 		log: log,
@@ -41,6 +34,7 @@ func (h *OrderHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
 	r.Post("/", h.CreateOrder)
+	r.Get("/", h.ListOrders)
 	r.Get("/{id}", h.GetOrder)
 	r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
 
@@ -80,26 +74,9 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. ГЕНЕРАЦИЯ ССЫЛКИ НА ОПЛАТУ
-	// Робокасса принимает сумму в рублях с двумя знаками после запятой ("1500.00").
-	// Целочисленное деление kopecks/100 обрезает копейки и ломает подпись —
-	// Robokassa сверяет SignatureValue именно по той строке OutSum, что пришла в вебхуке.
-	outSum := fmt.Sprintf("%.2f", float64(req.AmountKopecks)/100)
-	invIdStr := fmt.Sprintf("%d", order.InvoiceID())
+	outSum := robokassa.FormatAmount(req.AmountKopecks)
 	description := "Генерация 4-х версий студийной песни Numaestra"
-
-	// Формула подписи для генерации ссылки: MerchantLogin:OutSum:InvId:Password1
-	signStr := fmt.Sprintf("%s:%s:%s:%s", h.rk.MerchantLogin, outSum, invIdStr, h.rk.Password1)
-	hash := md5.Sum([]byte(signStr))
-	signature := strings.ToUpper(hex.EncodeToString(hash[:]))
-
-	isTest := "0"
-	if h.rk.IsTest {
-		isTest = "1"
-	}
-
-	paymentURL := fmt.Sprintf("https://auth.robokassa.ru/Merchant/Index.aspx?MerchantLogin=%s&OutSum=%s&InvId=%s&Description=%s&SignatureValue=%s&IsTest=%s",
-		h.rk.MerchantLogin, outSum, invIdStr, url.QueryEscape(description), signature, isTest)
+	paymentURL := h.rk.PaymentURL(outSum, order.InvoiceID(), description)
 
 	res := OrderResponse{
 		ID:               order.ID().String(),
@@ -128,14 +105,8 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// 2. ВАЛИДАЦИЯ ВЕБХУКА ОТ КАССЫ
-	// Формула подписи ResultURL: OutSum:InvId:Password2
-	signStr := fmt.Sprintf("%s:%s:%s", outSum, invIdStr, h.rk.Password2)
-	hash := md5.Sum([]byte(signStr))
-	expectedSignature := strings.ToUpper(hex.EncodeToString(hash[:]))
-
-	if strings.ToUpper(signature) != expectedSignature {
-		h.log.Warn("попытка подделки вебхука Робокассы!", "expected", expectedSignature, "got", signature)
+	if !h.rk.VerifyWebhook(outSum, invIdStr, signature) {
+		h.log.Warn("попытка подделки вебхука Робокассы!", "inv_id", invIdStr)
 		h.errorResponse(w, http.StatusBadRequest, "неверная подпись")
 		return
 	}
@@ -217,6 +188,46 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		PaymentStatus:    string(order.PaymentStatus()),
 		GenerationStatus: string(order.GenerationStatus()),
 		Tracks:           tracks,
+	}
+
+	h.successResponse(w, http.StatusOK, res)
+}
+
+type OrderSummaryResponse struct {
+	ID               string `json:"id"`
+	InvoiceID        int64  `json:"invoice_id"`
+	Brief            string `json:"brief"`
+	PaymentStatus    string `json:"payment_status"`
+	GenerationStatus string `json:"generation_status"`
+	TracksCount      int    `json:"tracks_count"`
+}
+
+// ListOrders возвращает список заказов клиента по email.
+// GET /api/v1/orders?email=user@example.com
+func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		h.errorResponse(w, http.StatusBadRequest, "параметр email обязателен")
+		return
+	}
+
+	orders, err := h.uc.ListOrdersByEmail(r.Context(), email)
+	if err != nil {
+		h.log.Error("ошибка получения списка заказов", "email", email, "err", err)
+		h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
+	}
+
+	res := make([]OrderSummaryResponse, 0, len(orders))
+	for _, o := range orders {
+		res = append(res, OrderSummaryResponse{
+			ID:               o.ID().String(),
+			InvoiceID:        o.InvoiceID(),
+			Brief:            o.Brief(),
+			PaymentStatus:    string(o.PaymentStatus()),
+			GenerationStatus: string(o.GenerationStatus()),
+			TracksCount:      len(o.Tracks()),
+		})
 	}
 
 	h.successResponse(w, http.StatusOK, res)
