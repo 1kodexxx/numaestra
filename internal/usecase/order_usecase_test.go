@@ -32,7 +32,7 @@ func newFixture(t *testing.T) *fixture {
 		llm:       &mockLLM{},
 	}
 	pricing := NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	f.uc = NewOrderUseCase(f.orderRepo, f.accRepo, f.queue, f.provider, f.storage, f.notifier, f.llm, pricing, testLogger())
+	f.uc = NewOrderUseCase(f.orderRepo, f.accRepo, f.queue, f.provider, f.storage, f.notifier, f.llm, pricing, fakeTxManager{}, testLogger())
 	return f
 }
 
@@ -214,8 +214,8 @@ func TestFailGeneration_FromProcessing_ReleasesAccount(t *testing.T) {
 	if got.GenerationStatus() != domain.GenerationStatusFailed {
 		t.Errorf("ожидали failed, получили %q", got.GenerationStatus())
 	}
-	if st := f.accRepo.statusOf(acc.ID()); st == domain.AccountStatusBusy {
-		t.Error("аккаунт должен быть освобождён из Busy при провале")
+	if n := f.accRepo.concurrentOf(acc.ID()); n != 0 {
+		t.Errorf("слот аккаунта должен быть освобождён при провале, занято=%d", n)
 	}
 }
 
@@ -291,9 +291,47 @@ func TestProcessGenerationTask_ProviderError_Requeues(t *testing.T) {
 	if got.GenerationStatus() != domain.GenerationStatusQueued {
 		t.Errorf("заказ должен вернуться в queued для повторной попытки, получили %q", got.GenerationStatus())
 	}
-	// Аккаунт не должен застрять в Busy.
-	if st := f.accRepo.statusOf(acc.ID()); st == domain.AccountStatusBusy {
-		t.Error("аккаунт не должен оставаться Busy после ошибки провайдера")
+	// Слот аккаунта не должен застрять занятым после ошибки провайдера.
+	if n := f.accRepo.concurrentOf(acc.ID()); n != 0 {
+		t.Errorf("слот аккаунта должен быть освобождён после ошибки провайдера, занято=%d", n)
+	}
+}
+
+// При недоступности LLM заказ НЕ должен уходить в Suno с сырым брифом.
+// Ожидаем ошибку (для retry Asynq), заказ возвращается в queued, аккаунт свободен,
+// и задача опроса не ставится.
+func TestProcessGenerationTask_LLMFailure_Requeues(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.queuedOrder(t)
+
+	f.llm.fn = func(_ context.Context, _ string) (string, error) {
+		return "", errors.New("openrouter 503")
+	}
+	submitCalled := false
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		submitCalled = true
+		return "job-x", nil
+	}
+
+	err := f.uc.ProcessGenerationTask(context.Background(), order.ID())
+	if err == nil {
+		t.Fatal("ожидали ошибку при недоступности LLM, чтобы Asynq повторил задачу")
+	}
+	if submitCalled {
+		t.Error("при ошибке LLM генерация в Suno не должна запускаться")
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("заказ должен вернуться в queued, получили %q", got.GenerationStatus())
+	}
+	// Аккаунт не должен застрять занятым: счётчик неудач не растёт (вина не аккаунта).
+	gotAcc, _ := f.accRepo.GetByID(context.Background(), acc.ID())
+	if gotAcc.FailureCount() != 0 {
+		t.Errorf("сбой LLM не должен увеличивать счётчик ошибок аккаунта, получили %d", gotAcc.FailureCount())
+	}
+	if len(f.queue.statusCalls) != 0 {
+		t.Error("задача опроса не должна ставиться при ошибке LLM")
 	}
 }
 
@@ -383,7 +421,10 @@ func TestCheckGenerationStatus_Failed(t *testing.T) {
 	}
 }
 
-func TestCheckGenerationStatus_S3FailureFallsBack(t *testing.T) {
+// При ошибке S3 заказ НЕ должен завершаться временной ссылкой Suno (она протухнет
+// через несколько часов). Вместо этого CheckGenerationStatus возвращает ошибку,
+// заказ остаётся в processing, и Asynq повторит задачу.
+func TestCheckGenerationStatus_S3Failure_RetriesAndKeepsProcessing(t *testing.T) {
 	f := newFixture(t)
 	acc := f.addAccount(t, 10)
 	order := f.processingOrder(t, acc)
@@ -398,15 +439,16 @@ func TestCheckGenerationStatus_S3FailureFallsBack(t *testing.T) {
 		}, nil
 	}
 
-	if err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1"); err != nil {
-		t.Fatalf("ошибка S3 не должна ронять весь цикл: %v", err)
+	err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1")
+	if err == nil {
+		t.Fatal("ожидали ошибку при недоступности S3, чтобы Asynq повторил задачу")
 	}
 	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
-	if got.GenerationStatus() != domain.GenerationStatusCompleted {
-		t.Errorf("заказ должен завершиться даже при ошибке S3, статус %q", got.GenerationStatus())
+	if got.GenerationStatus() != domain.GenerationStatusProcessing {
+		t.Errorf("при ошибке S3 заказ должен остаться в processing, получили %q", got.GenerationStatus())
 	}
-	if got.Tracks()[0].AudioURL != "https://suno/temp.mp3" {
-		t.Errorf("при ошибке S3 должна сохраниться исходная ссылка, получили %q", got.Tracks()[0].AudioURL)
+	if len(f.notifier.calls) != 0 {
+		t.Error("уведомление не должно отправляться, пока треки не в постоянном хранилище")
 	}
 }
 

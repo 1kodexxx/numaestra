@@ -12,9 +12,14 @@ import (
 type AccountStatus string
 
 const (
-	// AccountStatusActive - аккаунт свободен, токены есть, готов принимать задачи.
+	// AccountStatusActive - аккаунт в ротации; занятость определяется счётчиком
+	// одновременных задач concurrentTasks, а не статусом.
 	AccountStatusActive AccountStatus = "active"
-	// AccountStatusBusy - аккаунт временно захвачен на выполнение конкретной задачи генерации.
+	// AccountStatusBusy устарел: занятость теперь моделируется через concurrentTasks
+	// и maxConcurrentTasks. Константа сохранена для совместимости со старыми
+	// записями в БД (миграция 0002 переводит такие строки обратно в active).
+	//
+	// Deprecated: используйте слоты (AcquireSlot/ReleaseSlot) вместо статуса Busy.
 	AccountStatusBusy AccountStatus = "busy"
 	// AccountStatusCooldown - аккаунт временно выведен из ротации (например, после rate-limit от Suno).
 	AccountStatusCooldown AccountStatus = "cooldown"
@@ -23,6 +28,11 @@ const (
 	// AccountStatusBanned - аккаунт заблокирован площадкой Suno, выведен из пула навсегда.
 	AccountStatusBanned AccountStatus = "banned"
 )
+
+// DefaultMaxConcurrentTasks — сколько генераций аккаунт обслуживает параллельно,
+// если иное не задано. 1 соответствует прежнему поведению (эксклюзивный захват);
+// для платных аккаунтов Suno (Pro/Premier) значение можно увеличить.
+const DefaultMaxConcurrentTasks = 1
 
 // Доменные ошибки, связанные с жизненным циклом аккаунта
 var (
@@ -46,6 +56,13 @@ type SunoAccount struct {
 	tokenBalance int // оставшиеся кредиты генерации
 	failureCount int // счётчик последовательных неудач, для эскалации в Banned
 
+	// maxConcurrentTasks — сколько генераций аккаунт может вести одновременно.
+	// concurrentTasks — сколько ведёт прямо сейчас. Аккаунт доступен, пока
+	// concurrentTasks < maxConcurrentTasks. Это снимает узкое место «один аккаунт —
+	// одна генерация» для платных аккаунтов Suno.
+	maxConcurrentTasks int
+	concurrentTasks    int
+
 	cooldownUntil *time.Time
 	lastUsedAt    *time.Time
 	createdAt     time.Time
@@ -66,44 +83,64 @@ func NewSunoAccount(email, encryptedSession string, tokenBalance int) (*SunoAcco
 
 	now := time.Now().UTC()
 	return &SunoAccount{
-		id:               uuid.New(),
-		status:           AccountStatusActive,
-		email:            email,
-		encryptedSession: encryptedSession,
-		tokenBalance:     tokenBalance,
-		createdAt:        now,
-		updatedAt:        now,
+		id:                 uuid.New(),
+		status:             AccountStatusActive,
+		email:              email,
+		encryptedSession:   encryptedSession,
+		tokenBalance:       tokenBalance,
+		maxConcurrentTasks: DefaultMaxConcurrentTasks,
+		createdAt:          now,
+		updatedAt:          now,
 	}, nil
+}
+
+// SetMaxConcurrentTasks задаёт лимит одновременных генераций (>=1).
+func (a *SunoAccount) SetMaxConcurrentTasks(n int) error {
+	if n < 1 {
+		return errors.New("лимит одновременных задач должен быть не меньше 1")
+	}
+	a.maxConcurrentTasks = n
+	a.touch()
+	return nil
 }
 
 // SunoAccountSnapshot - сырые данные из хранилища для восстановления агрегата.
 // Используется исключительно мапперами репозитория, не доменной логикой.
 type SunoAccountSnapshot struct {
-	ID               uuid.UUID
-	Email            string
-	EncryptedSession string
-	Status           AccountStatus
-	TokenBalance     int
-	FailureCount     int
-	CooldownUntil    *time.Time
-	LastUsedAt       *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                 uuid.UUID
+	Email              string
+	EncryptedSession   string
+	Status             AccountStatus
+	TokenBalance       int
+	FailureCount       int
+	MaxConcurrentTasks int
+	ConcurrentTasks    int
+	CooldownUntil      *time.Time
+	LastUsedAt         *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // RestoreSunoAccount восстанавливает агрегат из снапшота хранилища.
 func RestoreSunoAccount(s SunoAccountSnapshot) *SunoAccount {
+	maxConcurrent := s.MaxConcurrentTasks
+	if maxConcurrent < 1 {
+		// Подстраховка для легаси-строк без значения: ведём себя как раньше.
+		maxConcurrent = DefaultMaxConcurrentTasks
+	}
 	return &SunoAccount{
-		id:               s.ID,
-		email:            s.Email,
-		encryptedSession: s.EncryptedSession,
-		status:           s.Status,
-		tokenBalance:     s.TokenBalance,
-		failureCount:     s.FailureCount,
-		cooldownUntil:    s.CooldownUntil,
-		lastUsedAt:       s.LastUsedAt,
-		createdAt:        s.CreatedAt,
-		updatedAt:        s.UpdatedAt,
+		id:                 s.ID,
+		email:              s.Email,
+		encryptedSession:   s.EncryptedSession,
+		status:             s.Status,
+		tokenBalance:       s.TokenBalance,
+		failureCount:       s.FailureCount,
+		maxConcurrentTasks: maxConcurrent,
+		concurrentTasks:    s.ConcurrentTasks,
+		cooldownUntil:      s.CooldownUntil,
+		lastUsedAt:         s.LastUsedAt,
+		createdAt:          s.CreatedAt,
+		updatedAt:          s.UpdatedAt,
 	}
 }
 
@@ -113,11 +150,14 @@ func (a *SunoAccount) Status() AccountStatus     { return a.status }
 func (a *SunoAccount) Email() string             { return a.email }
 func (a *SunoAccount) EncryptedSession() string  { return a.encryptedSession }
 func (a *SunoAccount) TokenBalance() int         { return a.tokenBalance }
-func (a *SunoAccount) FailureCount() int         { return a.failureCount }
-func (a *SunoAccount) CooldownUntil() *time.Time { return a.cooldownUntil }
-func (a *SunoAccount) UpdatedAt() time.Time      { return a.updatedAt }
+func (a *SunoAccount) FailureCount() int          { return a.failureCount }
+func (a *SunoAccount) MaxConcurrentTasks() int    { return a.maxConcurrentTasks }
+func (a *SunoAccount) ConcurrentTasks() int       { return a.concurrentTasks }
+func (a *SunoAccount) CooldownUntil() *time.Time  { return a.cooldownUntil }
+func (a *SunoAccount) UpdatedAt() time.Time       { return a.updatedAt }
 
-// IsAvailable проверяет, может ли аккаунт прямо сейчас быть выдан под новую задачу.
+// IsAvailable проверяет, может ли аккаунт прямо сейчас принять ещё одну задачу:
+// он активен, есть токены, не в cooldown и не достигнут лимит одновременных задач.
 func (a *SunoAccount) IsAvailable(now time.Time) bool {
 	if a.status != AccountStatusActive {
 		return false
@@ -128,24 +168,33 @@ func (a *SunoAccount) IsAvailable(now time.Time) bool {
 	if a.cooldownUntil != nil && now.Before(*a.cooldownUntil) {
 		return false
 	}
+	if a.concurrentTasks >= a.maxConcurrentTasks {
+		return false
+	}
 	return true
 }
 
-// MarkBusy переводит аккаунт в Busy перед выполнением задачи генерации
-// Вызывается строго внутри атомарной операции захвата (см. AccountRepository.FetchAndLockAvailable).
-func (a *SunoAccount) MarkBusy() error {
-	if a.status != AccountStatusActive {
+// AcquireSlot занимает один слот одновременной генерации. Вызывается строго
+// внутри атомарной операции захвата (см. AccountRepository.FetchAndLockAvailable):
+// SELECT ... FOR UPDATE SKIP LOCKED гарантирует, что инкремент счётчика не
+// потеряется при параллельном захвате. Статус остаётся Active — занятость
+// выражается счётчиком, а не статусом.
+func (a *SunoAccount) AcquireSlot(now time.Time) error {
+	if !a.IsAvailable(now) {
 		return ErrInvalidAccountTransition
 	}
-	a.status = AccountStatusBusy
+	a.concurrentTasks++
+	a.lastUsedAt = &now
 	a.touch()
 	return nil
 }
 
-// Release возвращает аккаунт в пул после завершения задачи (успешного или нет).
-func (a *SunoAccount) Release() {
-	if a.status == AccountStatusBusy {
-		a.status = AccountStatusActive
+// ReleaseSlot освобождает один слот после завершения задачи (успешного или нет).
+// Статус не меняется (в частности, не перетирает Banned/Cooldown), что важно
+// для корректного порядка с RegisterFailure.
+func (a *SunoAccount) ReleaseSlot() {
+	if a.concurrentTasks > 0 {
+		a.concurrentTasks--
 	}
 	now := time.Now().UTC()
 	a.lastUsedAt = &now
@@ -213,15 +262,17 @@ type AccountRepository interface {
 
 func (a *SunoAccount) Snapshot() SunoAccountSnapshot {
 	return SunoAccountSnapshot{
-		ID:               a.id,
-		Email:            a.email,
-		EncryptedSession: a.encryptedSession,
-		Status:           a.status,
-		TokenBalance:     a.tokenBalance,
-		FailureCount:     a.failureCount,
-		CooldownUntil:    a.cooldownUntil,
-		LastUsedAt:       a.lastUsedAt,
-		CreatedAt:        a.createdAt,
-		UpdatedAt:        a.updatedAt,
+		ID:                 a.id,
+		Email:              a.email,
+		EncryptedSession:   a.encryptedSession,
+		Status:             a.status,
+		TokenBalance:       a.tokenBalance,
+		FailureCount:       a.failureCount,
+		MaxConcurrentTasks: a.maxConcurrentTasks,
+		ConcurrentTasks:    a.concurrentTasks,
+		CooldownUntil:      a.cooldownUntil,
+		LastUsedAt:         a.lastUsedAt,
+		CreatedAt:          a.createdAt,
+		UpdatedAt:          a.updatedAt,
 	}
 }

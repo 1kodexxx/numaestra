@@ -20,6 +20,14 @@ var (
 	ErrPaymentAmountMismatch = errors.New("оплаченная сумма не совпадает с суммой заказа")
 )
 
+// TransactionManager — порт Unit of Work: выполняет переданную функцию в рамках
+// одной транзакции БД. Позволяет UseCase атомарно сохранять несколько независимых
+// агрегатов (Order и SunoAccount), не возлагая на репозиторий одного агрегата
+// знание о таблицах другого.
+type TransactionManager interface {
+	Do(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
 type OrderUseCase struct {
 	orderRepo orderRepository
 	accRepo   accountRepository
@@ -29,6 +37,7 @@ type OrderUseCase struct {
 	notifier  notify.Notifier
 	llmClient openai.APIClient
 	pricing   Pricing
+	tx        TransactionManager
 	log       *slog.Logger
 }
 
@@ -47,6 +56,7 @@ func NewOrderUseCase(
 	notifier notify.Notifier,
 	llmClient openai.APIClient,
 	pricing Pricing,
+	tx TransactionManager,
 	log *slog.Logger,
 ) *OrderUseCase {
 	return &OrderUseCase{
@@ -58,8 +68,24 @@ func NewOrderUseCase(
 		notifier:  notifier,
 		llmClient: llmClient,
 		pricing:   pricing,
+		tx:        tx,
 		log:       log,
 	}
+}
+
+// saveOrderAndAccount атомарно сохраняет заказ и аккаунт в одной транзакции
+// (Unit of Work). Заменяет прежний OrderRepository.SaveWithAccount, который
+// нарушал границы агрегатов, обновляя таблицу аккаунтов из репозитория заказов.
+func (uc *OrderUseCase) saveOrderAndAccount(ctx context.Context, order *domain.Order, account *domain.SunoAccount) error {
+	return uc.tx.Do(ctx, func(ctx context.Context) error {
+		if err := uc.orderRepo.Update(ctx, order); err != nil {
+			return fmt.Errorf("сохранение заказа: %w", err)
+		}
+		if err := uc.accRepo.Update(ctx, account); err != nil {
+			return fmt.Errorf("сохранение аккаунта: %w", err)
+		}
+		return nil
+	})
 }
 
 // ==========================================
@@ -179,15 +205,27 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("недопустимый статус для старта: %w", err)
 	}
 
-	// 3. Обогащение ТЗ через LLM
+	// 3. Обогащение ТЗ через LLM.
+	// Fallback на сырой Brief недопустим: бриф может быть до domain.MaxBriefLength
+	// символов, а у Suno промпт ограничен сильнее — такой запрос провайдер отбросит,
+	// и заказ всё равно упадёт. Поэтому при недоступности LLM мы НЕ генерируем
+	// "как-нибудь", а освобождаем аккаунт и возвращаем заказ в очередь: Asynq
+	// повторит задачу с backoff, пока LLM не поднимется.
 	uc.log.Info("генерация текста песни через LLM", "order_id", order.ID())
 	lyrics, err := uc.llmClient.GenerateLyrics(ctx, order.Brief())
 	if err != nil {
-		uc.log.Error("ошибка генерации текста, используется fallback к исходному брифу", "err", err)
-		lyrics = order.Brief()
-	} else {
-		uc.log.Info("текст успешно сгенерирован")
+		uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
+			"order_id", order.ID(), "err", err)
+		// LLM-сбой не вина аккаунта: НЕ инкрементируем failureCount, только
+		// освобождаем слот и откатываем заказ в Queued.
+		account.ReleaseSlot()
+		order.RequeueForRetry()
+		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+			uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
+		}
+		return fmt.Errorf("генерация текста LLM недоступна: %w", err)
 	}
+	uc.log.Info("текст успешно сгенерирован")
 
 	// 4. Отправка структурированного запроса в Suno API
 	req := domain.MusicGenerationRequest{
@@ -202,26 +240,24 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		// Порядок важен: сначала регистрируем ошибку (она может перевести аккаунт в Banned),
 		// только потом Release — иначе Release выставит Active, а RegisterFailure затрёт его Banned.
 		account.RegisterFailure(3)
-		account.Release()
+		account.ReleaseSlot()
 		order.RequeueForRetry()
 
-		if saveErr := uc.accRepo.Update(ctx, account); saveErr != nil {
-			uc.log.Error("не удалось сохранить состояние аккаунта после ошибки Suno", "account_id", account.ID(), "err", saveErr)
-		}
-		if saveErr := uc.orderRepo.Update(ctx, order); saveErr != nil {
-			uc.log.Error("не удалось откатить заказ в Queued после ошибки Suno", "order_id", order.ID(), "err", saveErr)
+		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+			uc.log.Error("не удалось откатить заказ и аккаунт после ошибки Suno",
+				"order_id", order.ID(), "account_id", account.ID(), "err", saveErr)
 		}
 		return fmt.Errorf("сбой провайдера: %w", err)
 	}
 
-	// 5. Атомарно сохраняем заказ (Processing) и состояние аккаунта в одной транзакции.
-	// Аккаунт намеренно ОСТАЁТСЯ в статусе Busy на всё время поллинга — он закреплён
-	// за этим заказом и не должен выдаваться другим задачам. Освобождение (Release)
-	// произойдёт позже: в CheckGenerationStatus при Complete/Fail либо в FailGeneration
-	// при исчерпании ретраев. Единая транзакция исключает рассинхронизацию агрегатов.
-	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
-		// Аккаунт в БД всё ещё Busy, а транзакция откатилась — аккаунт не утёк.
-		// Asynq сделает retry задачи и снова попробует захватить аккаунт.
+	// 5. Атомарно сохраняем заказ (Processing) и состояние аккаунта в одной транзакции
+	// (Unit of Work). Слот аккаунта остаётся занятым на всё время поллинга и
+	// освобождается позже в CheckGenerationStatus (Complete/Fail) либо в
+	// FailGeneration при исчерпании ретраев. Единая транзакция исключает
+	// рассинхронизацию агрегатов.
+	if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
+		// Транзакция откатилась — слот аккаунта в БД не занят. Asynq сделает retry
+		// задачи и снова попробует захватить аккаунт.
 		return fmt.Errorf("атомарное сохранение заказа и аккаунта: %w", err)
 	}
 
@@ -260,21 +296,22 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	switch result.Status {
 	case domain.MusicGenerationStatusFailed:
 		order.Fail(result.Error)
-		account.Release()
+		account.ReleaseSlot()
 	case domain.MusicGenerationStatusCompleted:
 		var domainTracks []domain.Track
 		for i, pt := range result.Tracks {
-			// Перезаливаем трек в собственное S3-хранилище.
-			// Временные ссылки Suno протухают через несколько часов —
-			// клиент не сможет скачать трек позже без этого шага.
+			// Перезаливаем трек в собственное S3-хранилище. Временные ссылки Suno
+			// протухают через несколько часов, поэтому загрузка ОБЯЗАТЕЛЬНА: при
+			// ошибке S3 мы НЕ завершаем заказ временной ссылкой (через пару часов
+			// она отдаст 403), а возвращаем ошибку — Asynq повторит задачу с
+			// backoff. Заказ остаётся в processing, слот аккаунта не освобождается.
+			// Повторная загрузка идемпотентна: тот же S3-ключ перезаписывается.
 			s3Key := fmt.Sprintf("tracks/%s/%d.mp3", order.ID(), i+1)
 			permanentURL, uploadErr := uc.storage.UploadFromURL(ctx, pt.SourceURL, s3Key, "audio/mpeg")
 			if uploadErr != nil {
-				// Падение загрузки в S3 не должно ронять весь цикл:
-				// сохраняем исходную ссылку Suno как fallback и логируем.
-				uc.log.Error("не удалось загрузить трек в S3, используем временную ссылку",
+				uc.log.Error("ошибка загрузки трека в S3, задача будет повторена",
 					"order_id", order.ID(), "track_index", i+1, "err", uploadErr)
-				permanentURL = pt.SourceURL
+				return fmt.Errorf("загрузка трека %d в постоянное хранилище: %w", i+1, uploadErr)
 			}
 			domainTracks = append(domainTracks, domain.Track{
 				ID:          uuid.New(),
@@ -291,13 +328,13 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 
 		_ = account.ConsumeTokens(1)
 		account.ResetFailures()
-		account.Release()
+		account.ReleaseSlot()
 	}
 
-	// Атомарно сохраняем финальный статус заказа и освобождаем аккаунт.
-	// Два отдельных Update создали бы тот же Busy-leak что и в ProcessGenerationTask:
-	// если Update заказа прошёл, а Update аккаунта упал — аккаунт застрянет в Busy навсегда.
-	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
+	// Атомарно сохраняем финальный статус заказа и освобождаем слот аккаунта в
+	// одной транзакции (Unit of Work). Два отдельных Update могли бы оставить
+	// слот занятым навсегда, если первый прошёл, а второй упал.
+	if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
 		return fmt.Errorf("атомарное сохранение финального статуса: %w", err)
 	}
 
@@ -356,8 +393,8 @@ func (uc *OrderUseCase) FailGeneration(ctx context.Context, orderID uuid.UUID, r
 			}
 			return nil
 		}
-		account.Release()
-		if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
+		account.ReleaseSlot()
+		if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
 			return fmt.Errorf("атомарное сохранение провала заказа и освобождения аккаунта: %w", err)
 		}
 		uc.log.Warn("заказ переведён в failed, аккаунт освобождён",

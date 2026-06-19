@@ -41,66 +41,87 @@ func TestNewSunoAccount_NegativeBalance(t *testing.T) {
 	}
 }
 
-// --- MarkBusy / Release ---
+// --- AcquireSlot / ReleaseSlot ---
 
-func TestAccount_MarkBusy(t *testing.T) {
+func TestAccount_AcquireSlot(t *testing.T) {
 	a := newTestAccount(t)
-	if err := a.MarkBusy(); err != nil {
-		t.Fatalf("MarkBusy упал: %v", err)
+	if err := a.AcquireSlot(time.Now().UTC()); err != nil {
+		t.Fatalf("AcquireSlot упал: %v", err)
 	}
-	if a.Status() != AccountStatusBusy {
-		t.Errorf("ожидали Busy, получили %q", a.Status())
+	if a.ConcurrentTasks() != 1 {
+		t.Errorf("ожидали 1 занятый слот, получили %d", a.ConcurrentTasks())
 	}
-}
-
-func TestAccount_MarkBusy_OnlyFromActive(t *testing.T) {
-	a := newTestAccount(t)
-	_ = a.MarkBusy()
-
-	err := a.MarkBusy() // повторный вызов из Busy
-	if err != ErrInvalidAccountTransition {
-		t.Errorf("MarkBusy из Busy должен вернуть ErrInvalidAccountTransition, получили: %v", err)
-	}
-}
-
-func TestAccount_Release_FromBusy(t *testing.T) {
-	a := newTestAccount(t)
-	_ = a.MarkBusy()
-	a.Release()
-
+	// Статус НЕ меняется на busy — занятость выражается счётчиком.
 	if a.Status() != AccountStatusActive {
-		t.Errorf("после Release из Busy ожидали Active, получили %q", a.Status())
+		t.Errorf("статус должен оставаться active, получили %q", a.Status())
 	}
 }
 
-func TestAccount_Release_DoesNotOverwriteBanned(t *testing.T) {
-	// Это ключевой тест для проблемы #1 которую мы исправляли:
-	// RegisterFailure должен вызываться ДО Release, иначе Release перетрёт Banned на Active.
-	a := newTestAccount(t)
-	_ = a.MarkBusy()
+func TestAccount_AcquireSlot_RespectsMaxConcurrency(t *testing.T) {
+	a := newTestAccount(t) // по умолчанию max=1
+	if err := a.AcquireSlot(time.Now().UTC()); err != nil {
+		t.Fatalf("первый захват слота должен пройти: %v", err)
+	}
+	// Лимит исчерпан (1 из 1) — второй захват должен быть отклонён.
+	if err := a.AcquireSlot(time.Now().UTC()); err != ErrInvalidAccountTransition {
+		t.Errorf("захват сверх лимита должен вернуть ErrInvalidAccountTransition, получили %v", err)
+	}
+}
 
-	// Правильный порядок: сначала регистрируем ошибку, потом Release
+func TestAccount_AcquireSlot_ParallelUpToLimit(t *testing.T) {
+	a := newTestAccount(t)
+	if err := a.SetMaxConcurrentTasks(3); err != nil {
+		t.Fatalf("SetMaxConcurrentTasks упал: %v", err)
+	}
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		if err := a.AcquireSlot(now); err != nil {
+			t.Fatalf("слот %d должен захватываться при лимите 3: %v", i+1, err)
+		}
+	}
+	if a.ConcurrentTasks() != 3 {
+		t.Errorf("ожидали 3 занятых слота, получили %d", a.ConcurrentTasks())
+	}
+	if a.IsAvailable(now) {
+		t.Error("при исчерпанном лимите аккаунт не должен быть доступен")
+	}
+}
+
+func TestAccount_ReleaseSlot(t *testing.T) {
+	a := newTestAccount(t)
+	_ = a.AcquireSlot(time.Now().UTC())
+	a.ReleaseSlot()
+
+	if a.ConcurrentTasks() != 0 {
+		t.Errorf("после ReleaseSlot ожидали 0 занятых слотов, получили %d", a.ConcurrentTasks())
+	}
+	if !a.IsAvailable(time.Now().UTC()) {
+		t.Error("после освобождения слота аккаунт снова должен быть доступен")
+	}
+}
+
+func TestAccount_ReleaseSlot_DoesNotOverwriteBanned(t *testing.T) {
+	// Ключевой инвариант: ReleaseSlot не меняет статус, поэтому не перетирает
+	// Banned обратно в active — независимо от порядка с RegisterFailure.
+	a := newTestAccount(t)
+	_ = a.AcquireSlot(time.Now().UTC())
+
 	a.RegisterFailure(1) // порог 1 → сразу Banned
-	a.Release()          // Release не должен перетереть Banned
+	a.ReleaseSlot()
 
 	if a.Status() != AccountStatusBanned {
-		t.Errorf("Release не должен перетирать Banned: ожидали Banned, получили %q", a.Status())
+		t.Errorf("ReleaseSlot не должен перетирать Banned: ожидали Banned, получили %q", a.Status())
+	}
+	if a.ConcurrentTasks() != 0 {
+		t.Errorf("слот должен освободиться даже у забаненного аккаунта, занято=%d", a.ConcurrentTasks())
 	}
 }
 
-func TestAccount_Release_WrongOrder_WouldBeBug(t *testing.T) {
-	// Демонстрация бага: Release → RegisterFailure в неправильном порядке.
-	// Этот тест фиксирует ПРАВИЛЬНОЕ поведение домена:
-	// Release сначала ставит Active, потом RegisterFailure ставит Banned — итог всё равно Banned.
-	// Баг был в usecase (не в домене), и мы его уже исправили.
+func TestAccount_ReleaseSlot_NeverNegative(t *testing.T) {
 	a := newTestAccount(t)
-	_ = a.MarkBusy()
-
-	a.Release()          // Active
-	a.RegisterFailure(1) // Banned
-
-	if a.Status() != AccountStatusBanned {
-		t.Errorf("после Release+RegisterFailure ожидали Banned, получили %q", a.Status())
+	a.ReleaseSlot() // лишний вызов без захвата не должен уводить счётчик в минус
+	if a.ConcurrentTasks() != 0 {
+		t.Errorf("счётчик слотов не должен становиться отрицательным, получили %d", a.ConcurrentTasks())
 	}
 }
 

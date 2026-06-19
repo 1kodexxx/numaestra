@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"unicode/utf8"
@@ -23,13 +24,17 @@ type OrderHandler struct {
 	uc  *usecase.OrderUseCase
 	log *slog.Logger
 	rk  *robokassa.Client
+	// webhookAllowedNets — подсети, с которых принимается вебхук Robokassa.
+	// Пустой список отключает IP-фильтрацию (остаётся только проверка подписи).
+	webhookAllowedNets []*net.IPNet
 }
 
-func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client) *OrderHandler {
+func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client, webhookAllowedNets []*net.IPNet) *OrderHandler {
 	return &OrderHandler{
-		uc:  uc,
-		log: log,
-		rk:  rk,
+		uc:                 uc,
+		log:                log,
+		rk:                 rk,
+		webhookAllowedNets: webhookAllowedNets,
 	}
 }
 
@@ -55,8 +60,11 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Post("/", h.CreateOrder)
 	})
 
-	// Вебхук оплаты — отдельный лимитер, не зависящий от клиентского трафика.
+	// Вебхук оплаты — отдельный лимитер, не зависящий от клиентского трафика,
+	// плюс фильтрация по IP-подсетям Robokassa (если они сконфигурированы):
+	// ResultURL должен приходить только с официальных адресов шлюза.
 	r.Group(func(r chi.Router) {
+		r.Use(IPAllowlist(h.webhookAllowedNets))
 		r.Use(webhookLimiter)
 		r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
 	})

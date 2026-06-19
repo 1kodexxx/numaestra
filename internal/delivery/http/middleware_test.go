@@ -122,6 +122,49 @@ func TestMaxBodyBytes_AllowsSmallBody(t *testing.T) {
 	}
 }
 
+func TestIPAllowlist_AllowsConfiguredAndBlocksOthers(t *testing.T) {
+	nets, err := ParseCIDRs([]string{"185.59.216.0/24", "1.2.3.4"})
+	if err != nil {
+		t.Fatalf("ParseCIDRs упал: %v", err)
+	}
+	h := IPAllowlist(nets)(okHandler())
+
+	do := func(ip string) int {
+		req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", nil)
+		req.RemoteAddr = ip + ":40000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if code := do("185.59.216.10"); code != http.StatusOK {
+		t.Errorf("IP из разрешённой подсети должен проходить, получили %d", code)
+	}
+	if code := do("1.2.3.4"); code != http.StatusOK {
+		t.Errorf("разрешённый одиночный IP должен проходить, получили %d", code)
+	}
+	if code := do("8.8.8.8"); code != http.StatusForbidden {
+		t.Errorf("посторонний IP должен получать 403, получили %d", code)
+	}
+}
+
+func TestIPAllowlist_EmptyDisablesFilter(t *testing.T) {
+	h := IPAllowlist(nil)(okHandler())
+	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", nil)
+	req.RemoteAddr = "8.8.8.8:40000"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("пустой список должен пропускать любой IP, получили %d", rec.Code)
+	}
+}
+
+func TestParseCIDRs_RejectsInvalid(t *testing.T) {
+	if _, err := ParseCIDRs([]string{"not-an-ip"}); err == nil {
+		t.Error("ожидали ошибку для некорректной записи")
+	}
+}
+
 func TestRateLimiter_SeparatePerIP(t *testing.T) {
 	h := RateLimiter(1, 1)(okHandler())
 

@@ -32,9 +32,9 @@ func newTestHandler(t *testing.T) (*OrderHandler, http.Handler, *hOrderRepo) {
 	t.Helper()
 	repo := newHOrderRepo()
 	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, pricing, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, pricing, hTxManager{}, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
-	h := NewOrderHandler(uc, discardLogger(), rk)
+	h := NewOrderHandler(uc, discardLogger(), rk, nil)
 	return h, h.Routes(), repo
 }
 
@@ -400,10 +400,6 @@ func (r *hOrderRepo) ListByCustomerPhone(_ context.Context, phone string) ([]*do
 	return out, nil
 }
 
-func (r *hOrderRepo) SaveWithAccount(_ context.Context, o *domain.Order, _ *domain.SunoAccount) error {
-	return r.Update(context.Background(), o)
-}
-
 func (r *hOrderRepo) NextInvoiceID(_ context.Context) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -432,3 +428,12 @@ func (q *hQueue) EnqueueStatusCheckTask(_ context.Context, _ uuid.UUID, _ string
 }
 
 var _ domain.QueuePublisher = (*hQueue)(nil)
+
+// hTxManager — заглушка Unit of Work для HTTP-тестов.
+type hTxManager struct{}
+
+func (hTxManager) Do(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+var _ usecase.TransactionManager = hTxManager{}

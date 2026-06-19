@@ -26,9 +26,9 @@ type inMemOrderRepo struct {
 	seq       int64
 
 	// Хуки инъекции ошибок для проверки путей сбоя.
-	createErr          error
-	saveWithAccountErr error
-	applyPaymentErr    error
+	createErr       error
+	updateErr       error
+	applyPaymentErr error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -77,6 +77,9 @@ func (r *inMemOrderRepo) GetByInvoiceID(_ context.Context, invoiceID int64) (*do
 func (r *inMemOrderRepo) Update(_ context.Context, order *domain.Order) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	if _, ok := r.orders[order.ID()]; !ok {
 		return domain.ErrOrderNotFound
 	}
@@ -126,20 +129,6 @@ func (r *inMemOrderRepo) ListByCustomerPhone(_ context.Context, phone string) ([
 	return out, nil
 }
 
-func (r *inMemOrderRepo) SaveWithAccount(_ context.Context, order *domain.Order, account *domain.SunoAccount) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.saveWithAccountErr != nil {
-		return r.saveWithAccountErr
-	}
-	if _, ok := r.orders[order.ID()]; !ok {
-		return domain.ErrOrderNotFound
-	}
-	r.save(order)
-	accSaveSnapshot(account)
-	return nil
-}
-
 func (r *inMemOrderRepo) NextInvoiceID(_ context.Context) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -160,9 +149,17 @@ func (r *inMemOrderRepo) GetByAccessToken(_ context.Context, token string) (*dom
 
 var _ domain.OrderRepository = (*inMemOrderRepo)(nil)
 
-// accSaveSnapshot — placeholder, чтобы зафиксировать, что SaveWithAccount
-// сохраняет и аккаунт; реальное состояние аккаунта проверяется через accRepo.
-func accSaveSnapshot(_ *domain.SunoAccount) {}
+// --- passthrough TransactionManager ---
+
+// fakeTxManager выполняет fn без реальной транзакции: in-memory репозитории сами
+// по себе атомарны, нам достаточно сохранить семантику оркестрации Unit of Work.
+type fakeTxManager struct{}
+
+func (fakeTxManager) Do(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+var _ TransactionManager = fakeTxManager{}
 
 // --- in-memory AccountRepository ---
 
@@ -193,13 +190,11 @@ func (r *inMemAccountRepo) FetchAndLockAvailable(_ context.Context) (*domain.Sun
 	}
 	for _, snap := range r.accounts {
 		acc := domain.RestoreSunoAccount(snap)
-		if acc.IsAvailable(time.Now().UTC()) {
-			if err := acc.MarkBusy(); err != nil {
-				continue
-			}
-			r.accounts[acc.ID()] = acc.Snapshot()
-			return acc, nil
+		if err := acc.AcquireSlot(time.Now().UTC()); err != nil {
+			continue
 		}
+		r.accounts[acc.ID()] = acc.Snapshot()
+		return acc, nil
 	}
 	return nil, domain.ErrNoAvailableAccount
 }
@@ -244,6 +239,14 @@ func (r *inMemAccountRepo) statusOf(id uuid.UUID) domain.AccountStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.accounts[id].Status
+}
+
+// concurrentOf возвращает число занятых слотов аккаунта — используется тестами,
+// чтобы проверить, что слот корректно освобождён после завершения/провала задачи.
+func (r *inMemAccountRepo) concurrentOf(id uuid.UUID) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.accounts[id].ConcurrentTasks
 }
 
 var _ domain.AccountRepository = (*inMemAccountRepo)(nil)

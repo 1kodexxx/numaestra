@@ -46,6 +46,10 @@ type RobokassaConfig struct {
 	Password1     string // Для генерации платежной ссылки
 	Password2     string // Для проверки подписи вебхука
 	IsTest        bool   // Флаг тестового режима
+	// AllowedIPs — список IP/CIDR, с которых принимаются вебхуки ResultURL.
+	// Пустой список отключает фильтрацию по IP (подпись проверяется всегда).
+	// Актуальные подсети Robokassa см. в их документации/поддержке.
+	AllowedIPs []string
 }
 
 type SunoConfig struct {
@@ -98,7 +102,8 @@ func Load() (*Config, error) {
 			// Дефолт false: в проде безопаснее «боевой» режим. Тестовый режим
 			// нужно включать осознанно через ROBOKASSA_IS_TEST=true в dev-окружении,
 			// иначе платежи уходят в тест и Robokassa их не зачисляет.
-			IsTest: getBoolEnv("ROBOKASSA_IS_TEST", false),
+			IsTest:     getBoolEnv("ROBOKASSA_IS_TEST", false),
+			AllowedIPs: getCSVEnv("ROBOKASSA_ALLOWED_IPS"),
 		},
 		Suno: SunoConfig{
 			APIURL: getEnv("SUNO_API_URL", "https://api.custom-suno.local"),

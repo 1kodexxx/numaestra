@@ -94,6 +94,7 @@ func run(ctx context.Context) error {
 	// 4. Dependency Injection.
 	accountRepo := postgres.NewAccountRepository(pgPool)
 	orderRepo := postgres.NewOrderRepository(pgPool)
+	txManager := postgres.NewTxManager(pgPool)
 	queuePublisher := queue.NewAsynqPublisher(asynqClient)
 
 	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
@@ -111,7 +112,7 @@ func run(ctx context.Context) error {
 	// Прайс определяется сервером по тарифу: цена не принимается из запроса клиента.
 	pricing := usecase.NewStaticPricing(cfg.Pricing.Plans, cfg.Pricing.DefaultPlan)
 
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, pricing, log)
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, pricing, txManager, log)
 
 	// 5. Asynq Worker.
 	processor := worker.NewOrderProcessor(orderUC, log)
@@ -157,7 +158,11 @@ func run(ctx context.Context) error {
 
 	// 6. HTTP-хендлеры и роутер.
 	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
-	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient)
+	webhookAllowedNets, err := apphttp.ParseCIDRs(cfg.Robokassa.AllowedIPs)
+	if err != nil {
+		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)
+	}
+	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets)
 	healthChecker := health.New(pgPool, redisOpt)
 	router := newRouter(log, orderHandler, healthChecker, cfg.HTTP)
 

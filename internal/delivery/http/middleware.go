@@ -1,6 +1,7 @@
 package apphttp
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -9,6 +10,63 @@ import (
 
 	"golang.org/x/time/rate"
 )
+
+// ParseCIDRs преобразует список строк (IP или CIDR) в подсети net.IPNet.
+// Одиночный IP трактуется как /32 (IPv4) либо /128 (IPv6). Возвращает ошибку,
+// если хотя бы одна запись некорректна, чтобы неверная конфигурация не привела
+// к молчаливому пропуску всех адресов.
+func ParseCIDRs(entries []string) ([]*net.IPNet, error) {
+	nets := make([]*net.IPNet, 0, len(entries))
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if strings.Contains(e, "/") {
+			_, ipNet, err := net.ParseCIDR(e)
+			if err != nil {
+				return nil, fmt.Errorf("некорректный CIDR %q: %w", e, err)
+			}
+			nets = append(nets, ipNet)
+			continue
+		}
+		ip := net.ParseIP(e)
+		if ip == nil {
+			return nil, fmt.Errorf("некорректный IP %q", e)
+		}
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		}
+		nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+	}
+	return nets, nil
+}
+
+// IPAllowlist возвращает middleware, пропускающее запрос только если IP клиента
+// входит в одну из разрешённых подсетей. Используется для вебхуков платёжного
+// шлюза (ResultURL Robokassa), которые должны приходить только с его адресов.
+// Если список пуст, middleware пропускает все запросы (фильтр отключён) — это
+// удобно для dev и не ломает работу, пока подсети не сконфигурированы.
+func IPAllowlist(allowed []*net.IPNet) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if len(allowed) == 0 {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := net.ParseIP(clientIP(r))
+			if ip != nil {
+				for _, n := range allowed {
+					if n.Contains(ip) {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
+			http.Error(w, "доступ запрещён", http.StatusForbidden)
+		})
+	}
+}
 
 // CORSOptions настраивает поведение CORS-middleware.
 type CORSOptions struct {

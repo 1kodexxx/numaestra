@@ -21,34 +21,39 @@ func NewOrderRepository(pool *pgxpool.Pool) *OrderRepository {
 
 var _ domain.OrderRepository = (*OrderRepository)(nil)
 
+// conn возвращает исполнитель запросов: транзакцию из контекста (если репозиторий
+// вызван внутри Unit of Work) либо пул соединений. Так одни и те же методы
+// работают и автономно, и внутри общей транзакции, открытой TxManager.
+func (r *OrderRepository) conn(ctx context.Context) dbConn {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx
+	}
+	return r.pool
+}
+
 func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error {
 	snap := order.Snapshot()
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
+	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
+		queryOrder := `
+			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		`
+		_, err := db.Exec(ctx, queryOrder,
+			snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
+			snap.AmountKopecks, snap.Currency, snap.PaymentStatus, snap.GenerationStatus,
+			snap.AssignedAccountID, snap.FailureReason, snap.AccessToken, snap.CreatedAt, snap.UpdatedAt,
+			snap.PaidAt, snap.CompletedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("insert order: %w", err)
+		}
 
-	queryOrder := `
-		INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-	`
-	_, err = tx.Exec(ctx, queryOrder,
-		snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
-		snap.AmountKopecks, snap.Currency, snap.PaymentStatus, snap.GenerationStatus,
-		snap.AssignedAccountID, snap.FailureReason, snap.AccessToken, snap.CreatedAt, snap.UpdatedAt,
-		snap.PaidAt, snap.CompletedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("insert order: %w", err)
-	}
-
-	if err := r.saveTracks(ctx, tx, snap.ID, snap.Tracks); err != nil {
-		return fmt.Errorf("save tracks: %w", err)
-	}
-
-	return tx.Commit(ctx)
+		if err := r.saveTracks(ctx, db, snap.ID, snap.Tracks); err != nil {
+			return fmt.Errorf("save tracks: %w", err)
+		}
+		return nil
+	})
 }
 
 func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
@@ -57,7 +62,7 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Or
 		FROM orders WHERE id = $1
 	`
 	var snap domain.OrderSnapshot
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	err := r.conn(ctx).QueryRow(ctx, query, id).Scan(
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -85,7 +90,7 @@ func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (
 		FROM orders WHERE invoice_id = $1
 	`
 	var snap domain.OrderSnapshot
-	err := r.pool.QueryRow(ctx, query, invoiceID).Scan(
+	err := r.conn(ctx).QueryRow(ctx, query, invoiceID).Scan(
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -110,30 +115,25 @@ func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (
 func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error {
 	snap := order.Snapshot()
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
+	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
+		query := `
+			UPDATE orders
+			SET payment_status = $1, generation_status = $2, assigned_account_id = $3, failure_reason = $4, updated_at = $5, paid_at = $6, completed_at = $7
+			WHERE id = $8
+		`
+		cmd, err := db.Exec(ctx, query, snap.PaymentStatus, snap.GenerationStatus, snap.AssignedAccountID, snap.FailureReason, snap.UpdatedAt, snap.PaidAt, snap.CompletedAt, snap.ID)
+		if err != nil {
+			return fmt.Errorf("update order: %w", err)
+		}
+		if cmd.RowsAffected() == 0 {
+			return domain.ErrOrderNotFound
+		}
 
-	query := `
-		UPDATE orders
-		SET payment_status = $1, generation_status = $2, assigned_account_id = $3, failure_reason = $4, updated_at = $5, paid_at = $6, completed_at = $7
-		WHERE id = $8
-	`
-	cmd, err := tx.Exec(ctx, query, snap.PaymentStatus, snap.GenerationStatus, snap.AssignedAccountID, snap.FailureReason, snap.UpdatedAt, snap.PaidAt, snap.CompletedAt, snap.ID)
-	if err != nil {
-		return fmt.Errorf("update order: %w", err)
-	}
-	if cmd.RowsAffected() == 0 {
-		return domain.ErrOrderNotFound
-	}
-
-	if err := r.saveTracks(ctx, tx, snap.ID, snap.Tracks); err != nil {
-		return fmt.Errorf("update tracks: %w", err)
-	}
-
-	return tx.Commit(ctx)
+		if err := r.saveTracks(ctx, db, snap.ID, snap.Tracks); err != nil {
+			return fmt.Errorf("update tracks: %w", err)
+		}
+		return nil
+	})
 }
 
 // ApplyPaymentSuccess атомарно и идемпотентно переводит заказ в paid+queued.
@@ -149,7 +149,7 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 		SET payment_status = $1, generation_status = $2, updated_at = $3, paid_at = $4
 		WHERE id = $5 AND payment_status = 'pending'
 	`
-	cmd, err := r.pool.Exec(ctx, query,
+	cmd, err := r.conn(ctx).Exec(ctx, query,
 		snap.PaymentStatus, snap.GenerationStatus, snap.UpdatedAt, snap.PaidAt, snap.ID,
 	)
 	if err != nil {
@@ -164,7 +164,7 @@ func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string)
 		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC
 	`
-	rows, err := r.pool.Query(ctx, orderQuery, email)
+	rows, err := r.conn(ctx).Query(ctx, orderQuery, email)
 	if err != nil {
 		return nil, fmt.Errorf("list orders by email: %w", err)
 	}
@@ -217,7 +217,7 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 		WHERE order_id = ANY($1)
 		ORDER BY order_id, index ASC
 	`
-	rows, err := r.pool.Query(ctx, query, orderIDs)
+	rows, err := r.conn(ctx).Query(ctx, query, orderIDs)
 	if err != nil {
 		return nil, fmt.Errorf("batch select tracks: %w", err)
 	}
@@ -243,7 +243,7 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string)
 		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC
 	`
-	rows, err := r.pool.Query(ctx, orderQuery, phone)
+	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone)
 	if err != nil {
 		return nil, fmt.Errorf("list orders by phone: %w", err)
 	}
@@ -285,60 +285,6 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string)
 	return orders, nil
 }
 
-// SaveWithAccount атомарно сохраняет изменения заказа и аккаунта в одной транзакции.
-// Решает проблему "Busy-leak": если после SubmitGeneration упадёт сохранение заказа,
-// аккаунт откатится вместе с ним и не застрянет в статусе Busy навсегда.
-func (r *OrderRepository) SaveWithAccount(ctx context.Context, order *domain.Order, account *domain.SunoAccount) error {
-	orderSnap := order.Snapshot()
-	accSnap := account.Snapshot()
-
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	orderQuery := `
-		UPDATE orders
-		SET payment_status = $1, generation_status = $2, assigned_account_id = $3, failure_reason = $4, updated_at = $5, paid_at = $6, completed_at = $7
-		WHERE id = $8
-	`
-	cmd, err := tx.Exec(ctx, orderQuery,
-		orderSnap.PaymentStatus, orderSnap.GenerationStatus, orderSnap.AssignedAccountID,
-		orderSnap.FailureReason, orderSnap.UpdatedAt, orderSnap.PaidAt, orderSnap.CompletedAt,
-		orderSnap.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update order in SaveWithAccount: %w", err)
-	}
-	if cmd.RowsAffected() == 0 {
-		return domain.ErrOrderNotFound
-	}
-
-	if err := r.saveTracks(ctx, tx, orderSnap.ID, orderSnap.Tracks); err != nil {
-		return fmt.Errorf("save tracks in SaveWithAccount: %w", err)
-	}
-
-	accQuery := `
-		UPDATE suno_accounts
-		SET status = $1, token_balance = $2, failure_count = $3, cooldown_until = $4, last_used_at = $5, updated_at = $6
-		WHERE id = $7
-	`
-	cmd, err = tx.Exec(ctx, accQuery,
-		accSnap.Status, accSnap.TokenBalance, accSnap.FailureCount,
-		accSnap.CooldownUntil, accSnap.LastUsedAt, accSnap.UpdatedAt,
-		accSnap.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update account in SaveWithAccount: %w", err)
-	}
-	if cmd.RowsAffected() == 0 {
-		return domain.ErrAccountNotFound
-	}
-
-	return tx.Commit(ctx)
-}
-
 // GetByAccessToken находит заказ по токену доступа клиента.
 func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*domain.Order, error) {
 	query := `
@@ -346,7 +292,7 @@ func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*
 		FROM orders WHERE access_token = $1
 	`
 	var snap domain.OrderSnapshot
-	err := r.pool.QueryRow(ctx, query, token).Scan(
+	err := r.conn(ctx).QueryRow(ctx, query, token).Scan(
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -370,13 +316,13 @@ func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*
 // NextInvoiceID возвращает следующий уникальный InvId из PostgreSQL sequence.
 func (r *OrderRepository) NextInvoiceID(ctx context.Context) (int64, error) {
 	var id int64
-	if err := r.pool.QueryRow(ctx, "SELECT nextval('invoice_id_seq')").Scan(&id); err != nil {
+	if err := r.conn(ctx).QueryRow(ctx, "SELECT nextval('invoice_id_seq')").Scan(&id); err != nil {
 		return 0, fmt.Errorf("nextval invoice_id_seq: %w", err)
 	}
 	return id, nil
 }
 
-func (r *OrderRepository) saveTracks(ctx context.Context, tx pgx.Tx, orderID uuid.UUID, tracks []domain.Track) error {
+func (r *OrderRepository) saveTracks(ctx context.Context, db dbConn, orderID uuid.UUID, tracks []domain.Track) error {
 	if len(tracks) == 0 {
 		return nil
 	}
@@ -387,7 +333,7 @@ func (r *OrderRepository) saveTracks(ctx context.Context, tx pgx.Tx, orderID uui
 		SET audio_url = EXCLUDED.audio_url, duration_sec = EXCLUDED.duration_sec, suno_track_id = EXCLUDED.suno_track_id
 	`
 	for _, t := range tracks {
-		_, err := tx.Exec(ctx, query, t.ID, orderID, t.Index, t.AudioURL, t.DurationSec, t.SunoTrackID)
+		_, err := db.Exec(ctx, query, t.ID, orderID, t.Index, t.AudioURL, t.DurationSec, t.SunoTrackID)
 		if err != nil {
 			return err
 		}
@@ -397,7 +343,7 @@ func (r *OrderRepository) saveTracks(ctx context.Context, tx pgx.Tx, orderID uui
 
 func (r *OrderRepository) getTracksForOrder(ctx context.Context, orderID uuid.UUID) ([]domain.Track, error) {
 	query := `SELECT id, index, audio_url, duration_sec, suno_track_id FROM tracks WHERE order_id = $1 ORDER BY index ASC`
-	rows, err := r.pool.Query(ctx, query, orderID)
+	rows, err := r.conn(ctx).Query(ctx, query, orderID)
 	if err != nil {
 		return nil, err
 	}
