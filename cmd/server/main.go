@@ -23,9 +23,11 @@ import (
 	sunorepo "github.com/numaestra/numaestra/internal/repository/suno"
 	"github.com/numaestra/numaestra/internal/usecase"
 	"github.com/numaestra/numaestra/internal/worker"
+	"github.com/numaestra/numaestra/migrations"
 	"github.com/numaestra/numaestra/pkg/banner"
 	"github.com/numaestra/numaestra/pkg/logger"
-	"github.com/numaestra/numaestra/pkg/openai" // <-- ДОБАВЛЕН ИМПОРТ LLM
+	"github.com/numaestra/numaestra/pkg/migrate"
+	"github.com/numaestra/numaestra/pkg/openai"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
@@ -65,6 +67,13 @@ func run(ctx context.Context) error {
 	}
 	log.Info("соединение с postgres установлено")
 
+	// Применяем SQL-миграции при каждом старте.
+	// Уже применённые файлы пропускаются — идемпотентно и безопасно.
+	if err := migrate.Run(ctx, pgPool, migrations.FS, log); err != nil {
+		return fmt.Errorf("применение миграций: %w", err)
+	}
+	log.Info("миграции применены")
+
 	asynqClient := asynq.NewClient(asynq.RedisClientOpt{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
@@ -86,7 +95,7 @@ func run(ctx context.Context) error {
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
 	// Инициализируем LLM Клиент (OpenRouter / OpenAI)
-	llmClient := openai.NewClient("", cfg.OpenAI.APIKey) // <-- ДОБАВЛЕНА ИНИЦИАЛИЗАЦИЯ LLM
+	llmClient := openai.NewClient(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
 
 	// Бизнес-логика (Use-Case)
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, llmClient, log) // <-- ПЕРЕДАН llmClient

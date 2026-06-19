@@ -45,7 +45,8 @@ type SunoConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey string
+	BaseURL string // По умолчанию OpenRouter; можно переключить на прямой OpenAI
+	APIKey  string
 }
 
 // Load считывает переменные окружения и собирает их в структуру Config.
@@ -75,7 +76,8 @@ func Load() (*Config, error) {
 			APIKey: getEnv("SUNO_API_KEY", ""),
 		},
 		OpenAI: OpenAIConfig{
-			APIKey: getEnv("OPENAI_API_KEY", ""),
+			BaseURL: getEnv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
+			APIKey:  getEnv("OPENAI_API_KEY", ""),
 		},
 	}
 

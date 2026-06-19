@@ -10,7 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - numaestra_pgdata:/var/lib/postgresql/data
-      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # init.sql убран: схема создаётся через migrate.Run при старте сервиса.
+      # Новые миграции добавляются как 0002_*.sql, 0003_*.sql и т.д.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U numaestra -d numaestra"]
       interval: 5s
