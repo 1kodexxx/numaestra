@@ -31,8 +31,8 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 	defer tx.Rollback(ctx)
 
 	queryOrder := `
-		INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, created_at, updated_at, paid_at, completed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`
 	_, err = tx.Exec(ctx, queryOrder,
 		snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
@@ -53,14 +53,14 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE id = $1
 	`
 	var snap domain.OrderSnapshot
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.CreatedAt, &snap.UpdatedAt,
+		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
 		&snap.PaidAt, &snap.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -81,14 +81,14 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Or
 
 func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE invoice_id = $1
 	`
 	var snap domain.OrderSnapshot
 	err := r.pool.QueryRow(ctx, query, invoiceID).Scan(
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.CreatedAt, &snap.UpdatedAt,
+		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
 		&snap.PaidAt, &snap.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -139,7 +139,7 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string) ([]*domain.Order, error) {
 	// 1. Загружаем все заказы клиента одним запросом.
 	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC
 	`
 	rows, err := r.pool.Query(ctx, orderQuery, email)
@@ -155,7 +155,7 @@ func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string)
 		err := rows.Scan(
 			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
 			&snap.PaidAt, &snap.CompletedAt,
 		)
 		if err != nil {
@@ -218,7 +218,7 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 
 func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string) ([]*domain.Order, error) {
 	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC
 	`
 	rows, err := r.pool.Query(ctx, orderQuery, phone)
@@ -234,7 +234,7 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string)
 		err := rows.Scan(
 			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
 			&snap.PaidAt, &snap.CompletedAt,
 		)
 		if err != nil {
@@ -315,6 +315,34 @@ func (r *OrderRepository) SaveWithAccount(ctx context.Context, order *domain.Ord
 	}
 
 	return tx.Commit(ctx)
+}
+
+// GetByAccessToken находит заказ по токену доступа клиента.
+func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*domain.Order, error) {
+	query := `
+		SELECT id, invoice_id, customer_email, customer_phone, brief, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		FROM orders WHERE access_token = $1
+	`
+	var snap domain.OrderSnapshot
+	err := r.pool.QueryRow(ctx, query, token).Scan(
+		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
+		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
+		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+		&snap.PaidAt, &snap.CompletedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrOrderNotFound
+		}
+		return nil, fmt.Errorf("get order by access token: %w", err)
+	}
+
+	tracks, err := r.getTracksForOrder(ctx, snap.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get tracks for order: %w", err)
+	}
+	snap.Tracks = tracks
+	return domain.RestoreOrder(snap), nil
 }
 
 // NextInvoiceID возвращает следующий уникальный InvId из PostgreSQL sequence.

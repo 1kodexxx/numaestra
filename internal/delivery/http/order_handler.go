@@ -2,8 +2,8 @@
 package apphttp
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -30,15 +30,48 @@ func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.C
 	}
 }
 
+// ctxKey — приватный тип для ключей контекста, исключает коллизии с другими пакетами.
+type ctxKey string
+
+const ctxKeyOrder ctxKey = "order"
+
 func (h *OrderHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
+	// Публичные маршруты — без токена.
 	r.Post("/", h.CreateOrder)
-	r.Get("/", h.ListOrders)
-	r.Get("/{id}", h.GetOrder)
 	r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
 
+	// Защищённые маршруты — требуют X-Access-Token заголовок.
+	r.Group(func(r chi.Router) {
+		r.Use(h.requireOrderAccess)
+		r.Get("/", h.ListOrders)
+		r.Get("/{id}", h.GetOrder)
+	})
+
 	return r
+}
+
+// requireOrderAccess — middleware проверки токена доступа.
+// Токен передаётся в заголовке X-Access-Token.
+// При успехе кладёт найденный заказ в контекст для использования в хендлерах.
+func (h *OrderHandler) requireOrderAccess(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("X-Access-Token")
+		if token == "" {
+			h.errorResponse(w, http.StatusUnauthorized, "требуется заголовок X-Access-Token")
+			return
+		}
+
+		order, err := h.uc.GetOrderByToken(r.Context(), token)
+		if err != nil {
+			h.errorResponse(w, http.StatusUnauthorized, "неверный токен доступа")
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), ctxKeyOrder, order)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // --- DTO (Структуры для JSON) ---
@@ -155,21 +188,18 @@ type OrderDetailResponse struct {
 }
 
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	// Заказ уже загружен и проверен middleware requireOrderAccess.
+	order := r.Context().Value(ctxKeyOrder).(*domain.Order)
+
+	// Дополнительно проверяем что ID в URL совпадает с заказом из токена.
 	idParam := chi.URLParam(r, "id")
 	orderID, err := uuid.Parse(idParam)
 	if err != nil {
 		h.errorResponse(w, http.StatusBadRequest, "некорректный ID заказа")
 		return
 	}
-
-	order, err := h.uc.GetOrder(r.Context(), orderID)
-	if err != nil {
-		if errors.Is(err, domain.ErrOrderNotFound) {
-			h.errorResponse(w, http.StatusNotFound, "заказ не найден")
-		} else {
-			h.log.Error("ошибка получения заказа", "order_id", orderID, "err", err)
-			h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
-		}
+	if order.ID() != orderID {
+		h.errorResponse(w, http.StatusForbidden, "токен не соответствует этому заказу")
 		return
 	}
 
@@ -207,25 +237,20 @@ type OrderSummaryResponse struct {
 // GET /api/v1/orders?phone=+79991234567
 // Параметры взаимоисключающие; email имеет приоритет если указаны оба.
 func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
-	email := r.URL.Query().Get("email")
-	phone := r.URL.Query().Get("phone")
-
-	if email == "" && phone == "" {
-		h.errorResponse(w, http.StatusBadRequest, "необходим параметр email или phone")
-		return
-	}
+	// Заказ из токена определяет владельца — возвращаем все его заказы по email или телефону.
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
 
 	var (
-		orders []*domain.Order // domain imported above
+		orders []*domain.Order
 		err    error
 	)
-	if email != "" {
-		orders, err = h.uc.ListOrdersByEmail(r.Context(), email)
+	if owner.CustomerEmail() != "" {
+		orders, err = h.uc.ListOrdersByEmail(r.Context(), owner.CustomerEmail())
 	} else {
-		orders, err = h.uc.ListOrdersByPhone(r.Context(), phone)
+		orders, err = h.uc.ListOrdersByPhone(r.Context(), owner.CustomerPhone())
 	}
 	if err != nil {
-		h.log.Error("ошибка получения списка заказов", "email", email, "phone", phone, "err", err)
+		h.log.Error("ошибка получения списка заказов", "err", err)
 		h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}

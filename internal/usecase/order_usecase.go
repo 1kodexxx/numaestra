@@ -309,3 +309,14 @@ func (uc *OrderUseCase) ListOrdersByPhone(ctx context.Context, phone string) ([]
 	}
 	return orders, nil
 }
+
+func (uc *OrderUseCase) GetOrderByToken(ctx context.Context, token string) (*domain.Order, error) {
+	if token == "" {
+		return nil, domain.ErrOrderUnauthorized
+	}
+	order, err := uc.orderRepo.GetByAccessToken(ctx, token)
+	if err != nil {
+		return nil, domain.ErrOrderUnauthorized
+	}
+	return order, nil
+}

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS orders (
     generation_status VARCHAR(50) NOT NULL,
     assigned_account_id UUID REFERENCES suno_accounts(id) ON DELETE SET NULL,
     failure_reason TEXT,
+    access_token   VARCHAR(64) NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     paid_at TIMESTAMPTZ,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_customer_email ON orders(customer_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_access_token ON orders(access_token) WHERE access_token <> '';
 CREATE INDEX IF NOT EXISTS idx_orders_customer_phone ON orders(customer_phone);
 CREATE INDEX IF NOT EXISTS idx_orders_invoice_id ON orders(invoice_id);
 

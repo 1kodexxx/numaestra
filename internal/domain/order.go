@@ -2,7 +2,10 @@ package domain
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +38,7 @@ var (
 	ErrOrderNotPaid                = errors.New("заказ не оплачен")
 	ErrInvalidGenerationTransition = errors.New("недопустимый переход статуса генерации")
 	ErrInvalidPaymentTransition    = errors.New("недопустимый переход статуса оплаты")
+	ErrOrderUnauthorized           = errors.New("неверный или отсутствующий токен доступа")
 )
 
 // Track - один из сгенерированных вариантов песни (обычно 4 версии на заказ).
@@ -68,6 +72,10 @@ type Order struct {
 	tracks            []Track
 	failureReason     string
 
+	// accessToken — криптостойкий токен выданный клиенту при создании заказа.
+	// Предъявляется в заголовке X-Access-Token для доступа к данным заказа.
+	accessToken string
+
 	createdAt   time.Time
 	updatedAt   time.Time
 	paidAt      *time.Time
@@ -87,6 +95,12 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief string, amoun
 	}
 
 	now := time.Now().UTC()
+
+	token, err := generateAccessToken()
+	if err != nil {
+		return nil, fmt.Errorf("генерация токена доступа: %w", err)
+	}
+
 	return &Order{
 		id:               uuid.New(),
 		invoiceID:        invoiceID,
@@ -97,9 +111,19 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief string, amoun
 		currency:         "RUB",
 		paymentStatus:    PaymentStatusPending,
 		generationStatus: GenerationStatusNew,
+		accessToken:      token,
 		createdAt:        now,
 		updatedAt:        now,
 	}, nil
+}
+
+// generateAccessToken создаёт криптостойкий токен из 32 случайных байт (64 hex-символа).
+func generateAccessToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // OrderSnapshot - сырые данные заказа из хранилища для восстановления агрегата.
@@ -116,6 +140,7 @@ type OrderSnapshot struct {
 	AssignedAccountID *uuid.UUID
 	Tracks            []Track
 	FailureReason     string
+	AccessToken       string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	PaidAt            *time.Time
@@ -130,7 +155,8 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		amountKopecks: s.AmountKopecks, currency: s.Currency,
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
-		createdAt: s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
+		accessToken: s.AccessToken,
+		createdAt:   s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 	}
 }
 
@@ -148,6 +174,7 @@ func (o *Order) GenerationStatus() GenerationStatus { return o.generationStatus 
 func (o *Order) AssignedAccountID() *uuid.UUID      { return o.assignedAccountID }
 func (o *Order) Tracks() []Track                    { return o.tracks }
 func (o *Order) FailureReason() string              { return o.failureReason }
+func (o *Order) AccessToken() string                { return o.accessToken }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 
 // --- Стейт-машина оплаты ---
@@ -281,6 +308,7 @@ func (o *Order) Snapshot() OrderSnapshot {
 		AssignedAccountID: o.assignedAccountID,
 		Tracks:            o.tracks,
 		FailureReason:     o.failureReason,
+		AccessToken:       o.accessToken,
 		CreatedAt:         o.createdAt,
 		UpdatedAt:         o.updatedAt,
 		PaidAt:            o.paidAt,
@@ -305,6 +333,10 @@ type OrderRepository interface {
 	// NextInvoiceID возвращает следующий InvId из PostgreSQL sequence invoice_id_seq.
 	// Гарантирует уникальность даже при нескольких инстансах сервиса.
 	NextInvoiceID(ctx context.Context) (int64, error)
+
+	// GetByAccessToken находит заказ по токену доступа клиента.
+	// Используется middleware аутентификации для проверки X-Access-Token.
+	GetByAccessToken(ctx context.Context, token string) (*Order, error)
 }
 
 // TrackStorage - порт для долгосрочного хранения готовых треков.
