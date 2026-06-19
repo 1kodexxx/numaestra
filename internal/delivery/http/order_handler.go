@@ -1,311 +1,246 @@
-package usecase
+// internal/delivery/http/order_handler.go
+package apphttp
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
+	"net/http"
+	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
-	"github.com/numaestra/numaestra/pkg/notify"
-	"github.com/numaestra/numaestra/pkg/openai"
+	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
-// Пользовательские ошибки слоя Use-Case
-var (
-	ErrGenerationNotReady = errors.New("генерация еще не завершена, требуется повторный опрос")
-)
-
-type OrderUseCase struct {
-	orderRepo orderRepository
-	accRepo   accountRepository
-	queue     queuePublisher
-	provider  musicProvider
-	storage   domain.TrackStorage
-	notifier  notify.Notifier
-	llmClient openai.APIClient
-	log       *slog.Logger
+// OrderHandler обрабатывает HTTP-запросы, связанные с заказами.
+type OrderHandler struct {
+	uc  *usecase.OrderUseCase
+	log *slog.Logger
+	rk  *robokassa.Client
 }
 
-// Алиасы для интерфейсов, чтобы сократить код (или используйте напрямую domain.*)
-type orderRepository = domain.OrderRepository
-type accountRepository = domain.AccountRepository
-type queuePublisher = domain.QueuePublisher
-type musicProvider = domain.MusicProvider
-
-func NewOrderUseCase(
-	orderRepo domain.OrderRepository,
-	accRepo domain.AccountRepository,
-	queue domain.QueuePublisher,
-	provider domain.MusicProvider,
-	storage domain.TrackStorage,
-	notifier notify.Notifier,
-	llmClient openai.APIClient,
-	log *slog.Logger,
-) *OrderUseCase {
-	return &OrderUseCase{
-		orderRepo: orderRepo,
-		accRepo:   accRepo,
-		queue:     queue,
-		provider:  provider,
-		storage:   storage,
-		notifier:  notifier,
-		llmClient: llmClient,
-		log:       log,
+func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client) *OrderHandler {
+	return &OrderHandler{
+		uc:  uc,
+		log: log,
+		rk:  rk,
 	}
 }
 
-// ==========================================
-// 1. ПОЛЬЗОВАТЕЛЬСКИЕ СЦЕНАРИИ (Вызываются из HTTP)
-// ==========================================
+func (h *OrderHandler) Routes() chi.Router {
+	r := chi.NewRouter()
 
-func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief string, amountKopecks int64) (*domain.Order, error) {
-	// InvoiceID берём из PostgreSQL sequence — атомарно и без коллизий
-	// при параллельных запросах или нескольких инстансах сервиса.
-	invoiceID, err := uc.orderRepo.NextInvoiceID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("получение invoice_id: %w", err)
-	}
+	r.Post("/", h.CreateOrder)
+	r.Get("/", h.ListOrders)
+	r.Get("/{id}", h.GetOrder)
+	r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
 
-	order, err := domain.NewOrder(invoiceID, email, phone, brief, amountKopecks)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка валидации заказа: %w", err)
-	}
-
-	if err := uc.orderRepo.Create(ctx, order); err != nil {
-		return nil, fmt.Errorf("ошибка сохранения заказа: %w", err)
-	}
-
-	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID)
-	return order, nil
+	return r
 }
 
-func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int64) error {
-	order, err := uc.orderRepo.GetByInvoiceID(ctx, invoiceID)
-	if err != nil {
-		return fmt.Errorf("поиск заказа по invoice_id: %w", err)
-	}
+// --- DTO (Структуры для JSON) ---
 
-	if err := order.MarkPaid(); err != nil {
-		return fmt.Errorf("переход статуса оплаты: %w", err)
-	}
-
-	if err := order.Enqueue(); err != nil {
-		return fmt.Errorf("переход статуса генерации: %w", err)
-	}
-
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
-		return fmt.Errorf("обновление заказа: %w", err)
-	}
-
-	if err := uc.queue.EnqueueGenerationTask(ctx, order.ID()); err != nil {
-		uc.log.Error("ошибка постановки задачи в очередь", "order_id", order.ID(), "err", err)
-		return err
-	}
-
-	uc.log.Info("заказ успешно оплачен и поставлен в очередь", "order_id", order.ID())
-	return nil
+type CreateOrderRequest struct {
+	Email         string `json:"email"`
+	Phone         string `json:"phone"`
+	Brief         string `json:"brief"`
+	AmountKopecks int64  `json:"amount_kopecks"`
 }
 
-// ==========================================
-// 2. ФОНОВЫЕ СЦЕНАРИИ (Вызываются воркерами Asynq)
-// ==========================================
+type OrderResponse struct {
+	ID               string `json:"id"`
+	InvoiceID        int64  `json:"invoice_id"`
+	PaymentStatus    string `json:"payment_status"`
+	GenerationStatus string `json:"generation_status"`
+	PaymentURL       string `json:"payment_url"` // <-- Ссылка для редиректа клиента
+}
 
-func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.UUID) error {
-	order, err := uc.orderRepo.GetByID(ctx, orderID)
-	if err != nil {
-		return fmt.Errorf("заказ не найден: %w", err)
+// --- Обработчики ---
+
+func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
+	var req CreateOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.errorResponse(w, http.StatusBadRequest, "неверный формат JSON")
+		return
 	}
 
-	if order.GenerationStatus() != domain.GenerationStatusQueued {
-		uc.log.Warn("задача генерации пропущена (неверный статус)", "order_id", order.ID(), "status", order.GenerationStatus())
-		return nil
+	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.AmountKopecks)
+	if err != nil {
+		h.log.Error("ошибка создания заказа", "err", err)
+		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
-	// 1. Атомарно захватываем аккаунт
-	account, err := uc.accRepo.FetchAndLockAvailable(ctx)
+	outSum := robokassa.FormatAmount(req.AmountKopecks)
+	description := "Генерация 4-х версий студийной песни Numaestra"
+	paymentURL := h.rk.PaymentURL(outSum, order.InvoiceID(), description)
+
+	res := OrderResponse{
+		ID:               order.ID().String(),
+		InvoiceID:        order.InvoiceID(),
+		PaymentStatus:    string(order.PaymentStatus()),
+		GenerationStatus: string(order.GenerationStatus()),
+		PaymentURL:       paymentURL, // <-- Фронтенд получит эту ссылку и перенаправит юзера
+	}
+
+	h.successResponse(w, http.StatusCreated, res)
+}
+
+func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Request) {
+	// ParseForm обрабатывает и POST данные, и Query параметры
+	if err := r.ParseForm(); err != nil {
+		h.errorResponse(w, http.StatusBadRequest, "не удалось разобрать параметры")
+		return
+	}
+
+	outSum := r.Form.Get("OutSum")
+	invIdStr := r.Form.Get("InvId")
+	signature := r.Form.Get("SignatureValue")
+
+	if outSum == "" || invIdStr == "" || signature == "" {
+		h.errorResponse(w, http.StatusBadRequest, "отсутствуют обязательные параметры")
+		return
+	}
+
+	if !h.rk.VerifyWebhook(outSum, invIdStr, signature) {
+		h.log.Warn("попытка подделки вебхука Робокассы!", "inv_id", invIdStr)
+		h.errorResponse(w, http.StatusBadRequest, "неверная подпись")
+		return
+	}
+
+	invoiceID, err := strconv.ParseInt(invIdStr, 10, 64)
 	if err != nil {
-		if errors.Is(err, domain.ErrNoAvailableAccount) {
-			uc.log.Warn("нет свободных аккаунтов, задача будет отложена (retry)", "order_id", orderID)
-			return err
+		h.errorResponse(w, http.StatusBadRequest, "некорректный формат InvId")
+		return
+	}
+
+	if err := h.uc.HandlePaymentSuccess(r.Context(), invoiceID); err != nil {
+		h.log.Error("ошибка обработки вебхука оплаты", "invoice_id", invoiceID, "err", err)
+		h.errorResponse(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Робокасса требует жесткий формат ответа при успехе
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK" + invIdStr))
+}
+
+func (h *OrderHandler) errorResponse(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func (h *OrderHandler) successResponse(w http.ResponseWriter, code int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(data)
+}
+
+type TrackResponse struct {
+	Index       int    `json:"index"`
+	AudioURL    string `json:"audio_url"`
+	DurationSec int    `json:"duration_sec"`
+}
+
+type OrderDetailResponse struct {
+	ID               string          `json:"id"`
+	Brief            string          `json:"brief"`
+	PaymentStatus    string          `json:"payment_status"`
+	GenerationStatus string          `json:"generation_status"`
+	Tracks           []TrackResponse `json:"tracks,omitempty"`
+}
+
+func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	idParam := chi.URLParam(r, "id")
+	orderID, err := uuid.Parse(idParam)
+	if err != nil {
+		h.errorResponse(w, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	order, err := h.uc.GetOrder(r.Context(), orderID)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			h.errorResponse(w, http.StatusNotFound, "заказ не найден")
+		} else {
+			h.log.Error("ошибка получения заказа", "order_id", orderID, "err", err)
+			h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		}
-		return fmt.Errorf("ошибка захвата аккаунта: %w", err)
+		return
 	}
 
-	// 2. Привязываем аккаунт к заказу
-	if err := order.StartProcessing(account.ID()); err != nil {
-		return fmt.Errorf("недопустимый статус для старта: %w", err)
+	var tracks []TrackResponse
+	for _, t := range order.Tracks() {
+		tracks = append(tracks, TrackResponse{
+			Index:       t.Index,
+			AudioURL:    t.AudioURL,
+			DurationSec: t.DurationSec,
+		})
 	}
 
-	// 3. Обогащение ТЗ через LLM
-	uc.log.Info("генерация текста песни через LLM", "order_id", order.ID())
-	lyrics, err := uc.llmClient.GenerateLyrics(ctx, order.Brief())
-	if err != nil {
-		uc.log.Error("ошибка генерации текста, используется fallback к исходному брифу", "err", err)
-		lyrics = order.Brief()
+	res := OrderDetailResponse{
+		ID:               order.ID().String(),
+		Brief:            order.Brief(),
+		PaymentStatus:    string(order.PaymentStatus()),
+		GenerationStatus: string(order.GenerationStatus()),
+		Tracks:           tracks,
+	}
+
+	h.successResponse(w, http.StatusOK, res)
+}
+
+type OrderSummaryResponse struct {
+	ID               string `json:"id"`
+	InvoiceID        int64  `json:"invoice_id"`
+	Brief            string `json:"brief"`
+	PaymentStatus    string `json:"payment_status"`
+	GenerationStatus string `json:"generation_status"`
+	TracksCount      int    `json:"tracks_count"`
+}
+
+// ListOrders возвращает список заказов клиента по email или телефону.
+// GET /api/v1/orders?email=user@example.com
+// GET /api/v1/orders?phone=+79991234567
+// Параметры взаимоисключающие; email имеет приоритет если указаны оба.
+func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	phone := r.URL.Query().Get("phone")
+
+	if email == "" && phone == "" {
+		h.errorResponse(w, http.StatusBadRequest, "необходим параметр email или phone")
+		return
+	}
+
+	var (
+		orders []*domain.Order // domain imported above
+		err    error
+	)
+	if email != "" {
+		orders, err = h.uc.ListOrdersByEmail(r.Context(), email)
 	} else {
-		uc.log.Info("текст успешно сгенерирован")
+		orders, err = h.uc.ListOrdersByPhone(r.Context(), phone)
 	}
-
-	// 4. Отправка структурированного запроса в Suno API
-	req := domain.MusicGenerationRequest{
-		Brief:        lyrics,
-		Instrumental: false,
-		TrackCount:   4,
-	}
-	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
-
 	if err != nil {
-		uc.log.Error("ошибка API Suno", "account", account.Email(), "err", err)
-		// Порядок важен: сначала регистрируем ошибку (она может перевести аккаунт в Banned),
-		// только потом Release — иначе Release выставит Active, а RegisterFailure затрёт его Banned.
-		account.RegisterFailure(3)
-		account.Release()
-		order.RequeueForRetry()
-
-		if saveErr := uc.accRepo.Update(ctx, account); saveErr != nil {
-			uc.log.Error("не удалось сохранить состояние аккаунта после ошибки Suno", "account_id", account.ID(), "err", saveErr)
-		}
-		if saveErr := uc.orderRepo.Update(ctx, order); saveErr != nil {
-			uc.log.Error("не удалось откатить заказ в Queued после ошибки Suno", "order_id", order.ID(), "err", saveErr)
-		}
-		return fmt.Errorf("сбой провайдера: %w", err)
+		h.log.Error("ошибка получения списка заказов", "email", email, "phone", phone, "err", err)
+		h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
 	}
 
-	// 5. Атомарно сохраняем заказ (Processing + sunoJobID) и освобождаем аккаунт.
-	// Важно: если сохранить только заказ и упасть — аккаунт навсегда останется в Busy.
-	// Единственная транзакция гарантирует консистентность обоих агрегатов.
-	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
-		// Аккаунт в БД всё ещё Busy, а транзакция откатилась — аккаунт не утёк.
-		// Asynq сделает retry задачи и снова попробует захватить аккаунт.
-		return fmt.Errorf("атомарное сохранение заказа и аккаунта: %w", err)
+	res := make([]OrderSummaryResponse, 0, len(orders))
+	for _, o := range orders {
+		res = append(res, OrderSummaryResponse{
+			ID:               o.ID().String(),
+			InvoiceID:        o.InvoiceID(),
+			Brief:            o.Brief(),
+			PaymentStatus:    string(o.PaymentStatus()),
+			GenerationStatus: string(o.GenerationStatus()),
+			TracksCount:      len(o.Tracks()),
+		})
 	}
 
-	if err := uc.queue.EnqueueStatusCheckTask(ctx, order.ID(), sunoJobID); err != nil {
-		return err
-	}
-
-	uc.log.Info("генерация успешно запущена", "order_id", order.ID(), "suno_job", sunoJobID, "account", account.Email())
-	return nil
-}
-
-func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.UUID, providerJobID string) error {
-	order, err := uc.orderRepo.GetByID(ctx, orderID)
-	if err != nil {
-		return err
-	}
-
-	if order.GenerationStatus() != domain.GenerationStatusProcessing {
-		return nil
-	}
-
-	result, err := uc.provider.FetchResult(ctx, providerJobID)
-	if err != nil {
-		return fmt.Errorf("ошибка опроса статуса: %w", err)
-	}
-
-	if result.Status == domain.MusicGenerationStatusPending || result.Status == domain.MusicGenerationStatusRunning {
-		return ErrGenerationNotReady
-	}
-
-	account, err := uc.accRepo.GetByID(ctx, *order.AssignedAccountID())
-	if err != nil {
-		return fmt.Errorf("ошибка загрузки аккаунта: %w", err)
-	}
-
-	switch result.Status {
-	case domain.MusicGenerationStatusFailed:
-		order.Fail(result.Error)
-		account.Release()
-	case domain.MusicGenerationStatusCompleted:
-		var domainTracks []domain.Track
-		for i, pt := range result.Tracks {
-			// Перезаливаем трек в собственное S3-хранилище.
-			// Временные ссылки Suno протухают через несколько часов —
-			// клиент не сможет скачать трек позже без этого шага.
-			s3Key := fmt.Sprintf("tracks/%s/%d.mp3", order.ID(), i+1)
-			permanentURL, uploadErr := uc.storage.UploadFromURL(ctx, pt.SourceURL, s3Key, "audio/mpeg")
-			if uploadErr != nil {
-				// Падение загрузки в S3 не должно ронять весь цикл:
-				// сохраняем исходную ссылку Suno как fallback и логируем.
-				uc.log.Error("не удалось загрузить трек в S3, используем временную ссылку",
-					"order_id", order.ID(), "track_index", i+1, "err", uploadErr)
-				permanentURL = pt.SourceURL
-			}
-			domainTracks = append(domainTracks, domain.Track{
-				ID:          uuid.New(),
-				Index:       i + 1,
-				AudioURL:    permanentURL,
-				DurationSec: pt.DurationSec,
-				SunoTrackID: pt.ExternalID,
-			})
-		}
-
-		if err := order.Complete(domainTracks); err != nil {
-			return fmt.Errorf("завершение заказа в домене: %w", err)
-		}
-
-		_ = account.ConsumeTokens(1)
-		account.ResetFailures()
-		account.Release()
-	}
-
-	// Атомарно сохраняем финальный статус заказа и освобождаем аккаунт.
-	// Два отдельных Update создали бы тот же Busy-leak что и в ProcessGenerationTask:
-	// если Update заказа прошёл, а Update аккаунта упал — аккаунт застрянет в Busy навсегда.
-	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
-		return fmt.Errorf("атомарное сохранение финального статуса: %w", err)
-	}
-
-	// Уведомляем клиента о готовности. Ошибка уведомления не роняет задачу —
-	// треки уже сохранены и доступны через API.
-	if result.Status == domain.MusicGenerationStatusCompleted {
-		var trackURLs []string
-		for _, t := range order.Tracks() {
-			trackURLs = append(trackURLs, t.AudioURL)
-		}
-		if notifyErr := uc.notifier.NotifyOrderComplete(ctx, notify.OrderCompleteNotification{
-			OrderID:     order.ID().String(),
-			Email:       order.CustomerEmail(),
-			Phone:       order.CustomerPhone(),
-			TrackURLs:   trackURLs,
-			TracksCount: len(trackURLs),
-		}); notifyErr != nil {
-			uc.log.Error("ошибка отправки уведомления", "order_id", order.ID(), "err", notifyErr)
-		}
-	}
-
-	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)
-	return nil
-}
-
-func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
-	order, err := uc.orderRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка получения заказа: %w", err)
-	}
-	return order, nil
-}
-
-func (uc *OrderUseCase) ListOrdersByEmail(ctx context.Context, email string) ([]*domain.Order, error) {
-	if email == "" {
-		return nil, fmt.Errorf("email не может быть пустым")
-	}
-	orders, err := uc.orderRepo.ListByCustomerEmail(ctx, email)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка получения заказов: %w", err)
-	}
-	return orders, nil
-}
-
-func (uc *OrderUseCase) ListOrdersByPhone(ctx context.Context, phone string) ([]*domain.Order, error) {
-	if phone == "" {
-		return nil, fmt.Errorf("phone не может быть пустым")
-	}
-	orders, err := uc.orderRepo.ListByCustomerPhone(ctx, phone)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка получения заказов по телефону: %w", err)
-	}
-	return orders, nil
+	h.successResponse(w, http.StatusOK, res)
 }

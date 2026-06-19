@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/numaestra/numaestra/internal/config"
+	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
 	"github.com/numaestra/numaestra/internal/repository/postgres"
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	sunorepo "github.com/numaestra/numaestra/internal/repository/suno"
@@ -35,7 +36,6 @@ import (
 )
 
 func main() {
-	// Корневой контекст приложения, отменяемый при получении SIGINT/SIGTERM.
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -58,7 +58,7 @@ func run(ctx context.Context) error {
 	log := logger.New(cfg.Env)
 	log.Info("Запуск сервиса Numaestra", "env", cfg.Env, "http_port", cfg.HTTP.Port)
 
-	// 3. Инфраструктурные зависимости (База данных и Очереди).
+	// 3. Инфраструктурные зависимости.
 	pgPool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
 	if err != nil {
 		return fmt.Errorf("инициализация пула соединений postgres: %w", err)
@@ -70,49 +70,45 @@ func run(ctx context.Context) error {
 	}
 	log.Info("соединение с postgres установлено")
 
-	// Применяем SQL-миграции при каждом старте.
-	// Уже применённые файлы пропускаются — идемпотентно и безопасно.
 	if err := migrate.Run(ctx, pgPool, migrations.FS, log); err != nil {
 		return fmt.Errorf("применение миграций: %w", err)
 	}
 	log.Info("миграции применены")
 
-	asynqClient := asynq.NewClient(asynq.RedisClientOpt{
+	redisOpt := asynq.RedisClientOpt{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
-	})
+	}
+
+	asynqClient := asynq.NewClient(redisOpt)
 	defer func() {
 		if cerr := asynqClient.Close(); cerr != nil {
 			log.Error("ошибка закрытия клиента asynq", "error", cerr)
 		}
 	}()
 
-	// 4. Сборка зависимостей (Dependency Injection).
-	// Репозитории
+	// 4. Dependency Injection.
 	accountRepo := postgres.NewAccountRepository(pgPool)
 	orderRepo := postgres.NewOrderRepository(pgPool)
 	queuePublisher := queue.NewAsynqPublisher(asynqClient)
 
-	// Боевой клиент Suno
 	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
-	// Инициализируем LLM Клиент (OpenRouter / OpenAI)
 	llmClient := openai.NewClient(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
 
-	// S3-хранилище для постоянного хранения треков
 	s3Client := s3.New(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
 
 	// Notifier: заглушка-логгер до подключения реального SMTP/SMS-провайдера.
-	// Замените на реальную реализацию и передайте сюда.
+	// Чтобы подключить реальный провайдер — реализуйте notify.Notifier
+	// и передайте сюда вместо NewLogNotifier.
 	notifier := notify.NewLogNotifier(log)
 
-	// Бизнес-логика (Use-Case)
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, log) // <-- ПЕРЕДАН llmClient
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, log)
 
-	// 5. Настройка и запуск Asynq Worker (Фоновые задачи)
+	// 5. Asynq Worker.
 	asynqServer := asynq.NewServer(
-		asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password},
+		redisOpt,
 		asynq.Config{
 			Concurrency: 10,
 			Queues: map[string]int{
@@ -121,7 +117,7 @@ func run(ctx context.Context) error {
 			},
 			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
 				if errors.Is(e, usecase.ErrGenerationNotReady) {
-					return 15 * time.Second // Поллинг каждые 15 сек, если трек еще генерируется
+					return 15 * time.Second
 				}
 				return asynq.DefaultRetryDelayFunc(n, e, t)
 			},
@@ -141,13 +137,12 @@ func run(ctx context.Context) error {
 	}()
 	defer asynqServer.Stop()
 
-	// 6. Инициализация HTTP-хендлеров и роутера.
-	// 6. Инициализация HTTP-хендлеров и роутера.
+	// 6. HTTP-хендлеры и роутер.
 	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
-	// apphttp.NewOrderHandler is not available in this build; use a local adapter that satisfies Routes() http.Handler.
-	orderHandler := newOrderHandlerAdapter(orderUC, log, rkClient)
-	healthChecker := health.New(pgPool, asynq.RedisClientOpt{Addr: cfg.Redis.Addr, Password: cfg.Redis.Password})
+	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient)
+	healthChecker := health.New(pgPool, redisOpt)
 	router := newRouter(log, orderHandler, healthChecker)
+
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
 		Handler:           router,
@@ -157,7 +152,7 @@ func run(ctx context.Context) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// 7. Запуск сервера в отдельной горутине.
+	// 7. Запуск.
 	serveErrCh := make(chan error, 1)
 	go func() {
 		log.Info("http-сервер слушает", "addr", httpServer.Addr)
@@ -177,7 +172,6 @@ func run(ctx context.Context) error {
 		log.Info("получен сигнал завершения, начинаем graceful shutdown")
 	}
 
-	// Graceful shutdown HTTP сервера
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
 	defer shutdownCancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
@@ -188,8 +182,7 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// newRouter собирает HTTP-роутер с базовыми middleware и служебными эндпоинтами.
-func newRouter(log *slog.Logger, orderHandler interface{ Routes() http.Handler }, checker *health.Checker) http.Handler {
+func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, checker *health.Checker) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
@@ -198,29 +191,8 @@ func newRouter(log *slog.Logger, orderHandler interface{ Routes() http.Handler }
 	r.Use(requestLoggerMiddleware(log))
 
 	r.Get("/healthz", checker.Handler)
-
-	// Монтируем маршруты бизнес-логики
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 
-	return r
-}
-
-// orderHandlerAdapter is a local stub implementing Routes() http.Handler.
-// Replace with the real constructor from internal/delivery/http when available.
-type orderHandlerAdapter struct {
-}
-
-func newOrderHandlerAdapter(_ interface{}, _ *slog.Logger, _ interface{}) *orderHandlerAdapter {
-	return &orderHandlerAdapter{}
-}
-
-func (h *orderHandlerAdapter) Routes() http.Handler {
-	r := chi.NewRouter()
-	// Placeholder route set - returns 404 for root.
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("orders endpoints are not implemented"))
-	})
 	return r
 }
 
