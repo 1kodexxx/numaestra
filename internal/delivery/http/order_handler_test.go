@@ -418,6 +418,12 @@ func (r *hOrderRepo) GetByAccessToken(_ context.Context, token string) (*domain.
 	return nil, domain.ErrOrderNotFound
 }
 
+func (r *hOrderRepo) ListAll(_ context.Context, _, _ int) ([]*domain.Order, error) {
+	return nil, nil
+}
+
+func (r *hOrderRepo) CountAll(_ context.Context) (int, error) { return 0, nil }
+
 var _ domain.OrderRepository = (*hOrderRepo)(nil)
 
 type hQueue struct{}

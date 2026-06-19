@@ -216,6 +216,10 @@ func (r *wOrderRepo) NextInvoiceID(_ context.Context) (int64, error) { return 1,
 func (r *wOrderRepo) GetByAccessToken(_ context.Context, _ string) (*domain.Order, error) {
 	return nil, domain.ErrOrderNotFound
 }
+func (r *wOrderRepo) ListAll(_ context.Context, _, _ int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (r *wOrderRepo) CountAll(_ context.Context) (int, error) { return 0, nil }
 
 var _ domain.OrderRepository = (*wOrderRepo)(nil)
 
@@ -263,6 +267,10 @@ func (r *wAccountRepo) Update(_ context.Context, a *domain.SunoAccount) error {
 }
 func (r *wAccountRepo) ListByStatus(_ context.Context, _ domain.AccountStatus) ([]*domain.SunoAccount, error) {
 	return nil, nil
+}
+func (r *wAccountRepo) List(_ context.Context) ([]*domain.SunoAccount, error) { return nil, nil }
+func (r *wAccountRepo) SetStatus(_ context.Context, _ uuid.UUID, _ domain.AccountStatus) error {
+	return nil
 }
 
 var _ domain.AccountRepository = (*wAccountRepo)(nil)

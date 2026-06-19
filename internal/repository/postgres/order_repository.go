@@ -347,6 +347,67 @@ func (r *OrderRepository) saveTracks(ctx context.Context, db dbConn, orderID uui
 	return nil
 }
 
+// ListAll возвращает страницу всех заказов для Admin API (без фильтрации по клиенту).
+func (r *OrderRepository) ListAll(ctx context.Context, limit, offset int) ([]*domain.Order, error) {
+	query := `
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt,
+		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
+		       failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		FROM orders
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+	rows, err := r.conn(ctx).Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list all orders: %w", err)
+	}
+	defer rows.Close()
+
+	var snaps []domain.OrderSnapshot
+	for rows.Next() {
+		var snap domain.OrderSnapshot
+		if err := rows.Scan(
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
+			&snap.CategoryID, &snap.SunoPrompt,
+			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.PaidAt, &snap.CompletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan order row: %w", err)
+		}
+		snaps = append(snaps, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate orders: %w", err)
+	}
+
+	ids := make([]uuid.UUID, len(snaps))
+	for i, s := range snaps {
+		ids[i] = s.ID
+	}
+	tracksMap, err := r.getTracksForOrders(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load tracks for orders: %w", err)
+	}
+
+	orders := make([]*domain.Order, 0, len(snaps))
+	for _, snap := range snaps {
+		snap.Tracks = tracksMap[snap.ID]
+		orders = append(orders, domain.RestoreOrder(snap))
+	}
+	return orders, nil
+}
+
+// CountAll возвращает общее количество заказов для пагинации в Admin API.
+func (r *OrderRepository) CountAll(ctx context.Context) (int, error) {
+	var count int
+	err := r.conn(ctx).QueryRow(ctx, `SELECT COUNT(*) FROM orders`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count all orders: %w", err)
+	}
+	return count, nil
+}
+
 func (r *OrderRepository) getTracksForOrder(ctx context.Context, orderID uuid.UUID) ([]domain.Track, error) {
 	query := `SELECT id, index, audio_url, duration_sec, suno_track_id FROM tracks WHERE order_id = $1 ORDER BY index ASC`
 	rows, err := r.conn(ctx).Query(ctx, query, orderID)

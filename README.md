@@ -15,7 +15,7 @@
 
 ## 1. Предустановки
 
-- **Go 1.25+** — https://go.dev/dl/ (на Windows запусти установщик `.msi`)
+- **Go 1.24+** — https://go.dev/dl/ (на Windows запусти установщик `.msi`)
 - **Docker Desktop** (для Postgres и Redis) — https://www.docker.com/products/docker-desktop/
 
 ```powershell

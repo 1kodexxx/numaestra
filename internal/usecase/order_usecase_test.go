@@ -73,6 +73,28 @@ func TestCreateOrder_Success(t *testing.T) {
 	}
 }
 
+func TestCreateOrder_InvalidEmail(t *testing.T) {
+	f := newFixture(t)
+
+	// Некорректный email должен возвращать ErrInvalidEmail.
+	_, err := f.uc.CreateOrder(context.Background(), "не_email", "", "Бриф", "standard", "", nil)
+	if !errors.Is(err, ErrInvalidEmail) {
+		t.Fatalf("ожидали ErrInvalidEmail для строки 'не_email', получили %v", err)
+	}
+
+	// Пустой email допустим — поле необязательное.
+	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("пустой email при наличии телефона должен быть допустим: %v", err)
+	}
+
+	// Корректный email проходит.
+	_, err = f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("корректный email должен проходить валидацию: %v", err)
+	}
+}
+
 func TestCreateOrder_ValidationError(t *testing.T) {
 	f := newFixture(t)
 	_, err := f.uc.CreateOrder(context.Background(), "", "", "", "standard", "", nil)

@@ -163,3 +163,41 @@ func (r *AccountRepository) ListByStatus(ctx context.Context, status domain.Acco
 	}
 	return accounts, nil
 }
+
+// List возвращает все аккаунты пула без фильтрации (Admin API).
+func (r *AccountRepository) List(ctx context.Context) ([]*domain.SunoAccount, error) {
+	query := `SELECT id, email, encrypted_session, status, token_balance, failure_count, max_concurrent_tasks, concurrent_tasks, cooldown_until, last_used_at, created_at, updated_at FROM suno_accounts ORDER BY created_at DESC`
+	rows, err := r.conn(ctx).Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list all accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []*domain.SunoAccount
+	for rows.Next() {
+		var snapshot domain.SunoAccountSnapshot
+		if err := rows.Scan(
+			&snapshot.ID, &snapshot.Email, &snapshot.EncryptedSession, &snapshot.Status,
+			&snapshot.TokenBalance, &snapshot.FailureCount, &snapshot.MaxConcurrentTasks, &snapshot.ConcurrentTasks,
+			&snapshot.CooldownUntil, &snapshot.LastUsedAt, &snapshot.CreatedAt, &snapshot.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan account row: %w", err)
+		}
+		accounts = append(accounts, domain.RestoreSunoAccount(snapshot))
+	}
+	return accounts, nil
+}
+
+// SetStatus атомарно меняет статус аккаунта (Admin API).
+func (r *AccountRepository) SetStatus(ctx context.Context, id uuid.UUID, status domain.AccountStatus) error {
+	now := time.Now().UTC()
+	query := `UPDATE suno_accounts SET status = $1, updated_at = $2 WHERE id = $3`
+	cmd, err := r.conn(ctx).Exec(ctx, query, status, now, id)
+	if err != nil {
+		return fmt.Errorf("set account status: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrAccountNotFound
+	}
+	return nil
+}

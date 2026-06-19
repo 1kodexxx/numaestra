@@ -11,16 +11,22 @@
 package robokassa
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
-const paymentBaseURL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+const (
+	paymentBaseURL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+	refundBaseURL  = "https://auth.robokassa.ru/Merchant/Refund/Submit"
+)
 
 // Client инкапсулирует учётные данные мерчанта и методы работы с Robokassa.
 type Client struct {
@@ -132,6 +138,45 @@ func ParseAmountKopecks(outSum string) (int64, error) {
 	}
 
 	return rub*100 + kop, nil
+}
+
+// Refund инициирует возврат платежа через Robokassa API.
+// outSum — сумма возврата в рублях (формат "1500.00"), invID — номер счёта.
+// Подпись: MD5(OutSum:InvId:Password1) — согласно документации Robokassa.
+// https://docs.robokassa.ru/en/#3529
+func (c *Client) Refund(ctx context.Context, outSum string, invID int64) error {
+	invIDStr := strconv.FormatInt(invID, 10)
+	sig := upperMD5(fmt.Sprintf("%s:%s:%s", outSum, invIDStr, c.password1))
+
+	params := url.Values{}
+	params.Set("MrchLogin", c.merchantLogin)
+	params.Set("InvId", invIDStr)
+	params.Set("OutSum", outSum)
+	params.Set("Signature", sig)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, refundBaseURL, strings.NewReader(params.Encode()))
+	if err != nil {
+		return fmt.Errorf("robokassa refund: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("robokassa refund: http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("robokassa refund: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	// Robokassa возвращает "OK{InvId}" при успехе и "ERROR{код}" при ошибке.
+	bodyStr := strings.TrimSpace(string(body))
+	if !strings.HasPrefix(bodyStr, "OK") {
+		return fmt.Errorf("robokassa refund: отказ от сервера: %s", bodyStr)
+	}
+	return nil
 }
 
 // signPayment вычисляет MD5-подпись для генерации ссылки оплаты.

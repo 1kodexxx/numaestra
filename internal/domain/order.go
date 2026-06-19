@@ -369,6 +369,11 @@ type OrderRepository interface {
 	// GetByAccessToken находит заказ по токену доступа клиента.
 	// Используется middleware аутентификации для проверки X-Access-Token.
 	GetByAccessToken(ctx context.Context, token string) (*Order, error)
+
+	// ListAll возвращает страницу всех заказов (Admin API), отсортированных по дате убыванием.
+	ListAll(ctx context.Context, limit, offset int) ([]*Order, error)
+	// CountAll возвращает общее число заказов (для пагинации Admin API).
+	CountAll(ctx context.Context) (int, error)
 }
 
 // TrackStorage - порт для долгосрочного хранения готовых треков.

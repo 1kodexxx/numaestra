@@ -258,6 +258,11 @@ type AccountRepository interface {
 	Create(ctx context.Context, account *SunoAccount) error
 	Update(ctx context.Context, account *SunoAccount) error
 	ListByStatus(ctx context.Context, status AccountStatus) ([]*SunoAccount, error)
+
+	// List возвращает все аккаунты пула без фильтрации (для Admin API).
+	List(ctx context.Context) ([]*SunoAccount, error)
+	// SetStatus атомарно меняет статус аккаунта (Admin API: активация, блокировка и т.д.).
+	SetStatus(ctx context.Context, id uuid.UUID, status AccountStatus) error
 }
 
 func (a *SunoAccount) Snapshot() SunoAccountSnapshot {

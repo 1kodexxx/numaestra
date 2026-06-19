@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
@@ -95,7 +96,18 @@ func (uc *OrderUseCase) saveOrderAndAccount(ctx context.Context, order *domain.O
 // 1. ПОЛЬЗОВАТЕЛЬСКИЕ СЦЕНАРИИ (Вызываются из HTTP)
 // ==========================================
 
+// ErrInvalidEmail возвращается, если email передан, но имеет некорректный формат.
+var ErrInvalidEmail = errors.New("некорректный формат email")
+
 func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, plan, categoryID string, answers map[string]string) (*domain.Order, error) {
+	// Проверяем формат email, если он передан. Поле необязательное (можно оставить пустым),
+	// но если передано — должно соответствовать RFC 5322 (net/mail).
+	if email != "" {
+		if _, err := mail.ParseAddress(email); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrInvalidEmail, err)
+		}
+	}
+
 	// Цену определяет сервер по выбранному тарифу, а НЕ клиент. Иначе сумму заказа
 	// можно занизить до 1 копейки и пройти сверку в вебхуке оплаты.
 	amountKopecks, err := uc.pricing.PriceFor(plan)

@@ -44,6 +44,8 @@ func (h *CategoryHandler) HandleGetAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	// Категории меняются редко — разрешаем браузерам и CDN кешировать на 1 час.
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 	if err := json.NewEncoder(w).Encode(categories); err != nil {
 		h.log.Error("ошибка сериализации категорий", "error", err)
 	}

@@ -147,6 +147,26 @@ func (r *inMemOrderRepo) GetByAccessToken(_ context.Context, token string) (*dom
 	return nil, domain.ErrOrderNotFound
 }
 
+func (r *inMemOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domain.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*domain.Order
+	i := 0
+	for _, snap := range r.orders {
+		if i >= offset && len(out) < limit {
+			out = append(out, domain.RestoreOrder(snap))
+		}
+		i++
+	}
+	return out, nil
+}
+
+func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.orders), nil
+}
+
 var _ domain.OrderRepository = (*inMemOrderRepo)(nil)
 
 // --- passthrough TransactionManager ---
@@ -233,6 +253,28 @@ func (r *inMemAccountRepo) ListByStatus(_ context.Context, status domain.Account
 		}
 	}
 	return out, nil
+}
+
+func (r *inMemAccountRepo) List(_ context.Context) ([]*domain.SunoAccount, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*domain.SunoAccount, 0, len(r.accounts))
+	for _, snap := range r.accounts {
+		out = append(out, domain.RestoreSunoAccount(snap))
+	}
+	return out, nil
+}
+
+func (r *inMemAccountRepo) SetStatus(_ context.Context, id uuid.UUID, status domain.AccountStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.accounts[id]
+	if !ok {
+		return domain.ErrAccountNotFound
+	}
+	snap.Status = status
+	r.accounts[id] = snap
+	return nil
 }
 
 func (r *inMemAccountRepo) statusOf(id uuid.UUID) domain.AccountStatus {

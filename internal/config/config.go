@@ -19,6 +19,8 @@ type Config struct {
 	S3        S3Config
 	OpenAI    OpenAIConfig
 	Pricing   PricingConfig
+	Notify    NotifyConfig
+	AdminToken string // ADMIN_TOKEN — Bearer-токен для /api/v1/admin/* маршрутов
 }
 
 type HTTPConfig struct {
@@ -68,6 +70,17 @@ type S3Config struct {
 type OpenAIConfig struct {
 	BaseURL string // По умолчанию OpenRouter; можно переключить на прямой OpenAI
 	APIKey  string
+}
+
+// NotifyConfig задаёт параметры отправки уведомлений клиентам.
+// При пустом SMTPHost используется заглушка-логгер.
+type NotifyConfig struct {
+	SMTPHost     string // SMTP_HOST, например smtp.mailgun.org
+	SMTPPort     int    // SMTP_PORT, дефолт 587 (STARTTLS)
+	SMTPUser     string // SMTP_USER
+	SMTPPassword string // SMTP_PASSWORD
+	FromAddress  string // SMTP_FROM_ADDRESS, например noreply@numaestra.ru
+	FromName     string // SMTP_FROM_NAME, например Numaestra
 }
 
 // PricingConfig задаёт серверный прайс. Цены НЕ принимаются от клиента —
@@ -128,6 +141,15 @@ func Load() (*Config, error) {
 			},
 			DefaultPlan: getEnv("PRICE_DEFAULT_PLAN", "standard"),
 		},
+		Notify: NotifyConfig{
+			SMTPHost:     getEnv("SMTP_HOST", ""),
+			SMTPPort:     int(getInt64Env("SMTP_PORT", 587)),
+			SMTPUser:     getEnv("SMTP_USER", ""),
+			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+			FromAddress:  getEnv("SMTP_FROM_ADDRESS", ""),
+			FromName:     getEnv("SMTP_FROM_NAME", "Numaestra"),
+		},
+		AdminToken: getEnv("ADMIN_TOKEN", ""),
 	}
 
 	if cfg.Postgres.DSN == "" {

@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Numaestra — персональные песни на заказ</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d1a;
+      --bg2:      #14142a;
+      --bg3:      #1e1e3f;
+      --accent:   #a855f7;
+      --accent2:  #7c3aed;
+      --gold:     #f59e0b;
+      --text:     #e2e8f0;
+      --muted:    #94a3b8;
+      --border:   #2d2d5e;
+      --success:  #22c55e;
+      --error:    #ef4444;
+      --radius:   12px;
+      --trans:    0.3s ease;
+    }
+
+    html, body { min-height: 100%; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    /* ── NAV ─────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px;
+      background: rgba(13,13,26,.92); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { font-size: 22px; font-weight: 800; background: linear-gradient(135deg,var(--accent),var(--gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; cursor: pointer; user-select: none; }
+    nav .spacer { flex: 1; }
+    .nav-link { color: var(--muted); text-decoration: none; font-size: 14px; cursor: pointer; transition: color var(--trans); }
+    .nav-link:hover { color: var(--text); }
+
+    /* ── PAGES ─────────────────────────────────────────────── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── HERO ─────────────────────────────────────────────── */
+    .hero {
+      text-align: center; padding: 80px 24px 40px;
+      background: radial-gradient(ellipse at 50% 0%, rgba(168,85,247,.15) 0%, transparent 70%);
+    }
+    .hero h1 { font-size: clamp(32px,5vw,56px); font-weight: 800; line-height: 1.1; margin-bottom: 16px; }
+    .hero h1 span { background: linear-gradient(135deg,var(--accent),var(--gold)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 18px; color: var(--muted); max-width: 560px; margin: 0 auto 40px; }
+
+    /* ── CARDS GRID ─────────────────────────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px;
+      padding: 0 24px 80px;
+      max-width: 1200px; margin: 0 auto;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform var(--trans), border-color var(--trans), box-shadow var(--trans);
+    }
+    .card:hover { transform: translateY(-4px); border-color: var(--accent2); box-shadow: 0 8px 32px rgba(124,58,237,.25); }
+    .card-img { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: var(--bg3); }
+    .card-img-placeholder { width: 100%; aspect-ratio: 16/9; background: linear-gradient(135deg,var(--bg3),var(--bg2)); display: flex; align-items: center; justify-content: center; font-size: 48px; }
+    .card-body { padding: 20px; }
+    .card-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .card-desc { font-size: 14px; color: var(--muted); line-height: 1.5; margin-bottom: 16px; }
+    .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .tag { background: rgba(168,85,247,.15); border: 1px solid rgba(168,85,247,.3); color: var(--accent); padding: 3px 10px; border-radius: 100px; font-size: 12px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all var(--trans); text-decoration: none; }
+    .btn-primary { background: linear-gradient(135deg,var(--accent2),var(--accent)); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.15); }
+    .btn-outline { background: transparent; border: 1px solid var(--accent2); color: var(--accent); }
+    .btn-outline:hover { background: rgba(168,85,247,.1); }
+    .btn-full { width: 100%; }
+
+    /* ── QUIZ ─────────────────────────────────────────────── */
+    #page-quiz { max-width: 680px; margin: 0 auto; padding: 40px 24px 80px; }
+    .quiz-header { margin-bottom: 32px; }
+    .quiz-header .back { color: var(--muted); cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+    .quiz-header .back:hover { color: var(--text); }
+    .quiz-title { font-size: 28px; font-weight: 800; }
+    .quiz-subtitle { color: var(--muted); margin-top: 6px; }
+
+    .step-indicator { display: flex; align-items: center; gap: 4px; margin-bottom: 32px; }
+    .step-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background var(--trans); }
+    .step-dot.active { background: var(--accent); }
+    .step-dot.done { background: var(--accent2); }
+
+    .question-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px;
+      animation: slideIn var(--trans);
+    }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+    .question-label { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+    .question-label .req { color: var(--error); margin-left: 4px; }
+
+    .options-grid { display: flex; flex-direction: column; gap: 10px; }
+    .option-btn {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 16px; text-align: left; color: var(--text); cursor: pointer;
+      font-size: 15px; transition: all var(--trans);
+    }
+    .option-btn:hover { border-color: var(--accent2); background: rgba(124,58,237,.1); }
+    .option-btn.selected { border-color: var(--accent); background: rgba(168,85,247,.15); color: var(--accent); }
+
+    .input-field {
+      width: 100%; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 16px; color: var(--text); font-size: 15px;
+      outline: none; transition: border-color var(--trans); resize: vertical;
+    }
+    .input-field:focus { border-color: var(--accent2); }
+    .input-field::placeholder { color: var(--muted); }
+
+    .quiz-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 28px; gap: 12px; }
+    .step-counter { color: var(--muted); font-size: 14px; }
+
+    /* contact + plan step */
+    .contact-form { display: flex; flex-direction: column; gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 14px; color: var(--muted); }
+    .plans-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0; }
+    .plan-card {
+      background: var(--bg3); border: 2px solid var(--border); border-radius: 10px;
+      padding: 16px; cursor: pointer; transition: all var(--trans); text-align: center;
+    }
+    .plan-card:hover { border-color: var(--accent2); }
+    .plan-card.selected { border-color: var(--accent); background: rgba(168,85,247,.12); }
+    .plan-name { font-weight: 700; font-size: 16px; }
+    .plan-price { color: var(--gold); font-size: 22px; font-weight: 800; margin: 6px 0; }
+    .plan-desc { font-size: 12px; color: var(--muted); }
+
+    /* ── ORDER STATUS ─────────────────────────────────────────── */
+    #page-status { max-width: 680px; margin: 0 auto; padding: 40px 24px 80px; }
+    .status-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; text-align: center; }
+    .status-icon { font-size: 56px; margin-bottom: 16px; }
+    .status-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .status-sub { color: var(--muted); margin-bottom: 24px; }
+
+    .progress-steps { display: flex; justify-content: center; gap: 0; margin: 24px 0; }
+    .prog-step { display: flex; align-items: center; gap: 0; }
+    .prog-dot { width: 28px; height: 28px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; transition: background var(--trans); }
+    .prog-dot.done { background: var(--accent2); }
+    .prog-dot.current { background: var(--accent); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(168,85,247,.6); } 50% { box-shadow: 0 0 0 8px rgba(168,85,247,0); } }
+    .prog-line { width: 40px; height: 2px; background: var(--border); transition: background var(--trans); }
+    .prog-line.done { background: var(--accent2); }
+    .prog-label { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+
+    .tracks-list { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; text-align: left; }
+    .track-item { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .track-title { font-weight: 600; margin-bottom: 8px; }
+    audio { width: 100%; margin-top: 4px; }
+    audio::-webkit-media-controls-panel { background: var(--bg3); }
+
+    .order-id-form { display: flex; gap: 10px; max-width: 480px; margin: 24px auto 0; }
+    .order-id-form input { flex: 1; }
+
+    /* ── LOADING / ERROR ─────────────────────────────────────────── */
+    .spinner { display: inline-block; width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin: 32px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-msg { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); border-radius: 8px; padding: 12px 16px; color: var(--error); font-size: 14px; margin: 12px 0; }
+    .success-msg { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); border-radius: 8px; padding: 12px 16px; color: var(--success); font-size: 14px; margin: 12px 0; }
+
+    /* ── FOOTER ─────────────────────────────────────────────── */
+    footer { text-align: center; padding: 24px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo" onclick="showPage('catalog')">🎵 Numaestra</div>
+  <div class="spacer"></div>
+  <span class="nav-link" onclick="showPage('catalog')">Каталог</span>
+  <span class="nav-link" onclick="showStatusPage()">Мой заказ</span>
+</nav>
+
+<!-- ═══════════════════ CATALOG PAGE ═══════════════════ -->
+<div id="page-catalog" class="page active">
+  <div class="hero">
+    <h1>Персональная песня<br><span>для каждого момента</span></h1>
+    <p>Мы создаём уникальные треки под ваш запрос — свадьба, день рождения, корпоратив или просто признание в любви.</p>
+  </div>
+  <div id="catalog-loading" style="text-align:center;padding:40px 0;"><div class="spinner"></div></div>
+  <div id="catalog-error" class="error-msg" style="display:none;max-width:600px;margin:0 auto 24px;"></div>
+  <div id="cards-grid" class="cards-grid"></div>
+</div>
+
+<!-- ═══════════════════ QUIZ PAGE ═══════════════════ -->
+<div id="page-quiz" class="page">
+  <div class="quiz-header">
+    <div class="back" onclick="showPage('catalog')">← Назад</div>
+    <div class="quiz-title" id="quiz-title"></div>
+    <div class="quiz-subtitle" id="quiz-subtitle"></div>
+  </div>
+  <div class="step-indicator" id="step-indicator"></div>
+  <div id="quiz-body"></div>
+</div>
+
+<!-- ═══════════════════ STATUS PAGE ═══════════════════ -->
+<div id="page-status" class="page">
+  <div id="status-loading" style="text-align:center;padding:40px 0;display:none;"><div class="spinner"></div></div>
+  <div id="status-error" class="error-msg" style="display:none;max-width:600px;margin:0 auto;"></div>
+  <div id="status-body"></div>
+</div>
+
+<footer>© 2025 Numaestra · Персональные песни на заказ</footer>
+
+<script>
+// ════════════════════════════════════════════════════════
+// SPA ROUTER
+// ════════════════════════════════════════════════════════
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ════════════════════════════════════════════════════════
+// API HELPERS
+// ════════════════════════════════════════════════════════
+async function apiFetch(url, options = {}) {
+  const resp = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try { const j = await resp.json(); msg = j.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+// ════════════════════════════════════════════════════════
+// CATALOG
+// ════════════════════════════════════════════════════════
+const EMOJIS = { wedding: '💍', birthday: '🎂', corporate: '🏢', roast: '🔥', default: '🎵' };
+
+async function loadCatalog() {
+  try {
+    const categories = await apiFetch('/api/v1/categories/');
+    document.getElementById('catalog-loading').style.display = 'none';
+    renderCards(categories);
+  } catch (err) {
+    document.getElementById('catalog-loading').style.display = 'none';
+    const el = document.getElementById('catalog-error');
+    el.textContent = 'Не удалось загрузить категории: ' + err.message;
+    el.style.display = 'block';
+  }
+}
+
+function renderCards(categories) {
+  const grid = document.getElementById('cards-grid');
+  grid.innerHTML = '';
+  if (!categories || categories.length === 0) {
+    grid.innerHTML = '<p style="color:var(--muted);padding:40px 0;text-align:center">Категории пока не добавлены</p>';
+    return;
+  }
+  categories.forEach(cat => {
+    const emoji = EMOJIS[cat.id] || EMOJIS.default;
+    const tags = (cat.seo_tags || []).slice(0, 3).map(t => `<span class="tag">${t}</span>`).join('');
+    const imgHTML = cat.cover_image_url
+      ? `<img class="card-img" src="${esc(cat.cover_image_url)}" alt="${esc(cat.title)}" loading="lazy" onerror="this.parentNode.innerHTML=this.parentNode.innerHTML.replace(this.outerHTML,'<div class=\'card-img-placeholder\'>${emoji}</div>')" />`
+      : `<div class="card-img-placeholder">${emoji}</div>`;
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      ${imgHTML}
+      <div class="card-body">
+        <div class="card-title">${esc(cat.title)}</div>
+        <div class="card-desc">${esc(cat.description)}</div>
+        <div class="card-tags">${tags}</div>
+        <button class="btn btn-primary btn-full">Заказать песню →</button>
+      </div>`;
+    card.querySelector('button').addEventListener('click', () => startQuiz(cat.id, cat.title));
+    grid.appendChild(card);
+  });
+}
+
+// ════════════════════════════════════════════════════════
+// QUIZ
+// ════════════════════════════════════════════════════════
+let quizState = {
+  categoryID: null,
+  questions: [],
+  step: 0,
+  answers: {},
+  email: '',
+  phone: '',
+  plan: 'standard',
+};
+
+async function startQuiz(catID, catTitle) {
+  quizState = { categoryID: catID, questions: [], step: 0, answers: {}, email: '', phone: '', plan: 'standard' };
+  showPage('quiz');
+  document.getElementById('quiz-title').textContent = catTitle;
+  document.getElementById('quiz-subtitle').textContent = 'Ответьте на несколько вопросов';
+  document.getElementById('quiz-body').innerHTML = '<div class="spinner" style="display:block;margin:40px auto"></div>';
+
+  try {
+    const data = await apiFetch(`/api/v1/categories/${catID}/wizard`);
+    quizState.questions = data.questions || [];
+    renderQuizStep();
+  } catch (err) {
+    document.getElementById('quiz-body').innerHTML = `<div class="error-msg">Не удалось загрузить квиз: ${esc(err.message)}</div>`;
+  }
+}
+
+function renderStepIndicator() {
+  const total = quizState.questions.length + 1; // +1 для шага контактов
+  const ind = document.getElementById('step-indicator');
+  ind.innerHTML = Array.from({ length: total }, (_, i) => {
+    const cls = i < quizState.step ? 'done' : i === quizState.step ? 'active' : '';
+    return `<div class="step-dot ${cls}"></div>`;
+  }).join('') + `<span style="font-size:13px;color:var(--muted);margin-left:10px">${quizState.step + 1} / ${total}</span>`;
+}
+
+function renderQuizStep() {
+  renderStepIndicator();
+  const body = document.getElementById('quiz-body');
+  const { questions, step } = quizState;
+
+  if (step < questions.length) {
+    const q = questions[step];
+    const savedValue = quizState.answers[q.mapping_key] || '';
+
+    let inputHTML = '';
+    if (q.ui_type === 'select') {
+      const opts = (q.options || []).map(o =>
+        `<button class="option-btn${savedValue === o.value ? ' selected' : ''}" data-value="${esc(o.value)}">${esc(o.label)}</button>`
+      ).join('');
+      inputHTML = `<div class="options-grid" id="options-grid">${opts}</div>`;
+    } else if (q.ui_type === 'textarea') {
+      inputHTML = `<textarea class="input-field" id="q-input" rows="4" placeholder="Введите ваш ответ...">${esc(savedValue)}</textarea>`;
+    } else {
+      inputHTML = `<input class="input-field" id="q-input" type="text" placeholder="Введите ваш ответ..." value="${esc(savedValue)}" />`;
+    }
+
+    body.innerHTML = `
+      <div class="question-card" id="qcard">
+        <div class="question-label">${esc(q.question_text)}${q.is_required ? '<span class="req">*</span>' : ''}</div>
+        ${inputHTML}
+        <div id="q-error" class="error-msg" style="display:none"></div>
+        <div class="quiz-nav">
+          <button class="btn btn-outline" id="btn-prev" ${step === 0 ? 'disabled' : ''} onclick="quizPrev()">← Назад</button>
+          <span class="step-counter"></span>
+          <button class="btn btn-primary" id="btn-next" onclick="quizNext()">Далее →</button>
+        </div>
+      </div>`;
+
+    if (q.ui_type === 'select') {
+      document.getElementById('options-grid').querySelectorAll('.option-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.option-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+        });
+      });
+    }
+  } else {
+    // Contact + plan step
+    body.innerHTML = `
+      <div class="question-card">
+        <div class="question-label">Контактные данные и тариф</div>
+        <div class="contact-form">
+          <div class="form-group">
+            <label>Email <span class="req">*</span></label>
+            <input class="input-field" id="c-email" type="email" placeholder="your@email.com" value="${esc(quizState.email)}" />
+          </div>
+          <div class="form-group">
+            <label>Телефон (необязательно)</label>
+            <input class="input-field" id="c-phone" type="tel" placeholder="+7 999 000 00 00" value="${esc(quizState.phone)}" />
+          </div>
+          <div class="form-group">
+            <label>Тариф</label>
+            <div class="plans-grid">
+              <div class="plan-card${quizState.plan === 'standard' ? ' selected' : ''}" data-plan="standard" onclick="selectPlan('standard')">
+                <div class="plan-name">Стандарт</div>
+                <div class="plan-price">1 500 ₽</div>
+                <div class="plan-desc">4 варианта песни</div>
+              </div>
+              <div class="plan-card${quizState.plan === 'premium' ? ' selected' : ''}" data-plan="premium" onclick="selectPlan('premium')">
+                <div class="plan-name">Премиум ✨</div>
+                <div class="plan-price">2 900 ₽</div>
+                <div class="plan-desc">8 вариантов + приоритет</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="q-error" class="error-msg" style="display:none"></div>
+        <div class="quiz-nav">
+          <button class="btn btn-outline" onclick="quizPrev()">← Назад</button>
+          <span class="step-counter"></span>
+          <button class="btn btn-primary" id="btn-submit" onclick="submitOrder()">Оплатить →</button>
+        </div>
+      </div>`;
+  }
+}
+
+function selectPlan(plan) {
+  quizState.plan = plan;
+  document.querySelectorAll('.plan-card').forEach(c => c.classList.toggle('selected', c.dataset.plan === plan));
+}
+
+function showQError(msg) {
+  const el = document.getElementById('q-error');
+  if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
+}
+
+function quizNext() {
+  const { questions, step } = quizState;
+  if (step < questions.length) {
+    const q = questions[step];
+    let value = '';
+    if (q.ui_type === 'select') {
+      const sel = document.querySelector('.option-btn.selected');
+      value = sel ? sel.dataset.value : '';
+    } else {
+      value = (document.getElementById('q-input')?.value || '').trim();
+    }
+    if (q.is_required && !value) { showQError('Пожалуйста, заполните это поле'); return; }
+    showQError('');
+    quizState.answers[q.mapping_key] = value;
+  }
+  quizState.step++;
+  renderQuizStep();
+}
+
+function quizPrev() {
+  if (quizState.step > 0) { quizState.step--; renderQuizStep(); }
+}
+
+function buildBrief() {
+  const { questions, answers } = quizState;
+  return questions.map(q => {
+    const v = answers[q.mapping_key];
+    return v ? `${q.question_text}: ${v}` : null;
+  }).filter(Boolean).join('; ');
+}
+
+async function submitOrder() {
+  const email = (document.getElementById('c-email')?.value || '').trim();
+  const phone = (document.getElementById('c-phone')?.value || '').trim();
+  quizState.email = email;
+  quizState.phone = phone;
+
+  if (!email && !phone) { showQError('Укажите email или телефон'); return; }
+
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.textContent = 'Создаём заказ...';
+  showQError('');
+
+  try {
+    const brief = buildBrief() || 'Персональная песня';
+    const body = {
+      email, phone, brief,
+      plan: quizState.plan,
+      category_id: quizState.categoryID,
+      answers: quizState.answers,
+    };
+    const result = await apiFetch('/api/v1/orders/', { method: 'POST', body: JSON.stringify(body) });
+
+    // Сохраняем access_token и order_id в localStorage
+    localStorage.setItem('numaestra_order_id', result.order_id);
+    localStorage.setItem('numaestra_access_token', result.access_token);
+
+    // Перенаправляем на оплату
+    window.location.href = result.payment_url;
+  } catch (err) {
+    showQError('Ошибка создания заказа: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Оплатить →';
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// ORDER STATUS
+// ════════════════════════════════════════════════════════
+let pollTimer = null;
+
+function showStatusPage() {
+  showPage('status');
+  const orderID = localStorage.getItem('numaestra_order_id');
+  if (orderID) {
+    loadOrderStatus(orderID);
+  } else {
+    renderStatusLookup();
+  }
+}
+
+function renderStatusLookup() {
+  document.getElementById('status-body').innerHTML = `
+    <div class="status-card">
+      <div class="status-icon">🔍</div>
+      <div class="status-title">Проверить статус заказа</div>
+      <div class="status-sub">Введите ID вашего заказа</div>
+      <div class="order-id-form">
+        <input class="input-field" id="lookup-id" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+        <button class="btn btn-primary" onclick="lookupOrder()">Найти</button>
+      </div>
+      <div id="lookup-error" class="error-msg" style="display:none;margin-top:12px"></div>
+    </div>`;
+}
+
+async function lookupOrder() {
+  const id = document.getElementById('lookup-id').value.trim();
+  if (!id) return;
+  const errEl = document.getElementById('lookup-error');
+  errEl.style.display = 'none';
+  try {
+    await loadOrderStatus(id);
+  } catch {}
+}
+
+async function loadOrderStatus(orderID) {
+  if (pollTimer) clearInterval(pollTimer);
+  document.getElementById('status-loading').style.display = 'block';
+  document.getElementById('status-error').style.display = 'none';
+  document.getElementById('status-body').innerHTML = '';
+
+  const token = localStorage.getItem('numaestra_access_token') || '';
+
+  try {
+    const order = await apiFetch(`/api/v1/orders/${orderID}`, {
+      headers: token ? { 'X-Access-Token': token } : {}
+    });
+    document.getElementById('status-loading').style.display = 'none';
+    renderOrderStatus(order);
+
+    if (order.generation_status !== 'completed' && order.generation_status !== 'failed') {
+      pollTimer = setInterval(() => loadOrderStatus(orderID), 10000);
+    }
+  } catch (err) {
+    document.getElementById('status-loading').style.display = 'none';
+    const el = document.getElementById('status-error');
+    el.textContent = 'Не удалось загрузить заказ: ' + err.message;
+    el.style.display = 'block';
+    renderStatusLookup();
+  }
+}
+
+function renderOrderStatus(order) {
+  const gs = order.generation_status;
+  const ps = order.payment_status;
+
+  const steps = [
+    { label: 'Оплата', key: 'paid' },
+    { label: 'В очереди', key: 'queued' },
+    { label: 'Создание', key: 'processing' },
+    { label: 'Готово', key: 'completed' },
+  ];
+  const stepOrder = ['new', 'queued', 'processing', 'completed'];
+  const currentIdx = stepOrder.indexOf(gs === 'failed' ? 'processing' : gs);
+
+  const progressHTML = steps.map((s, i) => {
+    const isDone = i < currentIdx || gs === 'completed';
+    const isCurrent = i === currentIdx && gs !== 'completed';
+    const lineDone = i < currentIdx;
+    const lineHTML = i < steps.length - 1
+      ? `<div class="prog-line${lineDone ? ' done' : ''}"></div>`
+      : '';
+    return `
+      <div class="prog-step">
+        <div style="display:flex;flex-direction:column;align-items:center">
+          <div class="prog-dot${isDone ? ' done' : isCurrent ? ' current' : ''}">${isDone ? '✓' : i + 1}</div>
+          <div class="prog-label">${s.label}</div>
+        </div>
+        ${lineHTML}
+      </div>`;
+  }).join('');
+
+  let icon = '⏳', title = 'Обрабатываем заказ', sub = 'Это займёт несколько минут...';
+  if (ps === 'pending') { icon = '💳'; title = 'Ожидается оплата'; sub = 'После оплаты начнём создавать песню'; }
+  else if (gs === 'completed') { icon = '🎉'; title = 'Ваша песня готова!'; sub = 'Слушайте все варианты ниже'; }
+  else if (gs === 'failed') { icon = '😔'; title = 'Произошла ошибка'; sub = 'Обратитесь в поддержку с ID заказа'; }
+  else if (gs === 'processing') { icon = '🎹'; title = 'Создаём вашу песню'; sub = 'Работает наша AI-студия...'; }
+  else if (gs === 'queued') { icon = '🎶'; title = 'Заказ в очереди'; sub = 'Скоро начнём генерацию'; }
+
+  let tracksHTML = '';
+  if (gs === 'completed' && order.tracks && order.tracks.length > 0) {
+    tracksHTML = `<div class="tracks-list">` +
+      order.tracks.map((t, i) => `
+        <div class="track-item">
+          <div class="track-title">🎵 Вариант ${t.index || i + 1}${t.title ? ' — ' + esc(t.title) : ''}</div>
+          <audio controls src="${esc(t.audio_url)}">Ваш браузер не поддерживает аудио</audio>
+        </div>`).join('') +
+      `</div>`;
+  }
+
+  const orderIDShort = (order.id || '').slice(0, 8);
+
+  document.getElementById('status-body').innerHTML = `
+    <div class="status-card">
+      <div class="status-icon">${icon}</div>
+      <div class="status-title">${title}</div>
+      <div class="status-sub">${sub}</div>
+      <div class="progress-steps">${progressHTML}</div>
+      ${tracksHTML}
+      <p style="margin-top:24px;color:var(--muted);font-size:13px">ID заказа: <code style="color:var(--accent);font-family:monospace">${esc(order.id)}</code></p>
+      ${gs !== 'completed' && gs !== 'failed' ? '<p style="color:var(--muted);font-size:12px;margin-top:8px">Страница обновляется автоматически каждые 10 секунд</p>' : ''}
+      ${gs === 'completed' || gs === 'failed' ? '<button class="btn btn-outline" style="margin-top:16px" onclick="clearOrder()">Новый заказ</button>' : ''}
+    </div>`;
+}
+
+function clearOrder() {
+  if (pollTimer) clearInterval(pollTimer);
+  localStorage.removeItem('numaestra_order_id');
+  localStorage.removeItem('numaestra_access_token');
+  showPage('catalog');
+}
+
+// ════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════
+// Если вернулись с оплаты — сразу показываем статус заказа
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('order_id') || (localStorage.getItem('numaestra_order_id') && window.location.pathname.includes('/status'))) {
+  showStatusPage();
+} else {
+  loadCatalog();
+}
+</script>
+</body>
+</html>

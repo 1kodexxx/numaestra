@@ -31,11 +31,11 @@ func (r *CategoryRepository) GetAll(ctx context.Context) ([]*domain.Category, er
 
 	var categories []*domain.Category
 	for rows.Next() {
-		var cat domain.Category
-		if err := rows.Scan(&cat.ID, &cat.Title, &cat.Description, &cat.CoverImageURL, &cat.SeoTags); err != nil {
+		var snap domain.CategorySnapshot
+		if err := rows.Scan(&snap.ID, &snap.Title, &snap.Description, &snap.CoverImageURL, &snap.SeoTags); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
-		categories = append(categories, &cat)
+		categories = append(categories, domain.RestoreCategory(snap))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate categories: %w", err)
@@ -86,16 +86,16 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 		GROUP BY c.id
 	`
 
-	var cat domain.Category
+	var snap domain.CategorySnapshot
 	var questionsJSON []byte
 
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&cat.ID,
-		&cat.Title,
-		&cat.Description,
-		&cat.CoverImageURL,
-		&cat.SeoTags,
-		&cat.BasePromptTemplate,
+		&snap.ID,
+		&snap.Title,
+		&snap.Description,
+		&snap.CoverImageURL,
+		&snap.SeoTags,
+		&snap.BasePromptTemplate,
 		&questionsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -105,9 +105,9 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 		return nil, fmt.Errorf("query category by id: %w", err)
 	}
 
-	if err := json.Unmarshal(questionsJSON, &cat.Questions); err != nil {
+	if err := json.Unmarshal(questionsJSON, &snap.Questions); err != nil {
 		return nil, fmt.Errorf("unmarshal questions: %w", err)
 	}
 
-	return &cat, nil
+	return domain.RestoreCategory(snap), nil
 }

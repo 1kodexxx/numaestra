@@ -1,6 +1,6 @@
 # Этап 1: сборка бинарника в полноценном Go-окружении.
-# Версия согласована с go.mod (go 1.25).
-FROM golang:1.25-alpine AS builder
+# Версия согласована с go.mod (go 1.24).
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
