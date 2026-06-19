@@ -78,10 +78,12 @@ func (h *OrderHandler) requireOrderAccess(next http.Handler) http.Handler {
 // --- DTO (Структуры для JSON) ---
 
 type CreateOrderRequest struct {
-	Email         string `json:"email"`
-	Phone         string `json:"phone"`
-	Brief         string `json:"brief"`
-	AmountKopecks int64  `json:"amount_kopecks"`
+	Email string `json:"email"`
+	Phone string `json:"phone"`
+	Brief string `json:"brief"`
+	// Plan — выбранный клиентом тариф. Цену по тарифу определяет сервер,
+	// сумма НЕ принимается из запроса (защита от занижения цены).
+	Plan string `json:"plan"`
 }
 
 type OrderResponse struct {
@@ -89,7 +91,8 @@ type OrderResponse struct {
 	InvoiceID        int64  `json:"invoice_id"`
 	PaymentStatus    string `json:"payment_status"`
 	GenerationStatus string `json:"generation_status"`
-	PaymentURL       string `json:"payment_url"` // <-- Ссылка для редиректа клиента
+	AmountKopecks    int64  `json:"amount_kopecks"` // итоговая цена, определённая сервером
+	PaymentURL       string `json:"payment_url"`    // <-- Ссылка для редиректа клиента
 	// AccessToken выдаётся клиенту один раз при создании заказа и предъявляется
 	// в заголовке X-Access-Token для доступа к защищённым маршрутам заказа.
 	AccessToken string `json:"access_token"`
@@ -114,21 +117,23 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		h.errorResponse(w, http.StatusBadRequest, "поле brief обязательно")
 		return
 	}
-	if req.AmountKopecks <= 0 {
-		h.errorResponse(w, http.StatusBadRequest, "сумма заказа должна быть положительной")
-		return
-	}
 
-	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.AmountKopecks)
+	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.Plan)
 	if err != nil {
+		// Неизвестный тариф — ошибка клиента (400), остальное — внутренняя (500).
+		if errors.Is(err, usecase.ErrUnknownPlan) {
+			h.errorResponse(w, http.StatusBadRequest, "неизвестный тариф")
+			return
+		}
 		// Внутреннюю причину не раскрываем клиенту — только логируем.
 		h.log.Error("ошибка создания заказа", "err", err)
 		h.errorResponse(w, http.StatusInternalServerError, "не удалось создать заказ")
 		return
 	}
 
-	outSum := robokassa.FormatAmount(req.AmountKopecks)
-	description := "Генерация 4-х версий студийной песни Numaestra"
+	// Сумму берём из заказа (её определил сервер), а не из запроса клиента.
+	outSum := robokassa.FormatAmount(order.AmountKopecks())
+	description := "Генерация студийной песни Numaestra"
 	paymentURL := h.rk.PaymentURL(outSum, order.InvoiceID(), description)
 
 	res := OrderResponse{
@@ -136,6 +141,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		InvoiceID:        order.InvoiceID(),
 		PaymentStatus:    string(order.PaymentStatus()),
 		GenerationStatus: string(order.GenerationStatus()),
+		AmountKopecks:    order.AmountKopecks(),
 		PaymentURL:       paymentURL, // <-- Фронтенд получит эту ссылку и перенаправит юзера
 		AccessToken:      order.AccessToken(),
 	}

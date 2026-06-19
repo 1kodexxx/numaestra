@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -49,7 +50,19 @@ func (p *AsynqPublisher) EnqueueGenerationTask(ctx context.Context, orderID uuid
 	}
 
 	task := asynq.NewTask(TaskTypeGenerateTrack, payload)
-	if _, err := p.client.EnqueueContext(ctx, task, asynq.Queue("generation"), asynq.MaxRetry(3)); err != nil {
+	// TaskID = идентификатор заказа: дедупликация на уровне очереди. Если из-за гонки
+	// (две доставки вебхука) задача для этого заказа уже стоит в очереди, повторная
+	// постановка вернёт ErrTaskIDConflict — трактуем её как успех, чтобы не плодить
+	// дубли генерации и двойной расход кредитов Suno.
+	opts := []asynq.Option{
+		asynq.Queue("generation"),
+		asynq.MaxRetry(3),
+		asynq.TaskID("generate:" + orderID.String()),
+	}
+	if _, err := p.client.EnqueueContext(ctx, task, opts...); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil
+		}
 		return fmt.Errorf("постановка задачи генерации в очередь: %w", err)
 	}
 	return nil

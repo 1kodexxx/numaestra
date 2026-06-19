@@ -108,9 +108,14 @@ func run(ctx context.Context) error {
 	// и передайте сюда вместо NewLogNotifier.
 	notifier := notify.NewLogNotifier(log)
 
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, log)
+	// Прайс определяется сервером по тарифу: цена не принимается из запроса клиента.
+	pricing := usecase.NewStaticPricing(cfg.Pricing.Plans, cfg.Pricing.DefaultPlan)
+
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, pricing, log)
 
 	// 5. Asynq Worker.
+	processor := worker.NewOrderProcessor(orderUC, log)
+
 	asynqServer := asynq.NewServer(
 		redisOpt,
 		asynq.Config{
@@ -125,10 +130,19 @@ func run(ctx context.Context) error {
 				}
 				return asynq.DefaultRetryDelayFunc(n, e, t)
 			},
+			// Терминальный обработчик: при исчерпании всех ретраев переводим заказ
+			// в failed и освобождаем аккаунт, иначе он застрянет в Busy навсегда.
+			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, t *asynq.Task, err error) {
+				retried, _ := asynq.GetRetryCount(ctx)
+				maxRetry, _ := asynq.GetMaxRetry(ctx)
+				if retried < maxRetry {
+					return // ещё будут ретраи — ждём
+				}
+				processor.HandleDeadTask(ctx, t, err)
+			}),
 		},
 	)
 
-	processor := worker.NewOrderProcessor(orderUC, log)
 	mux := asynq.NewServeMux()
 	mux.HandleFunc(queue.TaskTypeGenerateTrack, processor.HandleGenerateTask)
 	mux.HandleFunc(queue.TaskTypeCheckStatus, processor.HandleStatusCheckTask)

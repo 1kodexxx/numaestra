@@ -28,6 +28,7 @@ type inMemOrderRepo struct {
 	// Хуки инъекции ошибок для проверки путей сбоя.
 	createErr          error
 	saveWithAccountErr error
+	applyPaymentErr    error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -81,6 +82,24 @@ func (r *inMemOrderRepo) Update(_ context.Context, order *domain.Order) error {
 	}
 	r.save(order)
 	return nil
+}
+
+func (r *inMemOrderRepo) ApplyPaymentSuccess(_ context.Context, order *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.applyPaymentErr != nil {
+		return false, r.applyPaymentErr
+	}
+	snap, ok := r.orders[order.ID()]
+	if !ok {
+		return false, domain.ErrOrderNotFound
+	}
+	// Условный переход: только из pending (имитация WHERE payment_status='pending').
+	if snap.PaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	r.save(order)
+	return true, nil
 }
 
 func (r *inMemOrderRepo) ListByCustomerEmail(_ context.Context, email string) ([]*domain.Order, error) {

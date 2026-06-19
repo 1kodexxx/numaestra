@@ -136,6 +136,28 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 	return tx.Commit(ctx)
 }
 
+// ApplyPaymentSuccess атомарно и идемпотентно переводит заказ в paid+queued.
+// Условие WHERE payment_status = 'pending' гарантирует, что при двух параллельных
+// доставках вебхука переход выполнит только одна транзакция (вторая получит
+// RowsAffected()==0 и applied=false). Это исключает двойную постановку задачи
+// генерации и двойной расход кредитов Suno без отдельной version-колонки.
+func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain.Order) (bool, error) {
+	snap := order.Snapshot()
+
+	query := `
+		UPDATE orders
+		SET payment_status = $1, generation_status = $2, updated_at = $3, paid_at = $4
+		WHERE id = $5 AND payment_status = 'pending'
+	`
+	cmd, err := r.pool.Exec(ctx, query,
+		snap.PaymentStatus, snap.GenerationStatus, snap.UpdatedAt, snap.PaidAt, snap.ID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("apply payment success: %w", err)
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
 func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string) ([]*domain.Order, error) {
 	// 1. Загружаем все заказы клиента одним запросом.
 	orderQuery := `

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,7 @@ type Config struct {
 	Suno      SunoConfig
 	S3        S3Config
 	OpenAI    OpenAIConfig
+	Pricing   PricingConfig
 }
 
 type HTTPConfig struct {
@@ -58,6 +60,13 @@ type OpenAIConfig struct {
 	APIKey  string
 }
 
+// PricingConfig задаёт серверный прайс. Цены НЕ принимаются от клиента —
+// клиент выбирает только тариф (plan), а сумму определяет сервер.
+type PricingConfig struct {
+	Plans       map[string]int64 // тариф -> цена в копейках
+	DefaultPlan string           // тариф по умолчанию, если клиент не указал
+}
+
 // Load считывает переменные окружения и собирает их в структуру Config.
 // Если обязательные переменные отсутствуют, возвращает ошибку.
 func Load() (*Config, error) {
@@ -95,6 +104,14 @@ func Load() (*Config, error) {
 			BaseURL: getEnv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
 			APIKey:  getEnv("OPENAI_API_KEY", ""),
 		},
+		Pricing: PricingConfig{
+			// Тарифы и их цены задаются сервером. Стандартный тариф — 4 версии песни.
+			Plans: map[string]int64{
+				"standard": getInt64Env("PRICE_STANDARD_KOPECKS", 150000),
+				"premium":  getInt64Env("PRICE_PREMIUM_KOPECKS", 290000),
+			},
+			DefaultPlan: getEnv("PRICE_DEFAULT_PLAN", "standard"),
+		},
 	}
 
 	if cfg.Postgres.DSN == "" {
@@ -123,6 +140,18 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func getInt64Env(key string, fallback int64) int64 {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func getBoolEnv(key string, fallback bool) bool {

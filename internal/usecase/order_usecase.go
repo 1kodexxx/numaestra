@@ -28,6 +28,7 @@ type OrderUseCase struct {
 	storage   domain.TrackStorage
 	notifier  notify.Notifier
 	llmClient openai.APIClient
+	pricing   Pricing
 	log       *slog.Logger
 }
 
@@ -45,6 +46,7 @@ func NewOrderUseCase(
 	storage domain.TrackStorage,
 	notifier notify.Notifier,
 	llmClient openai.APIClient,
+	pricing Pricing,
 	log *slog.Logger,
 ) *OrderUseCase {
 	return &OrderUseCase{
@@ -55,6 +57,7 @@ func NewOrderUseCase(
 		storage:   storage,
 		notifier:  notifier,
 		llmClient: llmClient,
+		pricing:   pricing,
 		log:       log,
 	}
 }
@@ -63,7 +66,14 @@ func NewOrderUseCase(
 // 1. ПОЛЬЗОВАТЕЛЬСКИЕ СЦЕНАРИИ (Вызываются из HTTP)
 // ==========================================
 
-func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief string, amountKopecks int64) (*domain.Order, error) {
+func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, plan string) (*domain.Order, error) {
+	// Цену определяет сервер по выбранному тарифу, а НЕ клиент. Иначе сумму заказа
+	// можно занизить до 1 копейки и пройти сверку в вебхуке оплаты.
+	amountKopecks, err := uc.pricing.PriceFor(plan)
+	if err != nil {
+		return nil, fmt.Errorf("определение цены тарифа: %w", err)
+	}
+
 	// InvoiceID берём из PostgreSQL sequence — атомарно и без коллизий
 	// при параллельных запросах или нескольких инстансах сервиса.
 	invoiceID, err := uc.orderRepo.NextInvoiceID(ctx)
@@ -90,6 +100,15 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 		return fmt.Errorf("поиск заказа по invoice_id: %w", err)
 	}
 
+	// Идемпотентность: Robokassa повторяет доставку ResultURL до получения OK{InvId}.
+	// Повторный вебхук для уже оплаченного заказа — это НЕ ошибка: трактуем как успех,
+	// иначе бесконечные ретраи Robokassa будут получать 500.
+	if order.PaymentStatus() == domain.PaymentStatusPaid {
+		uc.log.Info("повторная доставка вебхука для уже оплаченного заказа — идемпотентно ОК",
+			"order_id", order.ID(), "invoice_id", invoiceID)
+		return nil
+	}
+
 	// Подпись вебхука уже проверена в слое доставки, но это не гарантирует,
 	// что оплачена именно сумма заказа. Сверяем явно, чтобы исключить подмену суммы.
 	if paidKopecks != order.AmountKopecks() {
@@ -107,8 +126,18 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 		return fmt.Errorf("переход статуса генерации: %w", err)
 	}
 
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
-		return fmt.Errorf("обновление заказа: %w", err)
+	// Условный апдейт (WHERE payment_status='pending') защищает от гонки двух
+	// параллельных доставок вебхука: только одна из них реально переведёт заказ
+	// в paid+queued и поставит задачу. Остальные получат applied=false и выйдут
+	// идемпотентно — без второй задачи генерации и двойного расхода кредитов Suno.
+	applied, err := uc.orderRepo.ApplyPaymentSuccess(ctx, order)
+	if err != nil {
+		return fmt.Errorf("сохранение оплаты заказа: %w", err)
+	}
+	if !applied {
+		uc.log.Info("оплата уже обработана параллельной доставкой — постановку задачи пропускаем",
+			"order_id", order.ID(), "invoice_id", invoiceID)
+		return nil
 	}
 
 	if err := uc.queue.EnqueueGenerationTask(ctx, order.ID()); err != nil {
@@ -185,9 +214,11 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("сбой провайдера: %w", err)
 	}
 
-	// 5. Атомарно сохраняем заказ (Processing + sunoJobID) и освобождаем аккаунт.
-	// Важно: если сохранить только заказ и упасть — аккаунт навсегда останется в Busy.
-	// Единственная транзакция гарантирует консистентность обоих агрегатов.
+	// 5. Атомарно сохраняем заказ (Processing) и состояние аккаунта в одной транзакции.
+	// Аккаунт намеренно ОСТАЁТСЯ в статусе Busy на всё время поллинга — он закреплён
+	// за этим заказом и не должен выдаваться другим задачам. Освобождение (Release)
+	// произойдёт позже: в CheckGenerationStatus при Complete/Fail либо в FailGeneration
+	// при исчерпании ретраев. Единая транзакция исключает рассинхронизацию агрегатов.
 	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
 		// Аккаунт в БД всё ещё Busy, а транзакция откатилась — аккаунт не утёк.
 		// Asynq сделает retry задачи и снова попробует захватить аккаунт.
@@ -289,6 +320,55 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	}
 
 	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)
+	return nil
+}
+
+// FailGeneration переводит заказ в окончательный отказ и освобождает захваченный
+// аккаунт. Вызывается из терминального обработчика Asynq, когда у задачи исчерпаны
+// все ретраи: иначе аккаунт навсегда застрянет в Busy, а заказ — в processing.
+// Операция идемпотентна: для уже завершённого/упавшего заказа ничего не делает.
+func (uc *OrderUseCase) FailGeneration(ctx context.Context, orderID uuid.UUID, reason string) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("заказ не найден: %w", err)
+	}
+
+	switch order.GenerationStatus() {
+	case domain.GenerationStatusCompleted, domain.GenerationStatusFailed:
+		// Терминальное состояние уже достигнуто — повторный вызов безвреден.
+		return nil
+	}
+
+	if err := order.Fail(reason); err != nil {
+		return fmt.Errorf("перевод заказа в failed: %w", err)
+	}
+
+	// Если аккаунт был захвачен — освобождаем его атомарно вместе с заказом,
+	// чтобы он не остался Busy навсегда.
+	if accountID := order.AssignedAccountID(); accountID != nil {
+		account, err := uc.accRepo.GetByID(ctx, *accountID)
+		if err != nil {
+			uc.log.Error("не удалось загрузить аккаунт для освобождения при провале",
+				"order_id", orderID, "account_id", *accountID, "err", err)
+			// Аккаунт не нашли — сохраняем хотя бы статус заказа.
+			if updErr := uc.orderRepo.Update(ctx, order); updErr != nil {
+				return fmt.Errorf("сохранение упавшего заказа: %w", updErr)
+			}
+			return nil
+		}
+		account.Release()
+		if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
+			return fmt.Errorf("атомарное сохранение провала заказа и освобождения аккаунта: %w", err)
+		}
+		uc.log.Warn("заказ переведён в failed, аккаунт освобождён",
+			"order_id", orderID, "account", account.Email(), "reason", reason)
+		return nil
+	}
+
+	if err := uc.orderRepo.Update(ctx, order); err != nil {
+		return fmt.Errorf("сохранение упавшего заказа: %w", err)
+	}
+	uc.log.Warn("заказ переведён в failed (аккаунт не был захвачен)", "order_id", orderID, "reason", reason)
 	return nil
 }
 

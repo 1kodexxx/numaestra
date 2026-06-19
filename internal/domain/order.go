@@ -322,6 +322,13 @@ type OrderRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Order, error)
 	GetByInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
 	Update(ctx context.Context, order *Order) error
+
+	// ApplyPaymentSuccess идемпотентно и атомарно фиксирует успешную оплату:
+	// переводит заказ в paid+queued ТОЛЬКО если он ещё в payment_status='pending'.
+	// Возвращает applied=true, если переход выполнен именно этим вызовом, и
+	// applied=false, если заказ уже был оплачен (например, параллельной доставкой
+	// вебхука). Это защищает от гонки двойной генерации без отдельной version-колонки.
+	ApplyPaymentSuccess(ctx context.Context, order *Order) (applied bool, err error)
 	ListByCustomerEmail(ctx context.Context, email string) ([]*Order, error)
 	ListByCustomerPhone(ctx context.Context, phone string) ([]*Order, error)
 

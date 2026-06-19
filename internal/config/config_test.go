@@ -30,6 +30,23 @@ func TestLoad_Defaults(t *testing.T) {
 	if !cfg.Robokassa.IsTest {
 		t.Error("по умолчанию ROBOKASSA_IS_TEST должен быть true")
 	}
+	if cfg.Pricing.Plans["standard"] != 150000 {
+		t.Errorf("дефолтная цена standard должна быть 150000, получили %d", cfg.Pricing.Plans["standard"])
+	}
+	if cfg.Pricing.DefaultPlan != "standard" {
+		t.Errorf("дефолтный тариф — standard, получили %q", cfg.Pricing.DefaultPlan)
+	}
+}
+
+func TestLoad_PricingOverride(t *testing.T) {
+	t.Setenv("PRICE_STANDARD_KOPECKS", "200000")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load упал: %v", err)
+	}
+	if cfg.Pricing.Plans["standard"] != 200000 {
+		t.Errorf("ожидали переопределённую цену 200000, получили %d", cfg.Pricing.Plans["standard"])
+	}
 }
 
 func TestLoad_OverridesFromEnv(t *testing.T) {

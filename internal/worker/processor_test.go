@@ -24,7 +24,7 @@ func discardLogger() *slog.Logger {
 // --- Ошибки разбора payload ---
 
 func TestHandleGenerateTask_BadPayload_SkipRetry(t *testing.T) {
-	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
 	task := asynq.NewTask(queue.TaskTypeGenerateTrack, []byte("{не json"))
 	err := p.HandleGenerateTask(context.Background(), task)
 	if err == nil {
@@ -36,7 +36,7 @@ func TestHandleGenerateTask_BadPayload_SkipRetry(t *testing.T) {
 }
 
 func TestHandleStatusCheckTask_BadPayload_SkipRetry(t *testing.T) {
-	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, nil, discardLogger()), discardLogger())
 	task := asynq.NewTask(queue.TaskTypeCheckStatus, []byte("garbage"))
 	err := p.HandleStatusCheckTask(context.Background(), task)
 	if !errors.Is(err, asynq.SkipRetry) {
@@ -64,7 +64,7 @@ func TestHandleStatusCheckTask_NotReady_PassesThrough(t *testing.T) {
 		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
 	}}
 
-	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, nil, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 
 	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
@@ -91,7 +91,7 @@ func TestHandleGenerateTask_Success(t *testing.T) {
 		return "job-xyz", nil
 	}}
 	q := &wQueue{}
-	uc := usecase.NewOrderUseCase(repo, acc, q, provider, &wStorage{}, &wNotifier{}, &wLLM{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, acc, q, provider, &wStorage{}, &wNotifier{}, &wLLM{}, nil, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 
 	payload, _ := json.Marshal(queue.GenerationTaskPayload{OrderID: order.ID()})
@@ -105,6 +105,44 @@ func TestHandleGenerateTask_Success(t *testing.T) {
 	if len(q.statusJobs) != 1 || q.statusJobs[0] != "job-xyz" {
 		t.Errorf("ожидали постановку опроса с job-xyz, получили %+v", q.statusJobs)
 	}
+}
+
+func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", 100)
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(account.ID())
+	repo.put(order)
+
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, &wProvider{}, &wStorage{}, &wNotifier{}, &wLLM{}, nil, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
+	task := asynq.NewTask(queue.TaskTypeCheckStatus, payload)
+
+	p.HandleDeadTask(context.Background(), task, errors.New("истекли ретраи"))
+
+	got, _ := repo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusFailed {
+		t.Errorf("ожидали failed после исчерпания ретраев, получили %q", got.GenerationStatus())
+	}
+	gotAcc, _ := acc.GetByID(context.Background(), account.ID())
+	if gotAcc.Status() == domain.AccountStatusBusy {
+		t.Error("аккаунт должен быть освобождён, а не остаться Busy")
+	}
+}
+
+func TestHandleDeadTask_BadPayload_NoPanic(t *testing.T) {
+	uc := usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, nil, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+	task := asynq.NewTask(queue.TaskTypeGenerateTrack, []byte("{broken"))
+	// Не должно паниковать и не должно вызывать use-case (orderID не извлечён).
+	p.HandleDeadTask(context.Background(), task, errors.New("x"))
 }
 
 // --- компактные in-memory моки ---
@@ -145,6 +183,20 @@ func (r *wOrderRepo) GetByInvoiceID(_ context.Context, inv int64) (*domain.Order
 	return domain.RestoreOrder(r.orders[id]), nil
 }
 func (r *wOrderRepo) Update(_ context.Context, o *domain.Order) error { r.put(o); return nil }
+func (r *wOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur, ok := r.orders[o.ID()]
+	if !ok {
+		return false, domain.ErrOrderNotFound
+	}
+	if cur.PaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	s := o.Snapshot()
+	r.orders[s.ID] = s
+	return true, nil
+}
 func (r *wOrderRepo) ListByCustomerEmail(_ context.Context, _ string) ([]*domain.Order, error) {
 	return nil, nil
 }

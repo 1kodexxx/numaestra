@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	"github.com/numaestra/numaestra/internal/usecase"
@@ -42,6 +43,47 @@ func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) 
 	}
 
 	return nil
+}
+
+// HandleDeadTask вызывается из asynq.ErrorHandler, когда у задачи исчерпаны все
+// ретраи и она отправляется в архив. Без этого аккаунт навсегда застрянет в Busy,
+// а заказ — в processing/queued. Переводим заказ в failed и освобождаем аккаунт.
+func (p *OrderProcessor) HandleDeadTask(ctx context.Context, t *asynq.Task, taskErr error) {
+	orderID, ok := orderIDFromTask(t)
+	if !ok {
+		p.log.Error("не удалось извлечь order_id из мёртвой задачи — ручной разбор",
+			"task_type", t.Type(), "task_err", taskErr)
+		return
+	}
+
+	reason := fmt.Sprintf("исчерпаны ретраи задачи %s: %v", t.Type(), taskErr)
+	p.log.Error("задача исчерпала ретраи, переводим заказ в failed",
+		"order_id", orderID, "task_type", t.Type(), "task_err", taskErr)
+
+	if err := p.uc.FailGeneration(ctx, orderID, reason); err != nil {
+		p.log.Error("не удалось обработать терминальный провал заказа",
+			"order_id", orderID, "err", err)
+	}
+}
+
+// orderIDFromTask извлекает идентификатор заказа из payload любой из фоновых задач.
+func orderIDFromTask(t *asynq.Task) (uuid.UUID, bool) {
+	switch t.Type() {
+	case queue.TaskTypeGenerateTrack:
+		var pl queue.GenerationTaskPayload
+		if err := json.Unmarshal(t.Payload(), &pl); err != nil {
+			return uuid.Nil, false
+		}
+		return pl.OrderID, pl.OrderID != uuid.Nil
+	case queue.TaskTypeCheckStatus:
+		var pl queue.StatusCheckTaskPayload
+		if err := json.Unmarshal(t.Payload(), &pl); err != nil {
+			return uuid.Nil, false
+		}
+		return pl.OrderID, pl.OrderID != uuid.Nil
+	default:
+		return uuid.Nil, false
+	}
 }
 
 // HandleStatusCheckTask вызывается воркером для периодического опроса статуса

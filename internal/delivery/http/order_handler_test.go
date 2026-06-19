@@ -30,7 +30,8 @@ const (
 func newTestHandler(t *testing.T) (*OrderHandler, http.Handler, *hOrderRepo) {
 	t.Helper()
 	repo := newHOrderRepo()
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, discardLogger())
+	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, pricing, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
 	h := NewOrderHandler(uc, discardLogger(), rk)
 	return h, h.Routes(), repo
@@ -50,7 +51,7 @@ func webhookSig(outSum, invID string) string {
 func TestHandler_CreateOrder_Success(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 
-	body := `{"email":"user@example.com","brief":"Песня","amount_kopecks":150000}`
+	body := `{"email":"user@example.com","brief":"Песня","plan":"standard"}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -68,6 +69,37 @@ func TestHandler_CreateOrder_Success(t *testing.T) {
 	if resp.PaymentURL == "" {
 		t.Error("ответ должен содержать payment_url")
 	}
+	if resp.AmountKopecks != 150000 {
+		t.Errorf("цену определяет сервер по тарифу standard=150000, получили %d", resp.AmountKopecks)
+	}
+}
+
+func TestHandler_CreateOrder_IgnoresClientAmount(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+
+	// Клиент пытается занизить цену через amount_kopecks — поле игнорируется,
+	// цена берётся из серверного тарифа.
+	body := `{"email":"user@example.com","brief":"Песня","plan":"standard","amount_kopecks":1}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	var resp OrderResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.AmountKopecks != 150000 {
+		t.Errorf("клиентская сумma должна игнорироваться, ожидали 150000, получили %d", resp.AmountKopecks)
+	}
+}
+
+func TestHandler_CreateOrder_UnknownPlan(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+	body := `{"email":"user@example.com","brief":"Песня","plan":"vip-неизвестный"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 для неизвестного тарифа, получили %d", rec.Code)
+	}
 }
 
 func TestHandler_CreateOrder_InvalidJSON(t *testing.T) {
@@ -83,10 +115,9 @@ func TestHandler_CreateOrder_InvalidJSON(t *testing.T) {
 func TestHandler_CreateOrder_MissingFields(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 	cases := []string{
-		`{"brief":"Песня","amount_kopecks":100}`,                 // нет контакта
-		`{"email":"a@b.c","amount_kopecks":100}`,                 // нет brief
-		`{"email":"a@b.c","brief":"Песня","amount_kopecks":0}`,   // нулевая сумма
-		`{"email":"a@b.c","brief":"Песня","amount_kopecks":-50}`, // отрицательная сумма
+		`{"brief":"Песня","plan":"standard"}`,        // нет контакта
+		`{"email":"a@b.c","plan":"standard"}`,        // нет brief
+		`{"phone":"+79990000000","plan":"standard"}`, // нет brief (только телефон)
 	}
 	for i, body := range cases {
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -102,7 +133,7 @@ func TestHandler_CreateOrder_MissingFields(t *testing.T) {
 
 func TestHandler_Webhook_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", 150000)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
 
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	outSum := robokassa.FormatAmount(150000)
@@ -126,7 +157,7 @@ func TestHandler_Webhook_Success(t *testing.T) {
 
 func TestHandler_Webhook_InvalidSignature(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", 150000)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
 
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	form := url.Values{}
@@ -146,7 +177,7 @@ func TestHandler_Webhook_InvalidSignature(t *testing.T) {
 
 func TestHandler_Webhook_AmountMismatch(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", 150000)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
 
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	outSum := robokassa.FormatAmount(100000) // оплачено меньше, подпись валидна для этой суммы
@@ -179,7 +210,7 @@ func TestHandler_GetOrder_RequiresToken(t *testing.T) {
 
 func TestHandler_GetOrder_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", 150000)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
 
 	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String(), nil)
 	req.Header.Set("X-Access-Token", order.AccessToken())
@@ -198,7 +229,7 @@ func TestHandler_GetOrder_Success(t *testing.T) {
 
 func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", 150000)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
 
 	// Токен валиден, но в URL чужой ID.
 	req := httptest.NewRequest(http.MethodGet, "/"+uuid.NewString(), nil)
@@ -213,7 +244,7 @@ func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 
 func TestHandler_ListOrders_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", 150000)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Access-Token", order.AccessToken())
@@ -232,9 +263,9 @@ func TestHandler_ListOrders_Success(t *testing.T) {
 
 // --- helpers ---
 
-func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief string, amount int64) *domain.Order {
+func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief, plan string) *domain.Order {
 	t.Helper()
-	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, amount)
+	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, plan)
 	if err != nil {
 		t.Fatalf("подготовка заказа: %v", err)
 	}
@@ -293,6 +324,21 @@ func (r *hOrderRepo) Update(_ context.Context, o *domain.Order) error {
 	r.orders[snap.ID] = snap
 	r.byInvoice[snap.InvoiceID] = snap.ID
 	return nil
+}
+
+func (r *hOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur, ok := r.orders[o.ID()]
+	if !ok {
+		return false, domain.ErrOrderNotFound
+	}
+	if cur.PaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	snap := o.Snapshot()
+	r.orders[snap.ID] = snap
+	return true, nil
 }
 
 func (r *hOrderRepo) ListByCustomerEmail(_ context.Context, email string) ([]*domain.Order, error) {
