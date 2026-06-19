@@ -1,8 +1,10 @@
 package apphttp
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +88,37 @@ func TestRateLimiter_BlocksAfterBurst(t *testing.T) {
 	}
 	if code := do(); code != http.StatusTooManyRequests {
 		t.Fatalf("3-й запрос должен быть отклонён 429, получили %d", code)
+	}
+}
+
+func TestMaxBodyBytes_RejectsOversizedBody(t *testing.T) {
+	// Хендлер пытается прочитать тело целиком; при превышении лимита чтение
+	// должно вернуть ошибку, и хендлер ответит 413.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			http.Error(w, "too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	h := MaxBodyBytes(10)(handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("a", 100)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("ожидали 413 при превышении лимита тела, получили %d", rec.Code)
+	}
+}
+
+func TestMaxBodyBytes_AllowsSmallBody(t *testing.T) {
+	h := MaxBodyBytes(1024)(okHandler())
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("small"))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("малое тело должно проходить, получили %d", rec.Code)
 	}
 }
 

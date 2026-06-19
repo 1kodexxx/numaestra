@@ -24,6 +24,12 @@ type Config struct {
 type HTTPConfig struct {
 	Port            string
 	ShutdownTimeout time.Duration
+	// MaxBodyBytes ограничивает размер тела входящего запроса для защиты от
+	// исчерпания памяти крупными телами. 0 означает «без ограничения».
+	MaxBodyBytes int64
+	// CORSAllowedOrigins — список доменов, которым разрешён доступ к API.
+	// Пустой список трактуется как "*" (любой источник) — удобно для dev.
+	CORSAllowedOrigins []string
 }
 
 type PostgresConfig struct {
@@ -73,8 +79,10 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Env: getEnv("APP_ENV", "dev"),
 		HTTP: HTTPConfig{
-			Port:            getEnv("HTTP_PORT", "8080"),
-			ShutdownTimeout: getDurationEnv("HTTP_SHUTDOWN_TIMEOUT", 15*time.Second),
+			Port:               getEnv("HTTP_PORT", "8080"),
+			ShutdownTimeout:    getDurationEnv("HTTP_SHUTDOWN_TIMEOUT", 15*time.Second),
+			MaxBodyBytes:       getInt64Env("HTTP_MAX_BODY_BYTES", 1<<20), // 1 МБ по умолчанию
+			CORSAllowedOrigins: getCSVEnv("CORS_ALLOWED_ORIGINS"),
 		},
 		Postgres: PostgresConfig{
 			DSN: getEnv("POSTGRES_DSN", "postgres://numaestra:numaestra@localhost:5432/numaestra?sslmode=disable"),
@@ -87,7 +95,10 @@ func Load() (*Config, error) {
 			MerchantLogin: getEnv("ROBOKASSA_MERCHANT_LOGIN", "numaestra_test"),
 			Password1:     getEnv("ROBOKASSA_PASS1", "test_pass1"),
 			Password2:     getEnv("ROBOKASSA_PASS2", "test_pass2"),
-			IsTest:        getBoolEnv("ROBOKASSA_IS_TEST", true),
+			// Дефолт false: в проде безопаснее «боевой» режим. Тестовый режим
+			// нужно включать осознанно через ROBOKASSA_IS_TEST=true в dev-окружении,
+			// иначе платежи уходят в тест и Robokassa их не зачисляет.
+			IsTest: getBoolEnv("ROBOKASSA_IS_TEST", false),
 		},
 		Suno: SunoConfig{
 			APIURL: getEnv("SUNO_API_URL", "https://api.custom-suno.local"),
@@ -152,6 +163,24 @@ func getInt64Env(key string, fallback int64) int64 {
 		return fallback
 	}
 	return n
+}
+
+// getCSVEnv парсит переменную окружения как список значений через запятую.
+// Пустые элементы и окружающие пробелы отбрасываются. Возвращает nil, если
+// переменная не задана или пуста.
+func getCSVEnv(key string) []string {
+	v, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func getBoolEnv(key string, fallback bool) bool {

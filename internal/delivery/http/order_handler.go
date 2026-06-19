@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
@@ -39,12 +41,29 @@ const ctxKeyOrder ctxKey = "order"
 func (h *OrderHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	// Публичные маршруты — без токена.
-	r.Post("/", h.CreateOrder)
-	r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
+	// Лимитеры создаются с независимыми бакетами, поэтому всплеск обычных
+	// запросов не «съедает» лимит вебхука и наоборот.
+	clientLimiter := RateLimiter(10, 20)
+	// Вебхук Robokassa приходит с её IP и обслуживается отдельным, более щедрым
+	// лимитером: иначе при исчерпании клиентского бакета вебхук получит 429,
+	// и Robokassa начнёт его ретраить, задерживая зачисление оплаты.
+	webhookLimiter := RateLimiter(20, 40)
+
+	// Публичные маршруты — без токена, но под клиентским rate limiter.
+	r.Group(func(r chi.Router) {
+		r.Use(clientLimiter)
+		r.Post("/", h.CreateOrder)
+	})
+
+	// Вебхук оплаты — отдельный лимитер, не зависящий от клиентского трафика.
+	r.Group(func(r chi.Router) {
+		r.Use(webhookLimiter)
+		r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
+	})
 
 	// Защищённые маршруты — требуют X-Access-Token заголовок.
 	r.Group(func(r chi.Router) {
+		r.Use(clientLimiter)
 		r.Use(h.requireOrderAccess)
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
@@ -60,13 +79,13 @@ func (h *OrderHandler) requireOrderAccess(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("X-Access-Token")
 		if token == "" {
-			h.errorResponse(w, http.StatusUnauthorized, "требуется заголовок X-Access-Token")
+			h.errorResponse(w, r, http.StatusUnauthorized, "требуется заголовок X-Access-Token")
 			return
 		}
 
 		order, err := h.uc.GetOrderByToken(r.Context(), token)
 		if err != nil {
-			h.errorResponse(w, http.StatusUnauthorized, "неверный токен доступа")
+			h.errorResponse(w, r, http.StatusUnauthorized, "неверный токен доступа")
 			return
 		}
 
@@ -103,31 +122,40 @@ type OrderResponse struct {
 func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	var req CreateOrderRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.errorResponse(w, http.StatusBadRequest, "неверный формат JSON")
+		h.errorResponse(w, r, http.StatusBadRequest, "неверный формат JSON")
 		return
 	}
 
 	// Базовая валидация входных данных до обращения к use-case,
 	// чтобы вернуть клиенту понятный 400 вместо общего 500.
 	if req.Email == "" && req.Phone == "" {
-		h.errorResponse(w, http.StatusBadRequest, "укажите email или телефон")
+		h.errorResponse(w, r, http.StatusBadRequest, "укажите email или телефон")
 		return
 	}
 	if req.Brief == "" {
-		h.errorResponse(w, http.StatusBadRequest, "поле brief обязательно")
+		h.errorResponse(w, r, http.StatusBadRequest, "поле brief обязательно")
+		return
+	}
+	if utf8.RuneCountInString(req.Brief) > domain.MaxBriefLength {
+		h.errorResponse(w, r, http.StatusBadRequest, "поле brief слишком длинное")
 		return
 	}
 
 	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.Plan)
 	if err != nil {
-		// Неизвестный тариф — ошибка клиента (400), остальное — внутренняя (500).
+		// Неизвестный тариф или слишком длинный бриф — ошибка клиента (400),
+		// остальное — внутренняя (500).
 		if errors.Is(err, usecase.ErrUnknownPlan) {
-			h.errorResponse(w, http.StatusBadRequest, "неизвестный тариф")
+			h.errorResponse(w, r, http.StatusBadRequest, "неизвестный тариф")
+			return
+		}
+		if errors.Is(err, domain.ErrBriefTooLong) {
+			h.errorResponse(w, r, http.StatusBadRequest, "поле brief слишком длинное")
 			return
 		}
 		// Внутреннюю причину не раскрываем клиенту — только логируем.
 		h.log.Error("ошибка создания заказа", "err", err)
-		h.errorResponse(w, http.StatusInternalServerError, "не удалось создать заказ")
+		h.errorResponse(w, r, http.StatusInternalServerError, "не удалось создать заказ")
 		return
 	}
 
@@ -152,7 +180,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Request) {
 	// ParseForm обрабатывает и POST данные, и Query параметры
 	if err := r.ParseForm(); err != nil {
-		h.errorResponse(w, http.StatusBadRequest, "не удалось разобрать параметры")
+		h.errorResponse(w, r, http.StatusBadRequest, "не удалось разобрать параметры")
 		return
 	}
 
@@ -161,37 +189,37 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 	signature := r.Form.Get("SignatureValue")
 
 	if outSum == "" || invIdStr == "" || signature == "" {
-		h.errorResponse(w, http.StatusBadRequest, "отсутствуют обязательные параметры")
+		h.errorResponse(w, r, http.StatusBadRequest, "отсутствуют обязательные параметры")
 		return
 	}
 
 	if !h.rk.VerifyWebhook(outSum, invIdStr, signature) {
 		h.log.Warn("попытка подделки вебхука Робокассы!", "inv_id", invIdStr)
-		h.errorResponse(w, http.StatusBadRequest, "неверная подпись")
+		h.errorResponse(w, r, http.StatusBadRequest, "неверная подпись")
 		return
 	}
 
 	invoiceID, err := strconv.ParseInt(invIdStr, 10, 64)
 	if err != nil {
-		h.errorResponse(w, http.StatusBadRequest, "некорректный формат InvId")
+		h.errorResponse(w, r, http.StatusBadRequest, "некорректный формат InvId")
 		return
 	}
 
 	paidKopecks, err := robokassa.ParseAmountKopecks(outSum)
 	if err != nil {
 		h.log.Warn("некорректная сумма в вебхуке Робокассы", "inv_id", invIdStr, "out_sum", outSum, "err", err)
-		h.errorResponse(w, http.StatusBadRequest, "некорректный формат OutSum")
+		h.errorResponse(w, r, http.StatusBadRequest, "некорректный формат OutSum")
 		return
 	}
 
 	if err := h.uc.HandlePaymentSuccess(r.Context(), invoiceID, paidKopecks); err != nil {
 		if errors.Is(err, usecase.ErrPaymentAmountMismatch) {
 			h.log.Warn("отклонён вебхук: сумма оплаты не совпадает", "invoice_id", invoiceID, "out_sum", outSum)
-			h.errorResponse(w, http.StatusBadRequest, "сумма оплаты не совпадает с суммой заказа")
+			h.errorResponse(w, r, http.StatusBadRequest, "сумма оплаты не совпадает с суммой заказа")
 			return
 		}
 		h.log.Error("ошибка обработки вебхука оплаты", "invoice_id", invoiceID, "err", err)
-		h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		h.errorResponse(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
@@ -200,10 +228,16 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 	w.Write([]byte("OK" + invIdStr))
 }
 
-func (h *OrderHandler) errorResponse(w http.ResponseWriter, code int, msg string) {
+// errorResponse пишет JSON-ошибку и добавляет request_id из контекста запроса,
+// чтобы клиент мог сослаться на конкретный запрос при обращении в поддержку.
+func (h *OrderHandler) errorResponse(w http.ResponseWriter, r *http.Request, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	body := map[string]string{"error": msg}
+	if reqID := chimiddleware.GetReqID(r.Context()); reqID != "" {
+		body["request_id"] = reqID
+	}
+	json.NewEncoder(w).Encode(body)
 }
 
 func (h *OrderHandler) successResponse(w http.ResponseWriter, code int, data interface{}) {
@@ -234,11 +268,11 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	idParam := chi.URLParam(r, "id")
 	orderID, err := uuid.Parse(idParam)
 	if err != nil {
-		h.errorResponse(w, http.StatusBadRequest, "некорректный ID заказа")
+		h.errorResponse(w, r, http.StatusBadRequest, "некорректный ID заказа")
 		return
 	}
 	if order.ID() != orderID {
-		h.errorResponse(w, http.StatusForbidden, "токен не соответствует этому заказу")
+		h.errorResponse(w, r, http.StatusForbidden, "токен не соответствует этому заказу")
 		return
 	}
 
@@ -290,7 +324,7 @@ func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.log.Error("ошибка получения списка заказов", "err", err)
-		h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		h.errorResponse(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 

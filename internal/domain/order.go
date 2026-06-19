@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -32,7 +33,14 @@ const (
 	GenerationStatusFailed     GenerationStatus = "failed"     // отказ после всех ретраев
 )
 
+// MaxBriefLength — максимально допустимая длина технического задания (в рунах).
+// Ограничивает объём данных, который уходит в LLM и в БД: слишком длинный бриф
+// раздувает стоимость генерации и нагрузку на хранилище.
+const MaxBriefLength = 5000
+
 var (
+	ErrBriefTooLong = errors.New("техническое задание слишком длинное")
+
 	ErrOrderNotFound               = errors.New("заказ не найден")
 	ErrOrderAlreadyPaid            = errors.New("заказ уже оплачен")
 	ErrOrderNotPaid                = errors.New("заказ не оплачен")
@@ -89,6 +97,9 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief string, amoun
 	}
 	if brief == "" {
 		return nil, errors.New("техническое задание на песню не может быть пустым")
+	}
+	if utf8.RuneCountInString(brief) > MaxBriefLength {
+		return nil, ErrBriefTooLong
 	}
 	if amountKopecks <= 0 {
 		return nil, errors.New("сумма заказа должна быть положительной")

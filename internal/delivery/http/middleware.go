@@ -106,6 +106,22 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
+// MaxBodyBytes возвращает middleware, ограничивающее размер тела входящего
+// запроса. Без него клиент может прислать сколь угодно большое тело и исчерпать
+// память сервиса. При превышении лимита чтение тела вернёт ошибку, а http-сервер
+// ответит 413 Request Entity Too Large.
+// n <= 0 отключает ограничение.
+func MaxBodyBytes(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if n > 0 && r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, n)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // ipRateLimiter ограничивает частоту запросов по IP клиента, используя
 // токен-бакет на каждый IP. Старые записи периодически вычищаются, чтобы
 // мапа не росла бесконечно.

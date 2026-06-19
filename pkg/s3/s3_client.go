@@ -45,6 +45,11 @@ func New(endpoint, region, bucket, accessKey, secretKey string) *Client {
 	}
 }
 
+// unsignedPayload — специальное значение x-amz-content-sha256, разрешённое S3
+// при работе поверх HTTPS. Позволяет не вычислять SHA256 всего тела заранее и,
+// как следствие, не буферизовать весь файл в памяти, а стримить его напрямую.
+const unsignedPayload = "UNSIGNED-PAYLOAD"
+
 // UploadFromURL скачивает файл по sourceURL и загружает его в S3 под ключом key.
 // Возвращает постоянную публичную ссылку на объект в бакете.
 //
@@ -52,14 +57,14 @@ func New(endpoint, region, bucket, accessKey, secretKey string) *Client {
 // contentType — MIME-тип файла, например "audio/mpeg".
 func (c *Client) UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (string, error) {
 	// 1. Скачиваем аудио с временной ссылки Suno.
-	body, err := c.download(ctx, sourceURL)
+	body, contentLength, err := c.download(ctx, sourceURL)
 	if err != nil {
 		return "", fmt.Errorf("скачивание трека с %s: %w", sourceURL, err)
 	}
 	defer body.Close()
 
-	// 2. Загружаем в S3.
-	if err := c.put(ctx, key, contentType, body); err != nil {
+	// 2. Загружаем в S3 потоком, без буферизации всего файла в RAM.
+	if err := c.put(ctx, key, contentType, body, contentLength); err != nil {
 		return "", fmt.Errorf("загрузка в S3 (key=%s): %w", key, err)
 	}
 
@@ -68,53 +73,60 @@ func (c *Client) UploadFromURL(ctx context.Context, sourceURL, key, contentType 
 	return publicURL, nil
 }
 
-// download скачивает тело ответа по URL, возвращает ReadCloser для потоковой передачи.
-func (c *Client) download(ctx context.Context, rawURL string) (io.ReadCloser, error) {
+// download скачивает тело ответа по URL и возвращает ReadCloser для потоковой
+// передачи вместе с длиной контента (или -1, если сервер её не сообщил).
+func (c *Client) download(ctx context.Context, rawURL string) (io.ReadCloser, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("HTTP %d при скачивании", resp.StatusCode)
+		return nil, 0, fmt.Errorf("HTTP %d при скачивании", resp.StatusCode)
 	}
-	return resp.Body, nil
+	return resp.Body, resp.ContentLength, nil
 }
 
 // put выполняет PUT-запрос к S3 с AWS Signature V4.
-// body читается потоково — не буферизуется в памяти целиком.
-func (c *Client) put(ctx context.Context, key, contentType string, body io.Reader) error {
-	// Читаем тело в буфер — нужен для вычисления SHA256 и Content-Length.
-	// Треки Suno обычно 3–5 МБ, это приемлемо.
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return fmt.Errorf("чтение тела: %w", err)
-	}
-
+//
+// Тело передаётся потоково и не буферизуется целиком в памяти, когда длина
+// контента известна (contentLength >= 0): используется x-amz-content-sha256 =
+// UNSIGNED-PAYLOAD, что допустимо поверх HTTPS. Если длина неизвестна, делаем
+// безопасный fallback — читаем тело в буфер, чтобы выставить корректный
+// Content-Length (S3 PUT требует его).
+func (c *Client) put(ctx context.Context, key, contentType string, body io.Reader, contentLength int64) error {
 	objectURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
 
 	now := time.Now().UTC()
 	dateStamp := now.Format("20060102")
 	amzDate := now.Format("20060102T150405Z")
 
-	payloadHash := hexSHA256(data)
+	reqBody := body
+	if contentLength < 0 {
+		data, err := io.ReadAll(body)
+		if err != nil {
+			return fmt.Errorf("чтение тела: %w", err)
+		}
+		reqBody = strings.NewReader(string(data))
+		contentLength = int64(len(data))
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, objectURL, strings.NewReader(string(data)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, objectURL, reqBody)
 	if err != nil {
 		return err
 	}
 
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("x-amz-content-sha256", payloadHash)
+	req.Header.Set("x-amz-content-sha256", unsignedPayload)
 	req.Header.Set("x-amz-date", amzDate)
-	req.ContentLength = int64(len(data))
+	req.ContentLength = contentLength
 
-	// AWS Signature V4.
-	authHeader := c.signV4(req, dateStamp, amzDate, payloadHash)
+	// AWS Signature V4 с неподписанным телом (UNSIGNED-PAYLOAD).
+	authHeader := c.signV4(req, dateStamp, amzDate, unsignedPayload)
 	req.Header.Set("Authorization", authHeader)
 
 	resp, err := c.httpClient.Do(req)

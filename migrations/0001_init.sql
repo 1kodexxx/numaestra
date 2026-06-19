@@ -57,7 +57,17 @@ CREATE TABLE IF NOT EXISTS tracks (
     UNIQUE(order_id, index)
 );
 
--- ДОБАВЛЯЕМ ТЕСТОВЫЙ АККАУНТ В ПУЛ
-INSERT INTO suno_accounts (id, email, encrypted_session, status, token_balance, failure_count, created_at, updated_at)
-VALUES ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'test@suno.com', 'fake_session_data', 'active', 100, 0, NOW(), NOW())
-ON CONFLICT DO NOTHING;
+-- Тестовый аккаунт в пуле нужен только для локальной разработки.
+-- В продакшене такой аккаунт с fake_session_data был бы выбран селектором
+-- доступных аккаунтов (status='active', token_balance>0) и реальные заказы
+-- ушли бы на нерабочий аккаунт. Поэтому сидим его ТОЛЬКО в dev/test-базах.
+-- Чтобы включить сид локально, используйте базу с именем numaestra_dev или
+-- numaestra_test (см. POSTGRES_DSN).
+DO $$
+BEGIN
+    IF current_database() IN ('numaestra_dev', 'numaestra_test') THEN
+        INSERT INTO suno_accounts (id, email, encrypted_session, status, token_balance, failure_count, created_at, updated_at)
+        VALUES ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'test@suno.com', 'fake_session_data', 'active', 100, 0, NOW(), NOW())
+        ON CONFLICT DO NOTHING;
+    END IF;
+END $$;

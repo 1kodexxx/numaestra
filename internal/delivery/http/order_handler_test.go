@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
@@ -109,6 +110,40 @@ func TestHandler_CreateOrder_InvalidJSON(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("ожидали 400, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_CreateOrder_BriefTooLong(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+	longBrief := strings.Repeat("я", domain.MaxBriefLength+1)
+	body := fmt.Sprintf(`{"email":"user@example.com","brief":%q,"plan":"standard"}`, longBrief)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 при слишком длинном brief, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_ErrorResponse_IncludesRequestID(t *testing.T) {
+	_, routes, _ := newTestHandler(t)
+	// RequestID middleware кладёт идентификатор в контекст, который хендлер
+	// должен вернуть в теле ошибки.
+	router := chimiddleware.RequestID(routes)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{не json"))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("не удалось разобрать тело ошибки: %v", err)
+	}
+	if body["error"] == "" {
+		t.Error("тело ошибки должно содержать поле error")
+	}
+	if body["request_id"] == "" {
+		t.Error("тело ошибки должно содержать request_id")
 	}
 }
 

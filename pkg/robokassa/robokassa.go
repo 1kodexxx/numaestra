@@ -12,6 +12,7 @@ package robokassa
 
 import (
 	"crypto/md5"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"net/url"
@@ -68,7 +69,12 @@ func (c *Client) PaymentURL(outSum string, invID int64, description string) stri
 // outSum и invID берутся из параметров POST-запроса от Robokassa.
 func (c *Client) VerifyWebhook(outSum, invID, signature string) bool {
 	expected := c.signWebhook(outSum, invID)
-	return strings.EqualFold(signature, expected)
+	// Robokassa может прислать подпись в любом регистре, поэтому нормализуем оба
+	// значения к верхнему регистру. Сравнение делаем за константное время через
+	// subtle.ConstantTimeCompare, чтобы исключить утечку информации о подписи
+	// по времени выполнения (timing attack).
+	got := strings.ToUpper(signature)
+	return subtle.ConstantTimeCompare([]byte(got), []byte(expected)) == 1
 }
 
 // FormatAmount переводит сумму из копеек в строку рублей, которую принимает Robokassa.

@@ -7,11 +7,24 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	"github.com/numaestra/numaestra/internal/usecase"
+)
+
+// Таймауты на обработку фоновых задач. Контекст от Asynq сам по себе не
+// ограничен по времени, поэтому при зависании внешних API (Suno, S3, LLM)
+// задача могла бы держать слот воркера бесконечно. Жёсткий дедлайн гарантирует
+// освобождение слота и последующий retry задачи.
+const (
+	// generateTaskTimeout покрывает обращение к LLM и запуск генерации в Suno.
+	generateTaskTimeout = 90 * time.Second
+	// statusCheckTaskTimeout покрывает опрос статуса в Suno и перезаливку
+	// готовых треков в S3 (несколько файлов по 3–5 МБ).
+	statusCheckTaskTimeout = 3 * time.Minute
 )
 
 // OrderProcessor содержит логику обработки фоновых задач из Asynq
@@ -35,6 +48,9 @@ func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) 
 	}
 
 	p.log.Debug("воркер взял задачу на генерацию", "order_id", payload.OrderID)
+
+	ctx, cancel := context.WithTimeout(ctx, generateTaskTimeout)
+	defer cancel()
 
 	err := p.uc.ProcessGenerationTask(ctx, payload.OrderID)
 	if err != nil {
@@ -94,6 +110,9 @@ func (p *OrderProcessor) HandleStatusCheckTask(ctx context.Context, t *asynq.Tas
 	}
 
 	p.log.Debug("воркер проверяет статус генерации", "order_id", payload.OrderID, "suno_job_id", payload.SunoJobID)
+
+	ctx, cancel := context.WithTimeout(ctx, statusCheckTaskTimeout)
+	defer cancel()
 
 	err := p.uc.CheckGenerationStatus(ctx, payload.OrderID, payload.SunoJobID)
 	if err != nil {

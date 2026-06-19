@@ -27,8 +27,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HTTP.ShutdownTimeout != 15*time.Second {
 		t.Errorf("ожидали shutdown 15s, получили %v", cfg.HTTP.ShutdownTimeout)
 	}
-	if !cfg.Robokassa.IsTest {
-		t.Error("по умолчанию ROBOKASSA_IS_TEST должен быть true")
+	if cfg.Robokassa.IsTest {
+		t.Error("по умолчанию ROBOKASSA_IS_TEST должен быть false (безопасный продакшен-дефолт)")
 	}
 	if cfg.Pricing.Plans["standard"] != 150000 {
 		t.Errorf("дефолтная цена standard должна быть 150000, получили %d", cfg.Pricing.Plans["standard"])

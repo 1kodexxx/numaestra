@@ -54,6 +54,23 @@ func TestNewOrder_RequiresBrief(t *testing.T) {
 	}
 }
 
+func TestNewOrder_RejectsTooLongBrief(t *testing.T) {
+	longBrief := strings.Repeat("я", MaxBriefLength+1)
+	_, err := NewOrder(1, "user@example.com", "", longBrief, 100)
+	if err == nil {
+		t.Fatal("ожидали ошибку при слишком длинном брифе")
+	}
+	if err != ErrBriefTooLong {
+		t.Errorf("ожидали ErrBriefTooLong, получили %v", err)
+	}
+
+	// Бриф ровно на границе длины должен приниматься.
+	maxBrief := strings.Repeat("я", MaxBriefLength)
+	if _, err := NewOrder(1, "user@example.com", "", maxBrief, 100); err != nil {
+		t.Errorf("бриф длиной ровно MaxBriefLength должен приниматься, получили %v", err)
+	}
+}
+
 func TestNewOrder_RequiresPositiveAmount(t *testing.T) {
 	_, err := NewOrder(1, "user@example.com", "", "Бриф", 0)
 	if err == nil {

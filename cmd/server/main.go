@@ -159,7 +159,7 @@ func run(ctx context.Context) error {
 	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient)
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, healthChecker)
+	router := newRouter(log, orderHandler, healthChecker, cfg.HTTP)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -200,23 +200,25 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, checker *health.Checker) http.Handler {
+func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, checker *health.Checker, httpCfg config.HTTPConfig) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
-	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(nil)))
+	// Ограничиваем размер тела запроса, чтобы защититься от исчерпания памяти.
+	r.Use(apphttp.MaxBodyBytes(httpCfg.MaxBodyBytes))
+	// Список разрешённых Origin берётся из конфигурации (CORS_ALLOWED_ORIGINS).
+	// Пустой список означает "*" — допустимо для dev, в проде стоит ограничить.
+	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(httpCfg.CORSAllowedOrigins)))
 
 	r.Get("/healthz", checker.Handler)
 
-	// Публичный API заказов ограничиваем по IP: создание заказа и вебхуки —
-	// потенциальные точки злоупотребления.
-	r.Group(func(r chi.Router) {
-		r.Use(apphttp.RateLimiter(10, 20))
-		r.Mount("/api/v1/orders", orderHandler.Routes())
-	})
+	// Rate limiting вынесен внутрь orderHandler.Routes(): создание заказа и
+	// защищённые маршруты ограничиваются клиентским лимитером, а вебхук Robokassa —
+	// отдельным независимым бакетом, чтобы клиентский трафик не вызывал у него 429.
+	r.Mount("/api/v1/orders", orderHandler.Routes())
 
 	return r
 }
