@@ -232,11 +232,11 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		account.Release()
 	}
 
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
-		return fmt.Errorf("сохранение финального заказа: %w", err)
-	}
-	if err := uc.accRepo.Update(ctx, account); err != nil {
-		return fmt.Errorf("освобождение аккаунта: %w", err)
+	// Атомарно сохраняем финальный статус заказа и освобождаем аккаунт.
+	// Два отдельных Update создали бы тот же Busy-leak что и в ProcessGenerationTask:
+	// если Update заказа прошёл, а Update аккаунта упал — аккаунт застрянет в Busy навсегда.
+	if err := uc.orderRepo.SaveWithAccount(ctx, order, account); err != nil {
+		return fmt.Errorf("атомарное сохранение финального статуса: %w", err)
 	}
 
 	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)

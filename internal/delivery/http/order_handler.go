@@ -12,9 +12,12 @@ import (
 	"strconv"
 	"strings"
 
+	"errors"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/config"
+	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
 
@@ -190,7 +193,12 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 
 	order, err := h.uc.GetOrder(r.Context(), orderID)
 	if err != nil {
-		h.errorResponse(w, http.StatusNotFound, "заказ не найден")
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			h.errorResponse(w, http.StatusNotFound, "заказ не найден")
+		} else {
+			h.log.Error("ошибка получения заказа", "order_id", orderID, "err", err)
+			h.errorResponse(w, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		}
 		return
 	}
 
