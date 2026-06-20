@@ -203,6 +203,89 @@ func TestAdminUseCase_RefundOrder_NotPaid(t *testing.T) {
 	}
 }
 
+// --- AddAccount repo error ---
+
+func TestAdminUseCase_AddAccount_RepoError(t *testing.T) {
+	uc, _, accounts := newAdminUC(t)
+	accounts.createErr = errors.New("db down")
+
+	_, err := uc.AddAccount(context.Background(), "x@y.com", "sess", 1)
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое Create")
+	}
+}
+
+// --- ListAccounts repo error ---
+
+func TestAdminUseCase_ListAccounts_RepoError(t *testing.T) {
+	uc, _, accounts := newAdminUC(t)
+	accounts.listErr = errors.New("db down")
+
+	_, err := uc.ListAccounts(context.Background())
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое List")
+	}
+}
+
+// --- SetAccountStatus not found ---
+
+func TestAdminUseCase_SetAccountStatus_NotFound(t *testing.T) {
+	uc, _, _ := newAdminUC(t)
+
+	err := uc.SetAccountStatus(context.Background(), uuid.New(), domain.AccountStatusActive)
+	if !errors.Is(err, domain.ErrAccountNotFound) {
+		t.Errorf("ожидали ErrAccountNotFound, получили %v", err)
+	}
+}
+
+// --- ListOrders repo errors ---
+
+func TestAdminUseCase_ListOrders_CountAllError(t *testing.T) {
+	uc, orders, _ := newAdminUC(t)
+	orders.countAllErr = errors.New("db down")
+
+	_, _, err := uc.ListOrders(context.Background(), 1, 10)
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое CountAll")
+	}
+}
+
+func TestAdminUseCase_ListOrders_ListAllError(t *testing.T) {
+	uc, orders, _ := newAdminUC(t)
+	orders.listAllErr = errors.New("db down")
+
+	_, _, err := uc.ListOrders(context.Background(), 1, 10)
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое ListAll")
+	}
+}
+
+// --- RefundOrder extra paths ---
+
+func TestAdminUseCase_RefundOrder_NotFound(t *testing.T) {
+	uc, _, _ := newAdminUC(t)
+
+	err := uc.RefundOrder(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Errorf("ожидали ErrOrderNotFound, получили %v", err)
+	}
+}
+
+func TestAdminUseCase_RefundOrder_UpdateError(t *testing.T) {
+	uc, orders, _ := newAdminUC(t)
+
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
+	_ = o.MarkPaid()
+	_ = orders.Create(context.Background(), o)
+
+	orders.updateErr = errors.New("db down")
+
+	err := uc.RefundOrder(context.Background(), o.ID())
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое Update после возврата")
+	}
+}
+
 func TestAdminUseCase_RefundOrder_RobokassaFailure(t *testing.T) {
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()

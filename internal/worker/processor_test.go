@@ -146,12 +146,84 @@ func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
 	}
 }
 
+func TestOrderIDFromTask_InvalidJSONStatusCheck(t *testing.T) {
+	task := asynq.NewTask(queue.TaskTypeCheckStatus, []byte("{invalid json"))
+	id, ok := orderIDFromTask(task)
+	if ok || id != uuid.Nil {
+		t.Errorf("ожидали (uuid.Nil, false) для некорректного JSON StatusCheck, получили (%s, %v)", id, ok)
+	}
+}
+
+func TestOrderIDFromTask_UnknownType(t *testing.T) {
+	task := asynq.NewTask("unknown:task:type", []byte(`{}`))
+	id, ok := orderIDFromTask(task)
+	if ok || id != uuid.Nil {
+		t.Errorf("ожидали (uuid.Nil, false) для неизвестного типа задачи, получили (%s, %v)", id, ok)
+	}
+}
+
 func TestHandleDeadTask_BadPayload_NoPanic(t *testing.T) {
 	uc := usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), nil, nil, discardLogger())
 	p := NewOrderProcessor(uc, discardLogger())
 	task := asynq.NewTask(queue.TaskTypeGenerateTrack, []byte("{broken"))
 	// Не должно паниковать и не должно вызывать use-case (orderID не извлечён).
 	p.HandleDeadTask(context.Background(), task, errors.New("x"))
+}
+
+func TestHandleGenerateTask_UseCaseError_ReturnsError(t *testing.T) {
+	repo := newWOrderRepo()
+	// Нет аккаунтов — FetchAndLockAvailable вернёт ErrNoAvailableAccount →
+	// ProcessGenerationTask вернёт ошибку → HandleGenerateTask пробросит её.
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	repo.put(order)
+
+	uc := usecase.NewOrderUseCase(repo, newWAccountRepo(), &wQueue{}, &wProvider{
+		submitFn: func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+			return "", errors.New("provider down")
+		},
+	}, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), nil, passthroughTx{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.GenerationTaskPayload{OrderID: order.ID()})
+	task := asynq.NewTask(queue.TaskTypeGenerateTrack, payload)
+
+	if err := p.HandleGenerateTask(context.Background(), task); err == nil {
+		t.Fatal("ожидали ошибку при отсутствии доступного аккаунта")
+	}
+}
+
+func TestHandleStatusCheckTask_CriticalError_Propagates(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(account.ID())
+	repo.put(order)
+
+	// Провайдер возвращает произвольную ошибку (не ErrGenerationNotReady)
+	provider := &wProvider{fetchFn: func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{}, errors.New("suno API unavailable")
+	}}
+
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), nil, passthroughTx{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
+	task := asynq.NewTask(queue.TaskTypeCheckStatus, payload)
+
+	err := p.HandleStatusCheckTask(context.Background(), task)
+	if err == nil {
+		t.Fatal("ожидали ошибку при критическом сбое провайдера")
+	}
+	if errors.Is(err, usecase.ErrGenerationNotReady) {
+		t.Error("ошибка должна быть НЕ ErrGenerationNotReady")
+	}
 }
 
 // --- компактные in-memory моки ---

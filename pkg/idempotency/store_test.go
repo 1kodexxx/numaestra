@@ -225,3 +225,43 @@ func TestRedisStore_Delete_RemovesKey(t *testing.T) {
 		t.Errorf("после Delete ожидали ErrNotFound, получили %v", err)
 	}
 }
+
+func TestRedisStore_Get_RedisError(t *testing.T) {
+	mini := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	defer rdb.Close()
+	s := NewStore(rdb)
+
+	mini.Close() // симулируем потерю соединения
+
+	_, err := s.Get(context.Background(), "any")
+	if err == nil || err == ErrNotFound {
+		t.Errorf("ожидали общую Redis-ошибку (не ErrNotFound), получили %v", err)
+	}
+}
+
+func TestRedisStore_Reserve_RedisError(t *testing.T) {
+	mini := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	defer rdb.Close()
+	s := NewStore(rdb)
+
+	mini.Close()
+
+	if err := s.Reserve(context.Background(), "any"); err == nil {
+		t.Fatal("ожидали ошибку при недоступном Redis")
+	}
+}
+
+func TestRedisStore_Complete_RedisError(t *testing.T) {
+	mini := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	defer rdb.Close()
+	s := NewStore(rdb)
+
+	mini.Close()
+
+	if err := s.Complete(context.Background(), "any", Entry{StatusCode: 200}); err == nil {
+		t.Fatal("ожидали ошибку при недоступном Redis")
+	}
+}

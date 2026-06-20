@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
-
-	"io"
-	"log/slog"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -42,10 +42,14 @@ func discardAdminLogger() *slog.Logger {
 // --- in-memory repos (isolated from usecase test package) ---
 
 type adminOrderRepo struct {
-	mu     sync.Mutex
-	orders map[uuid.UUID]domain.OrderSnapshot
-	byInv  map[int64]uuid.UUID
-	seq    int64
+	mu          sync.Mutex
+	orders      map[uuid.UUID]domain.OrderSnapshot
+	byInv       map[int64]uuid.UUID
+	seq         int64
+	getByIDErr  error
+	countAllErr error
+	listAllErr  error
+	updateErr   error
 }
 
 func newAdminOrderRepo() *adminOrderRepo {
@@ -71,6 +75,9 @@ func (r *adminOrderRepo) Create(_ context.Context, o *domain.Order) error {
 func (r *adminOrderRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.getByIDErr != nil {
+		return nil, r.getByIDErr
+	}
 	s, ok := r.orders[id]
 	if !ok {
 		return nil, domain.ErrOrderNotFound
@@ -91,6 +98,9 @@ func (r *adminOrderRepo) GetByInvoiceID(_ context.Context, inv int64) (*domain.O
 func (r *adminOrderRepo) Update(_ context.Context, o *domain.Order) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	r.save(o)
 	return nil
 }
@@ -131,6 +141,9 @@ func (r *adminOrderRepo) GetByAccessToken(_ context.Context, _ string) (*domain.
 func (r *adminOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.listAllErr != nil {
+		return nil, r.listAllErr
+	}
 	out := make([]*domain.Order, 0)
 	i := 0
 	for _, s := range r.orders {
@@ -145,14 +158,19 @@ func (r *adminOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domai
 func (r *adminOrderRepo) CountAll(_ context.Context) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.countAllErr != nil {
+		return 0, r.countAllErr
+	}
 	return len(r.orders), nil
 }
 
 var _ domain.OrderRepository = (*adminOrderRepo)(nil)
 
 type adminAccRepo struct {
-	mu   sync.Mutex
-	accs map[uuid.UUID]domain.SunoAccountSnapshot
+	mu        sync.Mutex
+	accs      map[uuid.UUID]domain.SunoAccountSnapshot
+	createErr error
+	listErr   error
 }
 
 func newAdminAccRepo() *adminAccRepo {
@@ -176,6 +194,9 @@ func (r *adminAccRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.SunoAcc
 func (r *adminAccRepo) Create(_ context.Context, a *domain.SunoAccount) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.createErr != nil {
+		return r.createErr
+	}
 	r.accs[a.ID()] = a.Snapshot()
 	return nil
 }
@@ -194,6 +215,9 @@ func (r *adminAccRepo) ListByStatus(_ context.Context, _ domain.AccountStatus) (
 func (r *adminAccRepo) List(_ context.Context) ([]*domain.SunoAccount, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	out := make([]*domain.SunoAccount, 0, len(r.accs))
 	for _, s := range r.accs {
 		out = append(out, domain.RestoreSunoAccount(s))
@@ -430,6 +454,171 @@ func TestAdminAuth_RequiresValidToken(t *testing.T) {
 				t.Errorf("ожидали %d, получили %d", tc.wantCode, w.Code)
 			}
 		})
+	}
+}
+
+// --- error paths ---
+
+func TestAdminHandler_ListAccounts_InternalError(t *testing.T) {
+	h, _, accounts := newTestAdminHandler(t)
+	accounts.listErr = errors.New("db down")
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/accounts", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("ожидали 500, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_AddAccount_InvalidJSON(t *testing.T) {
+	h, _, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/accounts", strings.NewReader("{bad json"))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_AddAccount_InternalError(t *testing.T) {
+	h, _, accounts := newTestAdminHandler(t)
+	accounts.createErr = errors.New("db down")
+	router := adminTestRouter(h)
+
+	body := `{"email":"x@y.com","session":"sess","max_concurrent":1}`
+	r := httptest.NewRequest(http.MethodPost, "/admin/accounts", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("ожидали 500, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_SetAccountStatus_BadJSON(t *testing.T) {
+	h, _, accounts := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+	acc, _ := domain.NewSunoAccount("x@y.com", "s", 5)
+	_ = accounts.Create(context.Background(), acc)
+
+	r := httptest.NewRequest(http.MethodPatch, "/admin/accounts/"+acc.ID().String(),
+		strings.NewReader("{bad json"))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_SetAccountStatus_InvalidStatus(t *testing.T) {
+	h, _, accounts := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+	acc, _ := domain.NewSunoAccount("x@y.com", "s", 5)
+	_ = accounts.Create(context.Background(), acc)
+
+	r := httptest.NewRequest(http.MethodPatch, "/admin/accounts/"+acc.ID().String(),
+		strings.NewReader(`{"status":"unknown-status"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 для недопустимого статуса, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_ListOrders_InternalError(t *testing.T) {
+	h, orders, _ := newTestAdminHandler(t)
+	orders.countAllErr = errors.New("db down")
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/orders", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("ожидали 500, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_GetOrder_InvalidUUID(t *testing.T) {
+	h, _, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/orders/not-a-uuid", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_GetOrder_InternalError(t *testing.T) {
+	h, orders, _ := newTestAdminHandler(t)
+	orders.getByIDErr = errors.New("db down")
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/orders/"+uuid.New().String(), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("ожидали 500, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_RefundOrder_InvalidUUID(t *testing.T) {
+	h, _, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/orders/bad-uuid/refund", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_RefundOrder_NotFoundViaRouter(t *testing.T) {
+	h, _, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/orders/"+uuid.New().String()+"/refund", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404 для несуществующего заказа, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_RefundOrder_UpdateError(t *testing.T) {
+	h, orders, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "", "", 5000)
+	_ = o.MarkPaid()
+	_ = orders.Create(context.Background(), o)
+	orders.updateErr = errors.New("db down")
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/orders/"+o.ID().String()+"/refund", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 при ошибке возврата, получили %d", w.Code)
 	}
 }
 

@@ -560,6 +560,104 @@ func TestListOrdersByPhone_ReturnsMatching(t *testing.T) {
 	}
 }
 
+// --- FailGeneration extra paths ---
+
+func TestFailGeneration_OrderNotFound(t *testing.T) {
+	f := newFixture(t)
+	err := f.uc.FailGeneration(context.Background(), uuid.New(), "timeout")
+	if !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Fatalf("ожидали ErrOrderNotFound, получили %v", err)
+	}
+}
+
+func TestFailGeneration_NoAssignedAccount(t *testing.T) {
+	f := newFixture(t)
+	order := f.queuedOrder(t) // queued, AssignedAccountID == nil
+
+	if err := f.uc.FailGeneration(context.Background(), order.ID(), "исчерпаны ретраи"); err != nil {
+		t.Fatalf("FailGeneration без аккаунта упал: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusFailed {
+		t.Errorf("ожидали failed, получили %q", got.GenerationStatus())
+	}
+}
+
+func TestFailGeneration_AccountNotFound_StillUpdatesOrder(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	// Удаляем аккаунт из in-memory хранилища, чтобы GetByID вернул ErrAccountNotFound.
+	f.accRepo.mu.Lock()
+	delete(f.accRepo.accounts, acc.ID())
+	f.accRepo.mu.Unlock()
+
+	if err := f.uc.FailGeneration(context.Background(), order.ID(), "timeout"); err != nil {
+		t.Fatalf("FailGeneration должен обновить заказ даже если аккаунт не найден: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusFailed {
+		t.Errorf("заказ должен стать failed, получили %q", got.GenerationStatus())
+	}
+}
+
+// --- HandlePaymentSuccess extra paths ---
+
+func TestHandlePaymentSuccess_NotApplied_SkipsEnqueue(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+
+	f.orderRepo.applyPaymentNotApplied = true
+
+	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
+		t.Fatalf("HandlePaymentSuccess должен вернуть nil при applied=false: %v", err)
+	}
+	if len(f.queue.genCalls) != 0 {
+		t.Error("задача генерации не должна ставиться при applied=false")
+	}
+}
+
+func TestHandlePaymentSuccess_EnqueueError(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+
+	f.queue.enqueueGenErr = errors.New("очередь недоступна")
+
+	err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000)
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое постановки в очередь")
+	}
+}
+
+func TestHandlePaymentSuccess_ApplyPaymentError(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+
+	f.orderRepo.applyPaymentErr = errors.New("db error")
+
+	err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000)
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое ApplyPaymentSuccess")
+	}
+}
+
+// --- saveOrderAndAccount error path ---
+
+func TestSaveOrderAndAccount_AccountUpdateFails(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	// FailGeneration → saveOrderAndAccount → accRepo.Update → возвращает ошибку.
+	f.accRepo.updateErr = errors.New("db down")
+
+	err := f.uc.FailGeneration(context.Background(), order.ID(), "timeout")
+	if err == nil {
+		t.Fatal("ожидали ошибку при сбое сохранения аккаунта")
+	}
+}
+
 // --- helpers ---
 
 func (f *fixture) queuedOrder(t *testing.T) *domain.Order {

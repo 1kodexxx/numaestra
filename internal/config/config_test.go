@@ -89,6 +89,27 @@ func TestLoad_InvalidDurationFallsBack(t *testing.T) {
 	}
 }
 
+func TestLoad_CSVEnvOverride(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app1.com, https://app2.com, ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load упал: %v", err)
+	}
+	if len(cfg.HTTP.CORSAllowedOrigins) != 2 {
+		t.Errorf("ожидали 2 origin (пустые отбрасываются), получили %d: %v",
+			len(cfg.HTTP.CORSAllowedOrigins), cfg.HTTP.CORSAllowedOrigins)
+	}
+}
+
+func TestLoad_AdminTokenRequired_NonDev(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку: ADMIN_TOKEN обязателен в staging")
+	}
+}
+
 func TestGetBoolEnv_Variants(t *testing.T) {
 	cases := map[string]bool{
 		"1": true, "true": true, "TRUE": true, "yes": true,

@@ -165,6 +165,43 @@ func TestParseCIDRs_RejectsInvalid(t *testing.T) {
 	}
 }
 
+func TestClientIP_WithoutPort(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.1" // без порта — SplitHostPort вернёт ошибку
+	ip := clientIP(req)
+	if ip != "192.168.1.1" {
+		t.Errorf("ожидали %q, получили %q", "192.168.1.1", ip)
+	}
+}
+
+func TestItoa_Zero(t *testing.T) {
+	if got := itoa(0); got != "0" {
+		t.Errorf("itoa(0) = %q, ожидали \"0\"", got)
+	}
+}
+
+func TestItoa_Negative(t *testing.T) {
+	if got := itoa(-42); got != "-42" {
+		t.Errorf("itoa(-42) = %q, ожидали \"-42\"", got)
+	}
+}
+
+func TestParseCIDRs_InvalidCIDR(t *testing.T) {
+	if _, err := ParseCIDRs([]string{"192.168.1.1/999"}); err == nil {
+		t.Error("ожидали ошибку для некорректного CIDR")
+	}
+}
+
+func TestCORS_NoOriginHeader_NoHeadersSet(t *testing.T) {
+	h := CORS(DefaultCORSOptions([]string{"https://allowed.com"}))(okHandler())
+	req := httptest.NewRequest(http.MethodGet, "/", nil) // нет заголовка Origin
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Error("без Origin заголовок CORS не должен выставляться")
+	}
+}
+
 func TestRateLimiter_SeparatePerIP(t *testing.T) {
 	h := RateLimiter(1, 1)(okHandler())
 

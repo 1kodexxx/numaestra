@@ -89,3 +89,29 @@ func TestEnqueueStatusCheckTask_Success(t *testing.T) {
 		t.Fatalf("EnqueueStatusCheckTask: %v", err)
 	}
 }
+
+func TestEnqueueGenerationTask_RedisDown_ReturnsError(t *testing.T) {
+	mini := miniredis.RunT(t)
+	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mini.Addr()})
+	defer client.Close()
+	p := NewAsynqPublisher(client)
+
+	mini.Close() // симулируем потерю соединения с Redis
+
+	if err := p.EnqueueGenerationTask(context.Background(), uuid.New()); err == nil {
+		t.Fatal("ожидали ошибку при недоступном Redis")
+	}
+}
+
+func TestEnqueueStatusCheckTask_RedisDown_ReturnsError(t *testing.T) {
+	mini := miniredis.RunT(t)
+	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mini.Addr()})
+	defer client.Close()
+	p := NewAsynqPublisher(client)
+
+	mini.Close() // симулируем потерю соединения с Redis
+
+	if err := p.EnqueueStatusCheckTask(context.Background(), uuid.New(), "job-xyz"); err == nil {
+		t.Fatal("ожидали ошибку при недоступном Redis")
+	}
+}

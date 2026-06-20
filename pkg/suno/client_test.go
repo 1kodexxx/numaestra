@@ -86,6 +86,118 @@ func TestHTTPClient_GetFeed_EmptyIDs(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_GetFeed_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("server error"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	if _, err := c.GetFeed(context.Background(), []string{"a", "b"}); err == nil {
+		t.Fatal("ожидали ошибку при 500 от GetFeed API")
+	}
+}
+
+func TestHTTPClient_Generate_NoAPIKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("при пустом apiKey не должен устанавливаться заголовок Authorization")
+		}
+		_ = json.NewEncoder(w).Encode([]Clip{{ID: "x"}})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "") // пустой ключ
+	clips, err := c.Generate(context.Background(), GenerateRequest{Prompt: "test"})
+	if err != nil {
+		t.Fatalf("Generate упал: %v", err)
+	}
+	if len(clips) != 1 {
+		t.Errorf("ожидали 1 клип, получили %d", len(clips))
+	}
+}
+
+func TestHTTPClient_GetFeed_NoAPIKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("при пустом apiKey заголовок Authorization не должен устанавливаться")
+		}
+		_ = json.NewEncoder(w).Encode([]Clip{{ID: "y", Status: StatusComplete}})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "")
+	clips, err := c.GetFeed(context.Background(), []string{"y"})
+	if err != nil {
+		t.Fatalf("GetFeed упал: %v", err)
+	}
+	if len(clips) != 1 {
+		t.Errorf("ожидали 1 клип, получили %d", len(clips))
+	}
+}
+
+func TestHTTPClient_Generate_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	srv.Close() // немедленно закрываем — следующий Do вернёт сетевую ошибку
+
+	c := NewClient(srv.URL, "key")
+	if _, err := c.Generate(context.Background(), GenerateRequest{Prompt: "x"}); err == nil {
+		t.Fatal("ожидали ошибку при закрытом сервере")
+	}
+}
+
+func TestHTTPClient_Generate_InvalidJSONResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	if _, err := c.Generate(context.Background(), GenerateRequest{Prompt: "x"}); err == nil {
+		t.Fatal("ожидали ошибку при невалидном JSON-ответе")
+	}
+}
+
+func TestHTTPClient_GetFeed_NetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	if _, err := c.GetFeed(context.Background(), []string{"a"}); err == nil {
+		t.Fatal("ожидали ошибку при закрытом сервере")
+	}
+}
+
+func TestHTTPClient_GetFeed_InvalidJSONResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{broken"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	if _, err := c.GetFeed(context.Background(), []string{"a"}); err == nil {
+		t.Fatal("ожидали ошибку при невалидном JSON")
+	}
+}
+
+func TestMockClient_CustomGetFeedFunc(t *testing.T) {
+	m := &MockClient{
+		GetFeedFunc: func(_ context.Context, ids []string) ([]Clip, error) {
+			return []Clip{{ID: "custom-" + ids[0]}}, nil
+		},
+	}
+	clips, err := m.GetFeed(context.Background(), []string{"z"})
+	if err != nil {
+		t.Fatalf("GetFeed упал: %v", err)
+	}
+	if len(clips) != 1 || clips[0].ID != "custom-z" {
+		t.Errorf("должна вызываться кастомная GetFeedFunc, получили %+v", clips)
+	}
+}
+
 // --- MockClient ---
 
 func TestMockClient_Defaults(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -405,6 +406,82 @@ func TestHandler_WithIdempotency_SecondCallReturnsCached(t *testing.T) {
 	}
 }
 
+// --- дополнительные тесты edge cases ---
+
+func TestHandler_Webhook_MissingParams(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+
+	// Нет ни одного из обязательных параметров
+	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 при отсутствии параметров, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_Webhook_InternalError(t *testing.T) {
+	_, router, repo := newTestHandler(t)
+	// Инъектируем ошибку в GetByInvoiceID — HandlePaymentSuccess вернёт общую ошибку → 500
+	repo.getByInvErr = errors.New("db down")
+
+	// Строим корректную подпись для вымышленного инвойса
+	outSum := robokassa.FormatAmount(150000)
+	invID := "9999"
+	form := url.Values{}
+	form.Set("OutSum", outSum)
+	form.Set("InvId", invID)
+	form.Set("SignatureValue", webhookSig(outSum, invID))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("ожидали 500 при ошибке usecase, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_GetOrder_InvalidUUID(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+
+	req := httptest.NewRequest(http.MethodGet, "/not-a-uuid", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 для некорректного UUID в пути, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_ListOrders_ByPhone(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	// Создаём заказ только с телефоном (без email)
+	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp []OrderSummaryResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp) != 1 {
+		t.Errorf("ожидали 1 заказ, получили %d", len(resp))
+	}
+}
+
 // --- helpers ---
 
 func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief, plan string) *domain.Order {
@@ -419,10 +496,11 @@ func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief, plan string)
 // --- минимальные in-memory моки для конструирования use case ---
 
 type hOrderRepo struct {
-	mu        sync.Mutex
-	orders    map[uuid.UUID]domain.OrderSnapshot
-	byInvoice map[int64]uuid.UUID
-	seq       int64
+	mu             sync.Mutex
+	orders         map[uuid.UUID]domain.OrderSnapshot
+	byInvoice      map[int64]uuid.UUID
+	seq            int64
+	getByInvErr    error // инъекция ошибки для GetByInvoiceID → webhook 500
 }
 
 func newHOrderRepo() *hOrderRepo {
@@ -454,6 +532,9 @@ func (r *hOrderRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Order, er
 func (r *hOrderRepo) GetByInvoiceID(_ context.Context, invoiceID int64) (*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.getByInvErr != nil {
+		return nil, r.getByInvErr
+	}
 	id, ok := r.byInvoice[invoiceID]
 	if !ok {
 		return nil, domain.ErrOrderNotFound

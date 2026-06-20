@@ -26,9 +26,12 @@ type inMemOrderRepo struct {
 	seq       int64
 
 	// Хуки инъекции ошибок для проверки путей сбоя.
-	createErr       error
-	updateErr       error
-	applyPaymentErr error
+	createErr              error
+	updateErr              error
+	applyPaymentErr        error
+	applyPaymentNotApplied bool // возвращает (false, nil) вместо реального CAS
+	countAllErr            error
+	listAllErr             error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -93,6 +96,9 @@ func (r *inMemOrderRepo) ApplyPaymentSuccess(_ context.Context, order *domain.Or
 	if r.applyPaymentErr != nil {
 		return false, r.applyPaymentErr
 	}
+	if r.applyPaymentNotApplied {
+		return false, nil
+	}
 	snap, ok := r.orders[order.ID()]
 	if !ok {
 		return false, domain.ErrOrderNotFound
@@ -150,6 +156,9 @@ func (r *inMemOrderRepo) GetByAccessToken(_ context.Context, token string) (*dom
 func (r *inMemOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.listAllErr != nil {
+		return nil, r.listAllErr
+	}
 	var out []*domain.Order
 	i := 0
 	for _, snap := range r.orders {
@@ -164,6 +173,9 @@ func (r *inMemOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domai
 func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.countAllErr != nil {
+		return 0, r.countAllErr
+	}
 	return len(r.orders), nil
 }
 
@@ -187,8 +199,11 @@ type inMemAccountRepo struct {
 	mu       sync.Mutex
 	accounts map[uuid.UUID]domain.SunoAccountSnapshot
 
-	fetchErr error
-	noFree   bool
+	fetchErr  error
+	noFree    bool
+	createErr error
+	updateErr error
+	listErr   error
 }
 
 func newInMemAccountRepo() *inMemAccountRepo {
@@ -232,6 +247,9 @@ func (r *inMemAccountRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Sun
 func (r *inMemAccountRepo) Create(_ context.Context, account *domain.SunoAccount) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.createErr != nil {
+		return r.createErr
+	}
 	r.add(account)
 	return nil
 }
@@ -239,6 +257,9 @@ func (r *inMemAccountRepo) Create(_ context.Context, account *domain.SunoAccount
 func (r *inMemAccountRepo) Update(_ context.Context, account *domain.SunoAccount) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	r.accounts[account.ID()] = account.Snapshot()
 	return nil
 }
@@ -258,6 +279,9 @@ func (r *inMemAccountRepo) ListByStatus(_ context.Context, status domain.Account
 func (r *inMemAccountRepo) List(_ context.Context) ([]*domain.SunoAccount, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	out := make([]*domain.SunoAccount, 0, len(r.accounts))
 	for _, snap := range r.accounts {
 		out = append(out, domain.RestoreSunoAccount(snap))
