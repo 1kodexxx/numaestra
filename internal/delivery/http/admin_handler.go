@@ -82,7 +82,6 @@ type adminOrderResponse struct {
 	Email            string          `json:"email"`
 	Phone            string          `json:"phone"`
 	Brief            string          `json:"brief"`
-	Plan             string          `json:"plan,omitempty"`
 	AmountKopecks    int64           `json:"amount_kopecks"`
 	PaymentStatus    string          `json:"payment_status"`
 	GenerationStatus string          `json:"generation_status"`
@@ -121,7 +120,7 @@ func (h *AdminHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts, err := h.uc.ListAccounts(r.Context())
 	if err != nil {
 		h.log.Error("admin: ошибка получения аккаунтов", "error", err)
-		h.errJSON(w, http.StatusInternalServerError, "не удалось получить список аккаунтов")
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить список аккаунтов")
 		return
 	}
 
@@ -129,50 +128,50 @@ func (h *AdminHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 	for _, acc := range accounts {
 		resp = append(resp, accountToResponse(acc))
 	}
-	h.jsonResponse(w, http.StatusOK, resp)
+	respondJSON(w, http.StatusOK, resp)
 }
 
 func (h *AdminHandler) AddAccount(w http.ResponseWriter, r *http.Request) {
 	var req addAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.errJSON(w, http.StatusBadRequest, "неверный формат JSON")
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
 		return
 	}
 	if req.Email == "" || req.EncryptedSession == "" {
-		h.errJSON(w, http.StatusBadRequest, "email и encrypted_session обязательны")
+		respondError(w, r, http.StatusBadRequest, "email и encrypted_session обязательны")
 		return
 	}
 
 	acc, err := h.uc.AddAccount(r.Context(), req.Email, req.EncryptedSession, req.MaxConcurrent)
 	if err != nil {
 		h.log.Error("admin: ошибка создания аккаунта", "error", err)
-		h.errJSON(w, http.StatusInternalServerError, "не удалось создать аккаунт")
+		respondError(w, r, http.StatusInternalServerError, "не удалось создать аккаунт")
 		return
 	}
-	h.jsonResponse(w, http.StatusCreated, accountToResponse(acc))
+	respondJSON(w, http.StatusCreated, accountToResponse(acc))
 }
 
 func (h *AdminHandler) SetAccountStatus(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		h.errJSON(w, http.StatusBadRequest, "некорректный UUID аккаунта")
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID аккаунта")
 		return
 	}
 
 	var req setStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.errJSON(w, http.StatusBadRequest, "неверный формат JSON")
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
 		return
 	}
 
 	if err := h.uc.SetAccountStatus(r.Context(), id, domain.AccountStatus(req.Status)); err != nil {
 		if errors.Is(err, domain.ErrAccountNotFound) {
-			h.errJSON(w, http.StatusNotFound, "аккаунт не найден")
+			respondError(w, r, http.StatusNotFound, "аккаунт не найден")
 			return
 		}
 		h.log.Error("admin: ошибка смены статуса аккаунта", "id", id, "error", err)
-		h.errJSON(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -185,7 +184,7 @@ func (h *AdminHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	orders, total, err := h.uc.ListOrders(r.Context(), page, perPage)
 	if err != nil {
 		h.log.Error("admin: ошибка получения заказов", "error", err)
-		h.errJSON(w, http.StatusInternalServerError, "не удалось получить список заказов")
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить список заказов")
 		return
 	}
 
@@ -193,7 +192,7 @@ func (h *AdminHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	for _, o := range orders {
 		resp = append(resp, orderToAdminResponse(o))
 	}
-	h.jsonResponse(w, http.StatusOK, map[string]any{
+	respondJSON(w, http.StatusOK, map[string]any{
 		"orders": resp,
 		"total":  total,
 	})
@@ -203,21 +202,21 @@ func (h *AdminHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		h.errJSON(w, http.StatusBadRequest, "некорректный UUID заказа")
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID заказа")
 		return
 	}
 
 	order, err := h.uc.GetOrder(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, domain.ErrOrderNotFound) {
-			h.errJSON(w, http.StatusNotFound, "заказ не найден")
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
 			return
 		}
 		h.log.Error("admin: ошибка получения заказа", "id", id, "error", err)
-		h.errJSON(w, http.StatusInternalServerError, "не удалось получить заказ")
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить заказ")
 		return
 	}
-	h.jsonResponse(w, http.StatusOK, orderToAdminResponse(order))
+	respondJSON(w, http.StatusOK, orderToAdminResponse(order))
 }
 
 // RefundOrder инициирует возврат платежа через Robokassa API.
@@ -226,28 +225,18 @@ func (h *AdminHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		h.errJSON(w, http.StatusBadRequest, "некорректный UUID заказа")
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID заказа")
 		return
 	}
 
 	if err := h.uc.RefundOrder(r.Context(), id); err != nil {
 		if errors.Is(err, domain.ErrOrderNotFound) {
-			h.errJSON(w, http.StatusNotFound, "заказ не найден")
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
 			return
 		}
 		h.log.Error("admin: ошибка возврата платежа", "order_id", id, "error", err)
-		h.errJSON(w, http.StatusBadRequest, err.Error())
+		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *AdminHandler) jsonResponse(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(body) //nolint:errcheck
-}
-
-func (h *AdminHandler) errJSON(w http.ResponseWriter, status int, msg string) {
-	h.jsonResponse(w, status, map[string]string{"error": msg})
 }

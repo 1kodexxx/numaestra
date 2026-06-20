@@ -37,6 +37,9 @@ type HTTPConfig struct {
 	// CORSAllowedOrigins — список доменов, которым разрешён доступ к API.
 	// Пустой список трактуется как "*" (любой источник) — удобно для dev.
 	CORSAllowedOrigins []string
+	// MetricsAllowedIPs — CIDR-блоки, с которых разрешён доступ к /metrics.
+	// По умолчанию — только loopback. Пустой список открывает эндпоинт всем.
+	MetricsAllowedIPs []string
 }
 
 type PostgresConfig struct {
@@ -106,6 +109,7 @@ func Load() (*Config, error) {
 			ShutdownTimeout:    getDurationEnv("HTTP_SHUTDOWN_TIMEOUT", 15*time.Second),
 			MaxBodyBytes:       getInt64Env("HTTP_MAX_BODY_BYTES", 1<<20), // 1 МБ по умолчанию
 			CORSAllowedOrigins: getCSVEnv("CORS_ALLOWED_ORIGINS"),
+			MetricsAllowedIPs:  getCSVEnvDefault("METRICS_ALLOWED_IPS", "127.0.0.1/8,::1/128"),
 		},
 		Postgres: PostgresConfig{
 			DSN: getEnv("POSTGRES_DSN", "postgres://numaestra:numaestra@localhost:5432/numaestra?sslmode=disable"),
@@ -201,6 +205,21 @@ func getInt64Env(key string, fallback int64) int64 {
 // getCSVEnv парсит переменную окружения как список значений через запятую.
 // Пустые элементы и окружающие пробелы отбрасываются. Возвращает nil, если
 // переменная не задана или пуста.
+func getCSVEnvDefault(key, fallback string) []string {
+	v, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(v) == "" {
+		v = fallback
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 func getCSVEnv(key string) []string {
 	v, ok := os.LookupEnv(key)
 	if !ok || strings.TrimSpace(v) == "" {

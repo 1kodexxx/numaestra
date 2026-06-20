@@ -10,12 +10,18 @@ import (
 	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
+// Refunder — порт инициации возврата платежа. Реализуется *robokassa.Client;
+// интерфейс позволяет заменить реализацию в тестах без HTTP-запросов.
+type Refunder interface {
+	Refund(ctx context.Context, outSum string, invID int64) error
+}
+
 // AdminUseCase предоставляет операции управления для административного API:
 // добавление и управление Suno-аккаунтами, просмотр заказов, инициация возвратов.
 type AdminUseCase struct {
 	orderRepo   domain.OrderRepository
 	accountRepo domain.AccountRepository
-	rk          *robokassa.Client
+	rk          Refunder
 	log         *slog.Logger
 }
 
@@ -23,7 +29,7 @@ type AdminUseCase struct {
 func NewAdminUseCase(
 	orderRepo domain.OrderRepository,
 	accountRepo domain.AccountRepository,
-	rk *robokassa.Client,
+	rk Refunder,
 	log *slog.Logger,
 ) *AdminUseCase {
 	return &AdminUseCase{

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/pkg/idempotency"
 	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
@@ -25,6 +26,7 @@ type OrderHandler struct {
 	// webhookAllowedNets — подсети, с которых принимается вебхук Robokassa.
 	// Пустой список отключает IP-фильтрацию (остаётся только проверка подписи).
 	webhookAllowedNets []*net.IPNet
+	idempotency        idempotency.Storer
 }
 
 func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client, webhookAllowedNets []*net.IPNet) *OrderHandler {
@@ -34,6 +36,13 @@ func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.C
 		rk:                 rk,
 		webhookAllowedNets: webhookAllowedNets,
 	}
+}
+
+// WithIdempotency подключает Redis-стор идемпотентности к POST /api/v1/orders.
+// Если не вызван — эндпоинт работает без дедупликации ретраев.
+func (h *OrderHandler) WithIdempotency(store idempotency.Storer) *OrderHandler {
+	h.idempotency = store
+	return h
 }
 
 // ctxKey — приватный тип для ключей контекста, исключает коллизии с другими пакетами.
@@ -49,6 +58,9 @@ func (h *OrderHandler) Routes() chi.Router {
 
 	r.Group(func(r chi.Router) {
 		r.Use(clientLimiter)
+		if h.idempotency != nil {
+			r.Use(idempotencyMiddleware(h.idempotency))
+		}
 		r.Post("/", h.CreateOrder)
 	})
 

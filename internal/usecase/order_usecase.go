@@ -237,6 +237,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	if err := order.StartProcessing(account.ID()); err != nil {
 		return fmt.Errorf("недопустимый статус для старта: %w", err)
 	}
+	metrics.ActiveWorkerSlots.Inc()
 
 	// 3. Обогащение ТЗ через LLM.
 	// Если заказ создан через квиз — sunoPrompt уже содержит готовый структурированный
@@ -262,6 +263,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 			// LLM-сбой не вина аккаунта: НЕ инкрементируем failureCount, только
 			// освобождаем слот и откатываем заказ в Queued.
 			account.ReleaseSlot()
+			metrics.ActiveWorkerSlots.Dec()
 			order.RequeueForRetry()
 			if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
 				uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
@@ -286,6 +288,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		// только потом Release — иначе Release выставит Active, а RegisterFailure затрёт его Banned.
 		account.RegisterFailure(3)
 		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
 		order.RequeueForRetry()
 
 		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
@@ -342,6 +345,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	case domain.MusicGenerationStatusFailed:
 		order.Fail(result.Error)
 		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
 	case domain.MusicGenerationStatusCompleted:
 		var domainTracks []domain.Track
 		for i, pt := range result.Tracks {
@@ -375,6 +379,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		_ = account.ConsumeTokens(1)
 		account.ResetFailures()
 		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
 	}
 
 	// Атомарно сохраняем финальный статус заказа и освобождаем слот аккаунта в
@@ -441,6 +446,7 @@ func (uc *OrderUseCase) FailGeneration(ctx context.Context, orderID uuid.UUID, r
 			return nil
 		}
 		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
 		if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
 			return fmt.Errorf("атомарное сохранение провала заказа и освобождения аккаунта: %w", err)
 		}

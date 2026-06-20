@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/numaestra/numaestra/internal/config"
 	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
@@ -27,6 +30,7 @@ import (
 	"github.com/numaestra/numaestra/migrations"
 	"github.com/numaestra/numaestra/pkg/banner"
 	"github.com/numaestra/numaestra/pkg/health"
+	"github.com/numaestra/numaestra/pkg/idempotency"
 	"github.com/numaestra/numaestra/pkg/logger"
 	pkgmetrics "github.com/numaestra/numaestra/pkg/metrics"
 	"github.com/numaestra/numaestra/pkg/migrate"
@@ -200,10 +204,22 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)
 	}
 
-	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets)
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+	})
+	defer rdb.Close() //nolint:errcheck
+
+	if cfg.AdminToken == "" {
+		log.Warn("ADMIN_TOKEN не задан — административный API будет отклонять все запросы")
+	}
+
+	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
+		WithIdempotency(idempotency.NewStore(rdb))
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
+	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, rkClient, log), log)
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, categoryHandler, healthChecker, cfg.HTTP)
+	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -244,24 +260,41 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// Обновленная сигнатура функции newRouter (добавлен categoryHandler)
-func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, categoryHandler *apphttp.CategoryHandler, checker *health.Checker, httpCfg config.HTTPConfig) http.Handler {
+func newRouter(
+	log *slog.Logger,
+	orderHandler *apphttp.OrderHandler,
+	categoryHandler *apphttp.CategoryHandler,
+	adminHandler *apphttp.AdminHandler,
+	checker *health.Checker,
+	cfg *config.Config,
+) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
-	r.Use(apphttp.MaxBodyBytes(httpCfg.MaxBodyBytes))
-	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(httpCfg.CORSAllowedOrigins)))
+	r.Use(apphttp.MaxBodyBytes(cfg.HTTP.MaxBodyBytes))
+	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(cfg.HTTP.CORSAllowedOrigins)))
 
 	r.Get("/healthz", checker.Handler)
-	// Prometheus-метрики. Доступны только с loopback/внутренней сети — фильтрацию
-	// по IP следует настраивать на уровне балансировщика или сетевых политик.
-	r.Handle("/metrics", pkgmetrics.Handler())
+
+	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
+	if err != nil {
+		panic("неверный METRICS_ALLOWED_IPS: " + err.Error())
+	}
+	r.Group(func(r chi.Router) {
+		r.Use(apphttp.IPAllowlist(metricsNets))
+		r.Handle("/metrics", pkgmetrics.Handler())
+	})
 
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
+
+	r.Group(func(r chi.Router) {
+		r.Use(apphttp.AdminAuth(cfg.AdminToken))
+		r.Mount("/api/v1/admin", adminHandler.Routes())
+	})
 
 	return r
 }
@@ -272,13 +305,20 @@ func requestLoggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
+			elapsed := time.Since(start)
+			// chi.RouteContext().RoutePattern() возвращает шаблон маршрута ("/api/v1/orders/{id}"),
+			// что исключает взрыв кардинальности в Prometheus от реальных UUID в путях.
+			routePattern := chi.RouteContext(r.Context()).RoutePattern()
+			pkgmetrics.HTTPRequestDuration.
+				WithLabelValues(r.Method, routePattern, strconv.Itoa(ww.Status())).
+				Observe(elapsed.Seconds())
 			log.Info("http запрос обработан",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", ww.Status(),
 				"bytes", ww.BytesWritten(),
 				"request_id", chimiddleware.GetReqID(r.Context()),
-				"duration", time.Since(start).String(),
+				"duration", elapsed.String(),
 			)
 		})
 	}
