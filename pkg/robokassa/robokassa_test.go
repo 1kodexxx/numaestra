@@ -1,6 +1,10 @@
 package robokassa
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -162,6 +166,96 @@ func TestClient_PaymentAndWebhook_SameAmount(t *testing.T) {
 		t.Error("вебхук с суммой из PaymentURL должен проходить верификацию")
 	}
 	_ = paymentSig // подпись оплаты использует Password1, вебхука — Password2
+}
+
+// --- Refund ---
+
+// newTestRefundClient создаёт Client с httptest-сервером вместо prod URL.
+func newTestRefundClient(srv *httptest.Server) *Client {
+	c := New(testMerchantLogin, testPassword1, testPassword2, true)
+	c.httpClient = srv.Client()
+	c.refundURL = srv.URL + "/refund"
+	return c
+}
+
+func TestRefund_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("ожидали POST, получили %s", r.Method)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/x-www-form-urlencoded" {
+			t.Errorf("неверный Content-Type: %s", ct)
+		}
+		fmt.Fprint(w, "OK42")
+	}))
+	defer srv.Close()
+
+	c := newTestRefundClient(srv)
+	if err := c.Refund(context.Background(), "1500.00", 42); err != nil {
+		t.Fatalf("ожидали успех, получили: %v", err)
+	}
+}
+
+func TestRefund_ServerReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "ERROR5")
+	}))
+	defer srv.Close()
+
+	c := newTestRefundClient(srv)
+	err := c.Refund(context.Background(), "1500.00", 42)
+	if err == nil {
+		t.Fatal("ожидали ошибку при ответе ERROR от сервера")
+	}
+	if !strings.Contains(err.Error(), "ERROR5") {
+		t.Errorf("ошибка должна содержать тело ответа, получили: %v", err)
+	}
+}
+
+func TestRefund_HTTPErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := newTestRefundClient(srv)
+	err := c.Refund(context.Background(), "1500.00", 42)
+	if err == nil {
+		t.Fatal("ожидали ошибку при HTTP 500")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("ошибка должна содержать HTTP-статус, получили: %v", err)
+	}
+}
+
+func TestRefund_NetworkError(t *testing.T) {
+	// Сервер немедленно закрывается — имитирует сетевую ошибку.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	srv.Close()
+
+	c := newTestRefundClient(srv)
+	if err := c.Refund(context.Background(), "1500.00", 42); err == nil {
+		t.Fatal("ожидали ошибку при недоступном сервере")
+	}
+}
+
+func TestRefund_SendsCorrectParams(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotBody = r.Form.Encode()
+		fmt.Fprint(w, "OK99")
+	}))
+	defer srv.Close()
+
+	c := newTestRefundClient(srv)
+	_ = c.Refund(context.Background(), "750.00", 99)
+
+	for _, param := range []string{"MrchLogin", "InvId", "OutSum", "Signature"} {
+		if !strings.Contains(gotBody, param) {
+			t.Errorf("параметр %q отсутствует в теле запроса: %s", param, gotBody)
+		}
+	}
 }
 
 // --- helpers ---

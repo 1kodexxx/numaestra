@@ -26,6 +26,7 @@ func NewAdminHandler(uc *usecase.AdminUseCase, log *slog.Logger) *AdminHandler {
 
 func (h *AdminHandler) Routes() chi.Router {
 	r := chi.NewRouter()
+	r.Use(RateLimiter(10, 20))
 
 	r.Route("/accounts", func(r chi.Router) {
 		r.Get("/", h.ListAccounts)
@@ -45,9 +46,9 @@ func (h *AdminHandler) Routes() chi.Router {
 // --- DTOs ---
 
 type addAccountRequest struct {
-	Email            string `json:"email"`
-	EncryptedSession string `json:"encrypted_session"`
-	MaxConcurrent    int    `json:"max_concurrent"`
+	Email         string `json:"email"`
+	Session       string `json:"session"` // plaintext — сервер шифрует перед сохранением
+	MaxConcurrent int    `json:"max_concurrent"`
 }
 
 type accountResponse struct {
@@ -137,12 +138,12 @@ func (h *AdminHandler) AddAccount(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
 		return
 	}
-	if req.Email == "" || req.EncryptedSession == "" {
-		respondError(w, r, http.StatusBadRequest, "email и encrypted_session обязательны")
+	if req.Email == "" || req.Session == "" {
+		respondError(w, r, http.StatusBadRequest, "email и session обязательны")
 		return
 	}
 
-	acc, err := h.uc.AddAccount(r.Context(), req.Email, req.EncryptedSession, req.MaxConcurrent)
+	acc, err := h.uc.AddAccount(r.Context(), req.Email, req.Session, req.MaxConcurrent)
 	if err != nil {
 		h.log.Error("admin: ошибка создания аккаунта", "error", err)
 		respondError(w, r, http.StatusInternalServerError, "не удалось создать аккаунт")

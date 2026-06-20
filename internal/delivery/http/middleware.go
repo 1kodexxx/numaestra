@@ -63,7 +63,7 @@ func IPAllowlist(allowed []*net.IPNet) func(http.Handler) http.Handler {
 					}
 				}
 			}
-			http.Error(w, "доступ запрещён", http.StatusForbidden)
+			respondError(w, r, http.StatusForbidden, "доступ запрещён")
 		})
 	}
 }
@@ -212,7 +212,7 @@ func RateLimiter(rps float64, burst int) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !rl.allow(clientIP(r)) {
 				w.Header().Set("Retry-After", "1")
-				http.Error(w, "слишком много запросов", http.StatusTooManyRequests)
+				respondError(w, r, http.StatusTooManyRequests, "слишком много запросов")
 				return
 			}
 			next.ServeHTTP(w, r)

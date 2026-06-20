@@ -12,6 +12,36 @@ jobs:
   test:
     name: Build & Test
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: numaestra
+          POSTGRES_PASSWORD: numaestra
+          POSTGRES_DB: numaestra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      SESSION_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      ADMIN_TOKEN: "ci-test-token"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +65,12 @@ jobs:
 
       - name: Test
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Test (integration)
+        env:
+          POSTGRES_DSN: "postgres://numaestra:numaestra@localhost:5432/numaestra?sslmode=disable"
+          REDIS_ADDR: "localhost:6379"
+        run: go test -race -tags integration -coverprofile=coverage-integration.out -covermode=atomic ./...
 
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -n 1

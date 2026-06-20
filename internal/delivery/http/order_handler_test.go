@@ -296,6 +296,115 @@ func TestHandler_ListOrders_Success(t *testing.T) {
 	}
 }
 
+// --- parsePagination ---
+
+func TestParsePagination_Defaults(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	limit, offset := parsePagination(r)
+	if limit != 20 {
+		t.Errorf("ожидали limit=20 по умолчанию, получили %d", limit)
+	}
+	if offset != 0 {
+		t.Errorf("ожидали offset=0 по умолчанию, получили %d", offset)
+	}
+}
+
+func TestParsePagination_ValidValues(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/?limit=50&offset=100", nil)
+	limit, offset := parsePagination(r)
+	if limit != 50 {
+		t.Errorf("ожидали limit=50, получили %d", limit)
+	}
+	if offset != 100 {
+		t.Errorf("ожидали offset=100, получили %d", offset)
+	}
+}
+
+func TestParsePagination_LimitClampedAt100(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/?limit=999", nil)
+	limit, _ := parsePagination(r)
+	if limit != 100 {
+		t.Errorf("limit > 100 должен обрезаться до 100, получили %d", limit)
+	}
+}
+
+func TestParsePagination_ZeroLimitUsesDefault(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/?limit=0", nil)
+	limit, _ := parsePagination(r)
+	if limit != 20 {
+		t.Errorf("limit=0 должен давать дефолт 20, получили %d", limit)
+	}
+}
+
+func TestParsePagination_NegativeLimitUsesDefault(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/?limit=-5", nil)
+	limit, _ := parsePagination(r)
+	if limit != 20 {
+		t.Errorf("отрицательный limit должен давать дефолт 20, получили %d", limit)
+	}
+}
+
+func TestParsePagination_NegativeOffsetIgnored(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/?offset=-10", nil)
+	_, offset := parsePagination(r)
+	if offset != 0 {
+		t.Errorf("отрицательный offset должен игнорироваться (0), получили %d", offset)
+	}
+}
+
+func TestParsePagination_NonNumericIgnored(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/?limit=abc&offset=xyz", nil)
+	limit, offset := parsePagination(r)
+	if limit != 20 || offset != 0 {
+		t.Errorf("нечисловые значения должны давать дефолты (20, 0), получили (%d, %d)", limit, offset)
+	}
+}
+
+// --- WithIdempotency ---
+
+func TestHandler_WithIdempotency_SecondCallReturnsCached(t *testing.T) {
+	repo := newHOrderRepo()
+	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), pricing, hTxManager{}, discardLogger())
+	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
+	store := newFakeStore()
+	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithIdempotency(store)
+	router := h.Routes()
+
+	body := `{"email":"idem@example.com","brief":"Идемпотентный заказ","plan":"standard"}`
+	const idempotencyKey = "unique-order-key-1"
+
+	// Первый запрос — создаёт заказ, кешируется ответ.
+	req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req1.Header.Set("Idempotency-Key", idempotencyKey)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("первый запрос: ожидали 201, получили %d (%s)", rec1.Code, rec1.Body.String())
+	}
+	firstBody := rec1.Body.String()
+
+	// Второй запрос с тем же ключом — возвращает закешированный ответ.
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req2.Header.Set("Idempotency-Key", idempotencyKey)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusCreated {
+		t.Fatalf("второй запрос: ожидали 201, получили %d (%s)", rec2.Code, rec2.Body.String())
+	}
+	if rec2.Header().Get("X-Idempotent-Replayed") != "true" {
+		t.Error("второй запрос должен иметь заголовок X-Idempotent-Replayed: true")
+	}
+	if rec2.Body.String() != firstBody {
+		t.Errorf("тело повторного ответа должно совпадать с первым:\nfirst:  %s\nsecond: %s", firstBody, rec2.Body.String())
+	}
+
+	// В репозитории должен быть ровно один заказ (второй вызов не дублировал).
+	if len(repo.orders) != 1 {
+		t.Errorf("ожидали 1 заказ в репозитории, получили %d", len(repo.orders))
+	}
+}
+
 // --- helpers ---
 
 func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief, plan string) *domain.Order {

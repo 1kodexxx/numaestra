@@ -170,6 +170,10 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("POSTGRES_DSN является обязательным параметром")
 	}
 
+	if cfg.Env != "dev" && cfg.AdminToken == "" {
+		return nil, fmt.Errorf("ADMIN_TOKEN обязателен в окружении %q (сгенерировать: openssl rand -hex 32)", cfg.Env)
+	}
+
 	return cfg, nil
 }
 

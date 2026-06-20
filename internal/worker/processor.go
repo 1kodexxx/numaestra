@@ -40,6 +40,16 @@ func NewOrderProcessor(uc *usecase.OrderUseCase, log *slog.Logger) *OrderProcess
 	}
 }
 
+// taskLogger возвращает логгер с task_id (уникальный Asynq ID, не меняется при retry)
+// и order_id — чтобы каждую строчку лога можно было привязать к конкретной задаче.
+func (p *OrderProcessor) taskLogger(ctx context.Context, taskType, orderID string) *slog.Logger {
+	l := p.log.With("task_type", taskType, "order_id", orderID)
+	if taskID, ok := asynq.GetTaskID(ctx); ok {
+		l = l.With("task_id", taskID)
+	}
+	return l
+}
+
 // HandleGenerateTask вызывается воркером, когда приходит задача на запуск генерации
 func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) error {
 	var payload queue.GenerationTaskPayload
@@ -47,14 +57,14 @@ func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) 
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry) // SkipRetry отменит задачу навсегда
 	}
 
-	p.log.Debug("воркер взял задачу на генерацию", "order_id", payload.OrderID)
+	log := p.taskLogger(ctx, t.Type(), payload.OrderID.String())
+	log.Debug("воркер взял задачу на генерацию")
 
 	ctx, cancel := context.WithTimeout(ctx, generateTaskTimeout)
 	defer cancel()
 
-	err := p.uc.ProcessGenerationTask(ctx, payload.OrderID)
-	if err != nil {
-		p.log.Error("ошибка при запуске генерации", "order_id", payload.OrderID, "error", err)
+	if err := p.uc.ProcessGenerationTask(ctx, payload.OrderID); err != nil {
+		log.Error("ошибка при запуске генерации", "error", err)
 		return err // Возвращаем ошибку, чтобы Asynq сделал Retry
 	}
 
@@ -67,18 +77,17 @@ func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) 
 func (p *OrderProcessor) HandleDeadTask(ctx context.Context, t *asynq.Task, taskErr error) {
 	orderID, ok := orderIDFromTask(t)
 	if !ok {
-		p.log.Error("не удалось извлечь order_id из мёртвой задачи — ручной разбор",
-			"task_type", t.Type(), "task_err", taskErr)
+		p.taskLogger(ctx, t.Type(), "unknown").Error(
+			"не удалось извлечь order_id из мёртвой задачи — ручной разбор", "task_err", taskErr)
 		return
 	}
 
+	log := p.taskLogger(ctx, t.Type(), orderID.String())
 	reason := fmt.Sprintf("исчерпаны ретраи задачи %s: %v", t.Type(), taskErr)
-	p.log.Error("задача исчерпала ретраи, переводим заказ в failed",
-		"order_id", orderID, "task_type", t.Type(), "task_err", taskErr)
+	log.Error("задача исчерпала ретраи, переводим заказ в failed", "task_err", taskErr)
 
 	if err := p.uc.FailGeneration(ctx, orderID, reason); err != nil {
-		p.log.Error("не удалось обработать терминальный провал заказа",
-			"order_id", orderID, "err", err)
+		log.Error("не удалось обработать терминальный провал заказа", "err", err)
 	}
 }
 
@@ -109,21 +118,19 @@ func (p *OrderProcessor) HandleStatusCheckTask(ctx context.Context, t *asynq.Tas
 		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
 	}
 
-	p.log.Debug("воркер проверяет статус генерации", "order_id", payload.OrderID, "suno_job_id", payload.SunoJobID)
+	log := p.taskLogger(ctx, t.Type(), payload.OrderID.String())
+	log.Debug("воркер проверяет статус генерации", "suno_job_id", payload.SunoJobID)
 
 	ctx, cancel := context.WithTimeout(ctx, statusCheckTaskTimeout)
 	defer cancel()
 
 	err := p.uc.CheckGenerationStatus(ctx, payload.OrderID, payload.SunoJobID)
 	if err != nil {
-		// Если статус еще генерируется (не ошибка провайдера, а просто нужно подождать)
 		if errors.Is(err, usecase.ErrGenerationNotReady) {
-			p.log.Debug("треки еще не готовы, откладываем проверку...", "order_id", payload.OrderID)
-			// Мы возвращаем кастомную ошибку, чтобы сработал RetryDelayFunc (см. ниже)
+			log.Debug("треки ещё не готовы, откладываем проверку")
 			return err
 		}
-
-		p.log.Error("критическая ошибка при проверке статуса", "order_id", payload.OrderID, "error", err)
+		log.Error("критическая ошибка при проверке статуса", "error", err)
 		return err
 	}
 

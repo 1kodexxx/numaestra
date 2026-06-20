@@ -212,7 +212,84 @@ func TestAccount_IsAvailable(t *testing.T) {
 	}
 }
 
+// --- RestoreSunoAccount / Snapshot ---
+
+func TestRestoreSunoAccount_Roundtrip(t *testing.T) {
+	original := newTestAccount(t)
+	_ = original.AcquireSlot(time.Now().UTC())
+	original.RegisterFailure(5)
+
+	snap := original.Snapshot()
+	restored := RestoreSunoAccount(snap)
+
+	if restored.ID() != original.ID() {
+		t.Errorf("ID: got %v, want %v", restored.ID(), original.ID())
+	}
+	if restored.Email() != original.Email() {
+		t.Errorf("Email: got %q, want %q", restored.Email(), original.Email())
+	}
+	if restored.EncryptedSession() != original.EncryptedSession() {
+		t.Errorf("EncryptedSession mismatch")
+	}
+	if restored.Status() != original.Status() {
+		t.Errorf("Status: got %q, want %q", restored.Status(), original.Status())
+	}
+	if restored.TokenBalance() != original.TokenBalance() {
+		t.Errorf("TokenBalance: got %d, want %d", restored.TokenBalance(), original.TokenBalance())
+	}
+	if restored.FailureCount() != original.FailureCount() {
+		t.Errorf("FailureCount: got %d, want %d", restored.FailureCount(), original.FailureCount())
+	}
+	if restored.ConcurrentTasks() != original.ConcurrentTasks() {
+		t.Errorf("ConcurrentTasks: got %d, want %d", restored.ConcurrentTasks(), original.ConcurrentTasks())
+	}
+	if restored.MaxConcurrentTasks() != original.MaxConcurrentTasks() {
+		t.Errorf("MaxConcurrentTasks: got %d, want %d", restored.MaxConcurrentTasks(), original.MaxConcurrentTasks())
+	}
+}
+
+func TestRestoreSunoAccount_ZeroMaxConcurrent_DefaultsToOne(t *testing.T) {
+	snap := domain_sunoAccountSnap(0)
+	a := RestoreSunoAccount(snap)
+	if a.MaxConcurrentTasks() != DefaultMaxConcurrentTasks {
+		t.Errorf("MaxConcurrentTasks с нулём должен принять дефолт %d, получили %d",
+			DefaultMaxConcurrentTasks, a.MaxConcurrentTasks())
+	}
+}
+
+func TestSunoAccount_CooldownUntil_Getter(t *testing.T) {
+	a := newTestAccount(t)
+	if a.CooldownUntil() != nil {
+		t.Error("у нового аккаунта CooldownUntil должен быть nil")
+	}
+	a.EnterCooldown(5 * time.Minute)
+	if a.CooldownUntil() == nil {
+		t.Error("после EnterCooldown CooldownUntil не должен быть nil")
+	}
+}
+
+func TestSunoAccount_UpdatedAt_ChangesOnMutation(t *testing.T) {
+	a := newTestAccount(t)
+	before := a.UpdatedAt()
+	time.Sleep(time.Millisecond) // гарантируем разницу времени
+	_ = a.AcquireSlot(time.Now().UTC())
+	if !a.UpdatedAt().After(before) {
+		t.Error("UpdatedAt должен обновляться при мутации")
+	}
+}
+
 // --- helpers ---
+
+// domain_sunoAccountSnap возвращает снапшот с заданным maxConcurrentTasks.
+func domain_sunoAccountSnap(maxConcurrent int) SunoAccountSnapshot {
+	return SunoAccountSnapshot{
+		Email:              "test@suno.ai",
+		EncryptedSession:   "session",
+		Status:             AccountStatusActive,
+		TokenBalance:       100,
+		MaxConcurrentTasks: maxConcurrent,
+	}
+}
 
 func newTestAccount(t *testing.T) *SunoAccount {
 	t.Helper()

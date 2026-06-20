@@ -55,6 +55,7 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "30s")
 	t.Setenv("ROBOKASSA_IS_TEST", "false")
 	t.Setenv("SUNO_API_KEY", "secret-key")
+	t.Setenv("ADMIN_TOKEN", "test-admin-token")
 
 	cfg, err := Load()
 	if err != nil {

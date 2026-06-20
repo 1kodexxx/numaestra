@@ -15,7 +15,7 @@ func AdminAuth(token string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				respondError(w, r, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			next.ServeHTTP(w, r)

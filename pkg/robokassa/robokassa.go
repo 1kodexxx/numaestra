@@ -34,6 +34,8 @@ type Client struct {
 	password1     string // для генерации ссылки оплаты
 	password2     string // для проверки подписи вебхука
 	isTest        bool
+	httpClient    *http.Client
+	refundURL     string // переопределяется в тестах
 }
 
 // New создаёт клиент Robokassa с переданными учётными данными.
@@ -43,6 +45,8 @@ func New(merchantLogin, password1, password2 string, isTest bool) *Client {
 		password1:     password1,
 		password2:     password2,
 		isTest:        isTest,
+		httpClient:    http.DefaultClient,
+		refundURL:     refundBaseURL,
 	}
 }
 
@@ -154,13 +158,13 @@ func (c *Client) Refund(ctx context.Context, outSum string, invID int64) error {
 	params.Set("OutSum", outSum)
 	params.Set("Signature", sig)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, refundBaseURL, strings.NewReader(params.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.refundURL, strings.NewReader(params.Encode()))
 	if err != nil {
 		return fmt.Errorf("robokassa refund: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("robokassa refund: http request: %w", err)
 	}

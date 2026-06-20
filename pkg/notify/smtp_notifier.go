@@ -20,6 +20,10 @@ type SmtpNotifier struct {
 	password string
 	from     string
 	fromName string
+
+	// dialPlain заменяет smtp.Dial+StartTLS в sendSTARTTLS — используется только в тестах
+	// (подключение к plain fake-серверу без TLS-handshake).
+	dialPlain func(addr string) (*smtp.Client, error)
 }
 
 // NewSmtpNotifier создаёт SMTP-отправщик уведомлений.
@@ -57,16 +61,26 @@ func (n *SmtpNotifier) NotifyOrderComplete(_ context.Context, notif OrderComplet
 
 // sendSTARTTLS устанавливает соединение по STARTTLS (порт 587).
 func (n *SmtpNotifier) sendSTARTTLS(addr string, auth smtp.Auth, to, msg string) error {
-	client, err := smtp.Dial(addr)
-	if err != nil {
-		return fmt.Errorf("smtp dial: %w", err)
+	var client *smtp.Client
+	var err error
+
+	if n.dialPlain != nil {
+		// Тестовый путь: получаем готовый клиент без TLS-апгрейда.
+		client, err = n.dialPlain(addr)
+		if err != nil {
+			return fmt.Errorf("smtp dial: %w", err)
+		}
+	} else {
+		client, err = smtp.Dial(addr)
+		if err != nil {
+			return fmt.Errorf("smtp dial: %w", err)
+		}
+		tlsCfg := &tls.Config{ServerName: n.host, MinVersion: tls.VersionTLS12}
+		if err = client.StartTLS(tlsCfg); err != nil {
+			return fmt.Errorf("smtp starttls: %w", err)
+		}
 	}
 	defer client.Quit() //nolint:errcheck
-
-	tlsCfg := &tls.Config{ServerName: n.host, MinVersion: tls.VersionTLS12}
-	if err = client.StartTLS(tlsCfg); err != nil {
-		return fmt.Errorf("smtp starttls: %w", err)
-	}
 	return n.deliverMessage(client, auth, to, msg)
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -226,8 +227,13 @@ func run(ctx context.Context) error {
 		WithIdempotency(idempotency.NewStore(rdb))
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
 	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, rkClient, log), log)
+	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
+	if err != nil {
+		return fmt.Errorf("разбор METRICS_ALLOWED_IPS: %w", err)
+	}
+
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg)
+	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg, metricsNets)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -275,6 +281,7 @@ func newRouter(
 	adminHandler *apphttp.AdminHandler,
 	checker *health.Checker,
 	cfg *config.Config,
+	metricsNets []*net.IPNet,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -287,10 +294,6 @@ func newRouter(
 
 	r.Get("/healthz", checker.Handler)
 
-	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
-	if err != nil {
-		panic("неверный METRICS_ALLOWED_IPS: " + err.Error())
-	}
 	r.Group(func(r chi.Router) {
 		r.Use(apphttp.IPAllowlist(metricsNets))
 		r.Handle("/metrics", pkgmetrics.Handler())

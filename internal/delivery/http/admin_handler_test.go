@@ -243,7 +243,7 @@ func TestAdminHandler_AddAccount_Success(t *testing.T) {
 	h, _, _ := newTestAdminHandler(t)
 	router := adminTestRouter(h)
 
-	body := `{"email":"suno@test.com","encrypted_session":"sess","max_concurrent":2}`
+	body := `{"email":"suno@test.com","session":"sess","max_concurrent":2}`
 	r := httptest.NewRequest(http.MethodPost, "/admin/accounts", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

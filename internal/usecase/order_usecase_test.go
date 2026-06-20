@@ -483,10 +483,80 @@ func TestListOrdersByEmail_EmptyEmail(t *testing.T) {
 	}
 }
 
+func TestListOrdersByEmail_ReturnsMatching(t *testing.T) {
+	f := newFixture(t)
+	order, err := f.uc.CreateOrder(context.Background(), "find@example.com", "", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	_, _ = f.uc.CreateOrder(context.Background(), "other@example.com", "", "Другой", "standard", "", nil)
+
+	list, err := f.uc.ListOrdersByEmail(context.Background(), "find@example.com", 20, 0)
+	if err != nil {
+		t.Fatalf("ListOrdersByEmail: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("ожидали 1 заказ, получили %d", len(list))
+	}
+	if list[0].ID() != order.ID() {
+		t.Errorf("вернулся не тот заказ: got %v, want %v", list[0].ID(), order.ID())
+	}
+}
+
 func TestGetOrderByToken_Empty(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.uc.GetOrderByToken(context.Background(), ""); !errors.Is(err, domain.ErrOrderUnauthorized) {
 		t.Errorf("ожидали ErrOrderUnauthorized, получили %v", err)
+	}
+}
+
+func TestGetOrder_Found(t *testing.T) {
+	f := newFixture(t)
+	order, err := f.uc.CreateOrder(context.Background(), "get@test.com", "", "бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	got, err := f.uc.GetOrder(context.Background(), order.ID())
+	if err != nil {
+		t.Fatalf("GetOrder: %v", err)
+	}
+	if got.ID() != order.ID() {
+		t.Errorf("ожидали id=%s, получили %s", order.ID(), got.ID())
+	}
+}
+
+func TestGetOrder_NotFound(t *testing.T) {
+	f := newFixture(t)
+	_, err := f.uc.GetOrder(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Errorf("ожидали ErrOrderNotFound, получили %v", err)
+	}
+}
+
+func TestListOrdersByPhone_EmptyPhone(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.uc.ListOrdersByPhone(context.Background(), "", 20, 0); err == nil {
+		t.Error("ожидали ошибку при пустом phone")
+	}
+}
+
+func TestListOrdersByPhone_ReturnsMatching(t *testing.T) {
+	f := newFixture(t)
+
+	for i := int64(1); i <= 3; i++ {
+		o, _ := domain.NewOrder(i, "p@q.com", "+79991234567", "бриф", "", "", 100)
+		_ = f.orderRepo.Create(context.Background(), o)
+	}
+	o, _ := domain.NewOrder(4, "x@y.com", "+70000000000", "бриф", "", "", 100)
+	_ = f.orderRepo.Create(context.Background(), o)
+
+	list, err := f.uc.ListOrdersByPhone(context.Background(), "+79991234567", 20, 0)
+	if err != nil {
+		t.Fatalf("ListOrdersByPhone: %v", err)
+	}
+	if len(list) != 3 {
+		t.Errorf("ожидали 3 заказа, получили %d", len(list))
 	}
 }
 

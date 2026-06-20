@@ -29,8 +29,18 @@ import (
 
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/migrations"
+	"github.com/numaestra/numaestra/pkg/encryption"
 	"github.com/numaestra/numaestra/pkg/migrate"
 )
+
+// testCipher — фиксированный 32-байтовый ключ для тестовых данных.
+var testCipher = func() encryption.Cipher {
+	c, err := encryption.New(make([]byte, 32))
+	if err != nil {
+		panic(err)
+	}
+	return c
+}()
 
 var (
 	testPool     *pgxpool.Pool
@@ -107,7 +117,7 @@ func mustAccount(t *testing.T, pool *pgxpool.Pool, tokens, maxConcurrent int) *d
 	if err := acc.SetMaxConcurrentTasks(maxConcurrent); err != nil {
 		t.Fatalf("установка лимита слотов: %v", err)
 	}
-	if err := NewAccountRepository(pool).Create(context.Background(), acc); err != nil {
+	if err := NewAccountRepository(pool, testCipher).Create(context.Background(), acc); err != nil {
 		t.Fatalf("сохранение аккаунта: %v", err)
 	}
 	return acc
@@ -120,7 +130,7 @@ func mustOrder(t *testing.T, pool *pgxpool.Pool) *domain.Order {
 	if err != nil {
 		t.Fatalf("invoice id: %v", err)
 	}
-	order, err := domain.NewOrder(inv, "user@example.com", "", "Бриф", 150000)
+	order, err := domain.NewOrder(inv, "user@example.com", "", "Бриф", "", "", 150000)
 	if err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
@@ -205,7 +215,7 @@ func TestIntegration_ApplyPaymentSuccess_OnlyFromPending(t *testing.T) {
 
 func TestIntegration_FetchAndLock_SkipLocked_DistributesAccounts(t *testing.T) {
 	pool := setup(t)
-	repo := NewAccountRepository(pool)
+	repo := NewAccountRepository(pool, testCipher)
 	ctx := context.Background()
 
 	const n = 5
@@ -252,7 +262,7 @@ func TestIntegration_FetchAndLock_SkipLocked_DistributesAccounts(t *testing.T) {
 
 func TestIntegration_FetchAndLock_RespectsConcurrencySlots(t *testing.T) {
 	pool := setup(t)
-	repo := NewAccountRepository(pool)
+	repo := NewAccountRepository(pool, testCipher)
 	ctx := context.Background()
 
 	acc := mustAccount(t, pool, 10, 3) // лимит 3 одновременных задачи
@@ -293,7 +303,7 @@ func TestIntegration_FetchAndLock_RespectsConcurrencySlots(t *testing.T) {
 func TestIntegration_TxManager_CommitsBothAggregates(t *testing.T) {
 	pool := setup(t)
 	orderRepo := NewOrderRepository(pool)
-	accRepo := NewAccountRepository(pool)
+	accRepo := NewAccountRepository(pool, testCipher)
 	tx := NewTxManager(pool)
 	ctx := context.Background()
 
@@ -380,7 +390,7 @@ func TestIntegration_ListByEmail_BatchLoadsTracks(t *testing.T) {
 		t.Fatalf("сохранение завершённого заказа: %v", err)
 	}
 
-	orders, err := orderRepo.ListByCustomerEmail(ctx, "user@example.com")
+	orders, err := orderRepo.ListByCustomerEmail(ctx, "user@example.com", 20, 0)
 	if err != nil {
 		t.Fatalf("ListByCustomerEmail: %v", err)
 	}

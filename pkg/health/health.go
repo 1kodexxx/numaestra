@@ -15,20 +15,24 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const probeTimeout = 2 * time.Second
 
+// dbPinger abstracts pgxpool.Pool so the checker can be tested without a real database.
+type dbPinger interface {
+	Ping(ctx context.Context) error
+}
+
 // Checker хранит зависимости для проверки.
 type Checker struct {
-	pg    *pgxpool.Pool
+	pg    dbPinger
 	redis asynq.RedisClientOpt
 }
 
 // New создаёт Checker. redis передаётся как asynq.RedisClientOpt —
 // тот же объект, что используется для Asynq, без дублирования конфига.
-func New(pg *pgxpool.Pool, redis asynq.RedisClientOpt) *Checker {
+func New(pg dbPinger, redis asynq.RedisClientOpt) *Checker {
 	return &Checker{pg: pg, redis: redis}
 }
 

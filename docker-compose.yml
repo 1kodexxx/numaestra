@@ -1,3 +1,29 @@
+# Общие переменные окружения для сервисов приложения.
+# Вынесено на верхний уровень как extension field (x-prefix), чтобы
+# Docker Compose не трактовал блок как сервис.
+x-app-env: &app-env
+  APP_ENV: dev
+  POSTGRES_DSN: postgres://numaestra:numaestra@postgres:5432/numaestra?sslmode=disable
+  REDIS_ADDR: redis:6379
+  REDIS_PASSWORD: ""
+  ROBOKASSA_MERCHANT_LOGIN: ${ROBOKASSA_MERCHANT_LOGIN:-numaestra_test}
+  ROBOKASSA_PASS1: ${ROBOKASSA_PASS1:-test_pass1}
+  ROBOKASSA_PASS2: ${ROBOKASSA_PASS2:-test_pass2}
+  ROBOKASSA_IS_TEST: ${ROBOKASSA_IS_TEST:-true}
+  SUNO_API_URL: ${SUNO_API_URL:-https://api.custom-suno.local}
+  SUNO_API_KEY: ${SUNO_API_KEY:-}
+  S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-numaestra-tracks}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  # В dev с пустым ключом используется небезопасный дев-ключ (предупреждение в логе).
+  # В prod обязателен: openssl rand -hex 32
+  SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
+  ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -32,27 +58,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # Общие переменные окружения для сервисов приложения.
-  # Используй x-app-env как якорь (<<: *app-env) в app и worker.
-  x-app-env: &app-env
-    APP_ENV: dev
-    POSTGRES_DSN: postgres://numaestra:numaestra@postgres:5432/numaestra?sslmode=disable
-    REDIS_ADDR: redis:6379
-    REDIS_PASSWORD: ""
-    ROBOKASSA_MERCHANT_LOGIN: ${ROBOKASSA_MERCHANT_LOGIN:-numaestra_test}
-    ROBOKASSA_PASS1: ${ROBOKASSA_PASS1:-test_pass1}
-    ROBOKASSA_PASS2: ${ROBOKASSA_PASS2:-test_pass2}
-    ROBOKASSA_IS_TEST: ${ROBOKASSA_IS_TEST:-true}
-    SUNO_API_URL: ${SUNO_API_URL:-https://api.custom-suno.local}
-    SUNO_API_KEY: ${SUNO_API_KEY:-}
-    S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
-    S3_REGION: ${S3_REGION:-us-east-1}
-    S3_BUCKET: ${S3_BUCKET:-numaestra-tracks}
-    S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
-    S3_SECRET_KEY: ${S3_SECRET_KEY:-}
-    OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
-    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-
   # Режим "all" — API + worker в одном контейнере (dev / small-scale prod).
   app:
     build:
@@ -71,6 +76,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     stop_grace_period: 20s
 
   # Режим "worker" — только Asynq-воркер, без HTTP-сервера.

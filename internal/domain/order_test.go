@@ -219,6 +219,91 @@ func TestOrder_SnapshotRestore_PreservesToken(t *testing.T) {
 	}
 }
 
+// --- MarkRefunded ---
+
+func TestOrder_MarkRefunded_Success(t *testing.T) {
+	o := newPaidOrder(t)
+	if err := o.MarkRefunded(); err != nil {
+		t.Fatalf("MarkRefunded упал: %v", err)
+	}
+	if o.PaymentStatus() != PaymentStatusRefunded {
+		t.Errorf("ожидали Refunded, получили %q", o.PaymentStatus())
+	}
+}
+
+func TestOrder_MarkRefunded_WhenNotPaid_ReturnsError(t *testing.T) {
+	o := newTestOrder(t) // status = Pending
+	err := o.MarkRefunded()
+	if err != ErrInvalidPaymentTransition {
+		t.Errorf("ожидали ErrInvalidPaymentTransition, получили %v", err)
+	}
+}
+
+// --- Геттеры ---
+
+func TestOrder_Getters(t *testing.T) {
+	o, err := NewOrder(42, "user@example.com", "+79991234567", "Тестовый бриф", "wedding", "Create a song", 150000)
+	if err != nil {
+		t.Fatalf("NewOrder: %v", err)
+	}
+
+	if o.InvoiceID() != 42 {
+		t.Errorf("InvoiceID: got %d, want 42", o.InvoiceID())
+	}
+	if o.CustomerEmail() != "user@example.com" {
+		t.Errorf("CustomerEmail: got %q", o.CustomerEmail())
+	}
+	if o.CustomerPhone() != "+79991234567" {
+		t.Errorf("CustomerPhone: got %q", o.CustomerPhone())
+	}
+	if o.Brief() != "Тестовый бриф" {
+		t.Errorf("Brief: got %q", o.Brief())
+	}
+	if o.CategoryID() != "wedding" {
+		t.Errorf("CategoryID: got %q", o.CategoryID())
+	}
+	if o.SunoPrompt() != "Create a song" {
+		t.Errorf("SunoPrompt: got %q", o.SunoPrompt())
+	}
+	if o.AmountKopecks() != 150000 {
+		t.Errorf("AmountKopecks: got %d", o.AmountKopecks())
+	}
+	if o.Currency() != "RUB" {
+		t.Errorf("Currency: got %q", o.Currency())
+	}
+	if o.UpdatedAt().IsZero() {
+		t.Error("UpdatedAt не должен быть нулевым")
+	}
+}
+
+func TestOrder_RestoreOrder_PreservesAllFields(t *testing.T) {
+	o, _ := NewOrder(7, "a@example.com", "+70000000001", "Бриф", "boss", "Prompt", 290000)
+	_ = o.MarkPaid()
+	_ = o.Enqueue()
+
+	snap := o.Snapshot()
+	r := RestoreOrder(snap)
+
+	if r.InvoiceID() != 7 {
+		t.Errorf("InvoiceID: got %d", r.InvoiceID())
+	}
+	if r.CustomerPhone() != "+70000000001" {
+		t.Errorf("CustomerPhone: got %q", r.CustomerPhone())
+	}
+	if r.CategoryID() != "boss" {
+		t.Errorf("CategoryID: got %q", r.CategoryID())
+	}
+	if r.SunoPrompt() != "Prompt" {
+		t.Errorf("SunoPrompt: got %q", r.SunoPrompt())
+	}
+	if r.AmountKopecks() != 290000 {
+		t.Errorf("AmountKopecks: got %d", r.AmountKopecks())
+	}
+	if r.GenerationStatus() != GenerationStatusQueued {
+		t.Errorf("GenerationStatus: got %q", r.GenerationStatus())
+	}
+}
+
 // --- helpers ---
 
 func newTestOrder(t *testing.T) *Order {
