@@ -26,6 +26,9 @@ type Config struct {
 	Pricing   PricingConfig
 	Notify    NotifyConfig
 	AdminToken string // ADMIN_TOKEN — Bearer-токен для /api/v1/admin/* маршрутов
+	// SessionEncryptionKey — hex-строка из 64 символов (32 байта, AES-256).
+	// Обязателен во всех окружениях, кроме dev (там используется небезопасный дев-ключ).
+	SessionEncryptionKey string
 }
 
 type HTTPConfig struct {
@@ -159,7 +162,8 @@ func Load() (*Config, error) {
 			FromAddress:  getEnv("SMTP_FROM_ADDRESS", ""),
 			FromName:     getEnv("SMTP_FROM_NAME", "Numaestra"),
 		},
-		AdminToken: getEnv("ADMIN_TOKEN", ""),
+		AdminToken:           getEnv("ADMIN_TOKEN", ""),
+		SessionEncryptionKey: getEnv("SESSION_ENCRYPTION_KEY", ""),
 	}
 
 	if cfg.Postgres.DSN == "" {

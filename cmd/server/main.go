@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/numaestra/numaestra/internal/config"
 	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
+	"github.com/numaestra/numaestra/pkg/encryption"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/repository/postgres"
 	"github.com/numaestra/numaestra/internal/repository/queue"
@@ -76,6 +78,12 @@ func run(ctx context.Context) error {
 	log := logger.New(cfg.Env)
 	log.Info("Запуск сервиса Numaestra", "env", cfg.Env, "mode", cfg.Mode, "http_port", cfg.HTTP.Port)
 
+	// 3a. Шифр для поля encrypted_session (AES-256-GCM).
+	sessionCipher, err := buildSessionCipher(cfg.SessionEncryptionKey, cfg.Env, log)
+	if err != nil {
+		return fmt.Errorf("инициализация шифра сессий: %w", err)
+	}
+
 	// 3. Инфраструктурные зависимости.
 	pgPool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
 	if err != nil {
@@ -106,7 +114,7 @@ func run(ctx context.Context) error {
 	}()
 
 	// 4. Dependency Injection.
-	accountRepo := postgres.NewAccountRepository(pgPool)
+	accountRepo := postgres.NewAccountRepository(pgPool, sessionCipher)
 	orderRepo := postgres.NewOrderRepository(pgPool)
 	txManager := postgres.NewTxManager(pgPool)
 	queuePublisher := queue.NewAsynqPublisher(asynqClient)
@@ -297,6 +305,34 @@ func newRouter(
 	})
 
 	return r
+}
+
+// buildSessionCipher парсит SESSION_ENCRYPTION_KEY и возвращает AES-256-GCM шифр.
+// В dev-окружении с пустым ключом использует небезопасный дев-ключ с предупреждением.
+// В не-dev окружениях пустой ключ — фатальная ошибка запуска.
+func buildSessionCipher(hexKey, env string, log *slog.Logger) (encryption.Cipher, error) {
+	var keyBytes []byte
+	if hexKey == "" {
+		if env != "dev" {
+			return nil, errors.New("SESSION_ENCRYPTION_KEY обязателен в не-dev окружении (64 hex-символа = 32 байта)")
+		}
+		log.Warn("SESSION_ENCRYPTION_KEY не задан — используется небезопасный дев-ключ. Никогда не используйте в production!")
+		// Детерминированный 32-байтный дев-ключ: 0x00..0x1f
+		keyBytes = make([]byte, 32)
+		for i := range keyBytes {
+			keyBytes[i] = byte(i)
+		}
+	} else {
+		var err error
+		keyBytes, err = hex.DecodeString(hexKey)
+		if err != nil {
+			return nil, fmt.Errorf("SESSION_ENCRYPTION_KEY должен быть hex-строкой: %w", err)
+		}
+		if len(keyBytes) != 32 {
+			return nil, fmt.Errorf("SESSION_ENCRYPTION_KEY должен быть 64 hex-символа (32 байта), получено %d байт", len(keyBytes))
+		}
+	}
+	return encryption.New(keyBytes)
 }
 
 func requestLoggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {

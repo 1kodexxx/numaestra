@@ -10,14 +10,48 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/encryption"
 )
 
 type AccountRepository struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher encryption.Cipher
 }
 
-func NewAccountRepository(pool *pgxpool.Pool) *AccountRepository {
-	return &AccountRepository{pool: pool}
+func NewAccountRepository(pool *pgxpool.Pool, cipher encryption.Cipher) *AccountRepository {
+	return &AccountRepository{pool: pool, cipher: cipher}
+}
+
+func (r *AccountRepository) encryptSession(plain string) (string, error) {
+	if plain == "" {
+		return "", nil
+	}
+	enc, err := r.cipher.Encrypt(plain)
+	if err != nil {
+		return "", fmt.Errorf("шифрование session: %w", err)
+	}
+	return enc, nil
+}
+
+func (r *AccountRepository) decryptSession(stored string) (string, error) {
+	if stored == "" {
+		return "", nil
+	}
+	plain, err := r.cipher.Decrypt(stored)
+	if err != nil {
+		return "", fmt.Errorf("расшифровка session: %w", err)
+	}
+	return plain, nil
+}
+
+// restoreAccount расшифровывает session в снэпшоте и восстанавливает доменный объект.
+func (r *AccountRepository) restoreAccount(snap *domain.SunoAccountSnapshot) (*domain.SunoAccount, error) {
+	plain, err := r.decryptSession(snap.EncryptedSession)
+	if err != nil {
+		return nil, err
+	}
+	snap.EncryptedSession = plain
+	return domain.RestoreSunoAccount(*snap), nil
 }
 
 var _ domain.AccountRepository = (*AccountRepository)(nil)
@@ -69,8 +103,11 @@ func (r *AccountRepository) FetchAndLockAvailable(ctx context.Context) (*domain.
 		return nil, fmt.Errorf("select and lock available account: %w", err)
 	}
 
-	// Занимаем слот в домене и фиксируем инкремент в той же транзакции.
-	account := domain.RestoreSunoAccount(snapshot)
+	account, err := r.restoreAccount(&snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("восстановление аккаунта после SELECT: %w", err)
+	}
+
 	if err := account.AcquireSlot(time.Now().UTC()); err != nil {
 		return nil, fmt.Errorf("domain acquire slot: %w", err)
 	}
@@ -103,17 +140,25 @@ func (r *AccountRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	if err != nil {
 		return nil, fmt.Errorf("get account by id: %w", err)
 	}
-	return domain.RestoreSunoAccount(snapshot), nil
+	account, err := r.restoreAccount(&snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("восстановление аккаунта %s: %w", id, err)
+	}
+	return account, nil
 }
 
 func (r *AccountRepository) Create(ctx context.Context, account *domain.SunoAccount) error {
 	snap := account.Snapshot()
+	encSession, err := r.encryptSession(snap.EncryptedSession)
+	if err != nil {
+		return fmt.Errorf("create suno account: %w", err)
+	}
 	query := `
 		INSERT INTO suno_accounts (id, email, encrypted_session, status, token_balance, failure_count, max_concurrent_tasks, concurrent_tasks, cooldown_until, last_used_at, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
-	_, err := r.conn(ctx).Exec(ctx, query,
-		snap.ID, snap.Email, snap.EncryptedSession, snap.Status,
+	_, err = r.conn(ctx).Exec(ctx, query,
+		snap.ID, snap.Email, encSession, snap.Status,
 		snap.TokenBalance, snap.FailureCount, snap.MaxConcurrentTasks, snap.ConcurrentTasks,
 		snap.CooldownUntil, snap.LastUsedAt, snap.CreatedAt, snap.UpdatedAt,
 	)
@@ -159,7 +204,11 @@ func (r *AccountRepository) ListByStatus(ctx context.Context, status domain.Acco
 		if err != nil {
 			return nil, fmt.Errorf("scan account row: %w", err)
 		}
-		accounts = append(accounts, domain.RestoreSunoAccount(snapshot))
+		acc, err := r.restoreAccount(&snapshot)
+		if err != nil {
+			return nil, fmt.Errorf("восстановление аккаунта %s: %w", snapshot.ID, err)
+		}
+		accounts = append(accounts, acc)
 	}
 	return accounts, nil
 }
@@ -183,7 +232,11 @@ func (r *AccountRepository) List(ctx context.Context) ([]*domain.SunoAccount, er
 		); err != nil {
 			return nil, fmt.Errorf("scan account row: %w", err)
 		}
-		accounts = append(accounts, domain.RestoreSunoAccount(snapshot))
+		acc, err := r.restoreAccount(&snapshot)
+		if err != nil {
+			return nil, fmt.Errorf("восстановление аккаунта %s: %w", snapshot.ID, err)
+		}
+		accounts = append(accounts, acc)
 	}
 	return accounts, nil
 }
