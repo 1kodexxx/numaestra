@@ -478,7 +478,7 @@ func TestCheckGenerationStatus_S3Failure_RetriesAndKeepsProcessing(t *testing.T)
 
 func TestListOrdersByEmail_EmptyEmail(t *testing.T) {
 	f := newFixture(t)
-	if _, err := f.uc.ListOrdersByEmail(context.Background(), ""); err == nil {
+	if _, err := f.uc.ListOrdersByEmail(context.Background(), "", 20, 0); err == nil {
 		t.Error("ожидали ошибку при пустом email")
 	}
 }

@@ -161,13 +161,13 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 	return cmd.RowsAffected() > 0, nil
 }
 
-func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string) ([]*domain.Order, error) {
-	// 1. Загружаем все заказы клиента одним запросом.
+func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, error) {
+	// 1. Загружаем заказы клиента одним запросом с пагинацией.
 	orderQuery := `
 		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC
+		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
-	rows, err := r.conn(ctx).Query(ctx, orderQuery, email)
+	rows, err := r.conn(ctx).Query(ctx, orderQuery, email, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list orders by email: %w", err)
 	}
@@ -242,12 +242,12 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 	return result, nil
 }
 
-func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string) ([]*domain.Order, error) {
+func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*domain.Order, error) {
 	orderQuery := `
 		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC
+		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
-	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone)
+	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list orders by phone: %w", err)
 	}

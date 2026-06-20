@@ -105,7 +105,7 @@ func (r *inMemOrderRepo) ApplyPaymentSuccess(_ context.Context, order *domain.Or
 	return true, nil
 }
 
-func (r *inMemOrderRepo) ListByCustomerEmail(_ context.Context, email string) ([]*domain.Order, error) {
+func (r *inMemOrderRepo) ListByCustomerEmail(_ context.Context, email string, _, _ int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*domain.Order
@@ -117,7 +117,7 @@ func (r *inMemOrderRepo) ListByCustomerEmail(_ context.Context, email string) ([
 	return out, nil
 }
 
-func (r *inMemOrderRepo) ListByCustomerPhone(_ context.Context, phone string) ([]*domain.Order, error) {
+func (r *inMemOrderRepo) ListByCustomerPhone(_ context.Context, phone string, _, _ int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*domain.Order
@@ -275,12 +275,6 @@ func (r *inMemAccountRepo) SetStatus(_ context.Context, id uuid.UUID, status dom
 	snap.Status = status
 	r.accounts[id] = snap
 	return nil
-}
-
-func (r *inMemAccountRepo) statusOf(id uuid.UUID) domain.AccountStatus {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.accounts[id].Status
 }
 
 // concurrentOf возвращает число занятых слотов аккаунта — используется тестами,

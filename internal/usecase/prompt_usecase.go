@@ -9,6 +9,15 @@ import (
 	"github.com/numaestra/numaestra/internal/domain"
 )
 
+// PromptBuilder — порт для работы с категориями и генерацией промптов.
+// Используется в OrderUseCase и HTTP-хендлерах вместо конкретного *PromptUseCase,
+// чтобы соблюсти принцип гексагональной архитектуры и упростить тестирование.
+type PromptBuilder interface {
+	BuildFinalPrompt(ctx context.Context, categoryID string, answers map[string]string) (string, error)
+	GetAllCategories(ctx context.Context) ([]*domain.Category, error)
+	GetCategoryWizard(ctx context.Context, id string) (*domain.Category, error)
+}
+
 const categoriesCacheTTL = time.Hour
 
 type PromptUseCase struct {

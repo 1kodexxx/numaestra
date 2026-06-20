@@ -359,8 +359,8 @@ type OrderRepository interface {
 	// applied=false, если заказ уже был оплачен (например, параллельной доставкой
 	// вебхука). Это защищает от гонки двойной генерации без отдельной version-колонки.
 	ApplyPaymentSuccess(ctx context.Context, order *Order) (applied bool, err error)
-	ListByCustomerEmail(ctx context.Context, email string) ([]*Order, error)
-	ListByCustomerPhone(ctx context.Context, phone string) ([]*Order, error)
+	ListByCustomerEmail(ctx context.Context, email string, limit, offset int) ([]*Order, error)
+	ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*Order, error)
 
 	// NextInvoiceID возвращает следующий InvId из PostgreSQL sequence invoice_id_seq.
 	// Гарантирует уникальность даже при нескольких инстансах сервиса.

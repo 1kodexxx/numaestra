@@ -206,10 +206,10 @@ func (r *wOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bo
 	r.orders[s.ID] = s
 	return true, nil
 }
-func (r *wOrderRepo) ListByCustomerEmail(_ context.Context, _ string) ([]*domain.Order, error) {
+func (r *wOrderRepo) ListByCustomerEmail(_ context.Context, _ string, _, _ int) ([]*domain.Order, error) {
 	return nil, nil
 }
-func (r *wOrderRepo) ListByCustomerPhone(_ context.Context, _ string) ([]*domain.Order, error) {
+func (r *wOrderRepo) ListByCustomerPhone(_ context.Context, _ string, _, _ int) ([]*domain.Order, error) {
 	return nil, nil
 }
 func (r *wOrderRepo) NextInvoiceID(_ context.Context) (int64, error) { return 1, nil }

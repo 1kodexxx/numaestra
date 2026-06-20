@@ -28,13 +28,22 @@ import (
 	"github.com/numaestra/numaestra/pkg/banner"
 	"github.com/numaestra/numaestra/pkg/health"
 	"github.com/numaestra/numaestra/pkg/logger"
+	pkgmetrics "github.com/numaestra/numaestra/pkg/metrics"
 	"github.com/numaestra/numaestra/pkg/migrate"
 	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/openai"
 	"github.com/numaestra/numaestra/pkg/robokassa"
 	"github.com/numaestra/numaestra/pkg/s3"
 	"github.com/numaestra/numaestra/pkg/suno"
-	"github.com/numaestra/numaestra/web"
+)
+
+// runMode перечисляет допустимые значения APP_MODE.
+type runMode string
+
+const (
+	modeAll    runMode = "all"
+	modeAPI    runMode = "api"
+	modeWorker runMode = "worker"
 )
 
 // Проверка на этапе компиляции, что S3-клиент реализует порт хранилища треков.
@@ -61,7 +70,7 @@ func run(ctx context.Context) error {
 
 	// 2. Логгер.
 	log := logger.New(cfg.Env)
-	log.Info("Запуск сервиса Numaestra", "env", cfg.Env, "http_port", cfg.HTTP.Port)
+	log.Info("Запуск сервиса Numaestra", "env", cfg.Env, "mode", cfg.Mode, "http_port", cfg.HTTP.Port)
 
 	// 3. Инфраструктурные зависимости.
 	pgPool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
@@ -106,11 +115,11 @@ func run(ctx context.Context) error {
 	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
-	llmClient := openai.NewClient(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
+	llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
 
 	s3Client := s3.New(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
 
-	// Notifier: используем SMTP если SMTP_HOST настроен, иначе заглушку-логгер.
+	// Notifier: SMTP если SMTP_HOST задан, иначе заглушка-логгер.
 	var notifier notify.Notifier
 	if cfg.Notify.SMTPHost != "" {
 		notifier = notify.NewSmtpNotifier(
@@ -121,78 +130,80 @@ func run(ctx context.Context) error {
 			cfg.Notify.FromAddress,
 			cfg.Notify.FromName,
 		)
-		log.Info("SMTP уведомления активны", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort)
+		log.Info("SMTP-нотификатор активен", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort)
 	} else {
-		log.Warn("SMTP не настроен, уведомления идут только в лог")
 		notifier = notify.NewLogNotifier(log)
+		log.Warn("SMTP_HOST не задан — уведомления только в лог (заглушка)")
 	}
 
 	// Прайс определяется сервером по тарифу: цена не принимается из запроса клиента.
 	pricing := usecase.NewStaticPricing(cfg.Pricing.Plans, cfg.Pricing.DefaultPlan)
 
-	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
-
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, pricing, txManager, log)
-	adminUC := usecase.NewAdminUseCase(orderRepo, accountRepo, rkClient, log)
 
-	// 5. Asynq Worker.
-	processor := worker.NewOrderProcessor(orderUC, log)
+	mode := runMode(cfg.Mode)
 
-	asynqServer := asynq.NewServer(
-		redisOpt,
-		asynq.Config{
-			Concurrency: 10,
-			Queues: map[string]int{
-				"generation": 5,
-				"polling":    5,
+	// 5. Asynq Worker — запускается в режимах "all" и "worker".
+	if mode == modeAll || mode == modeWorker {
+		processor := worker.NewOrderProcessor(orderUC, log)
+
+		asynqServer := asynq.NewServer(
+			redisOpt,
+			asynq.Config{
+				Concurrency: 10,
+				Queues: map[string]int{
+					"generation": 5,
+					"polling":    5,
+				},
+				RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
+					if errors.Is(e, usecase.ErrGenerationNotReady) {
+						return 15 * time.Second
+					}
+					return asynq.DefaultRetryDelayFunc(n, e, t)
+				},
+				ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, t *asynq.Task, err error) {
+					retried, _ := asynq.GetRetryCount(ctx)
+					maxRetry, _ := asynq.GetMaxRetry(ctx)
+					if retried < maxRetry {
+						return
+					}
+					processor.HandleDeadTask(ctx, t, err)
+				}),
 			},
-			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
-				if errors.Is(e, usecase.ErrGenerationNotReady) {
-					return 15 * time.Second
-				}
-				return asynq.DefaultRetryDelayFunc(n, e, t)
-			},
-			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, t *asynq.Task, err error) {
-				retried, _ := asynq.GetRetryCount(ctx)
-				maxRetry, _ := asynq.GetMaxRetry(ctx)
-				if retried < maxRetry {
-					return // ещё будут ретраи — ждём
-				}
-				processor.HandleDeadTask(ctx, t, err)
-			}),
-		},
-	)
+		)
 
-	mux := asynq.NewServeMux()
-	mux.HandleFunc(queue.TaskTypeGenerateTrack, processor.HandleGenerateTask)
-	mux.HandleFunc(queue.TaskTypeCheckStatus, processor.HandleStatusCheckTask)
+		mux := asynq.NewServeMux()
+		mux.HandleFunc(queue.TaskTypeGenerateTrack, processor.HandleGenerateTask)
+		mux.HandleFunc(queue.TaskTypeCheckStatus, processor.HandleStatusCheckTask)
 
-	go func() {
-		log.Info("запуск Asynq worker-сервера")
-		if err := asynqServer.Run(mux); err != nil {
-			log.Error("ошибка работы Asynq worker", "error", err)
-		}
-	}()
-	defer asynqServer.Stop()
+		go func() {
+			log.Info("запуск Asynq worker-сервера")
+			if err := asynqServer.Run(mux); err != nil {
+				log.Error("ошибка работы Asynq worker", "error", err)
+			}
+		}()
+		defer asynqServer.Stop()
+	}
 
-	// 6. HTTP-хендлеры и роутер.
+	// В режиме "worker" HTTP-сервер не нужен — ждём сигнала и выходим.
+	if mode == modeWorker {
+		log.Info("режим worker: HTTP-сервер не запущен")
+		<-ctx.Done()
+		log.Info("сервис Numaestra остановлен корректно")
+		return nil
+	}
+
+	// 6. HTTP-хендлеры и роутер — режимы "all" и "api".
+	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
 	webhookAllowedNets, err := apphttp.ParseCIDRs(cfg.Robokassa.AllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)
 	}
 
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets)
-
-	// === НОВЫЙ ХЭНДЛЕР ===
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
-	// =====================
-
-	adminHandler := apphttp.NewAdminHandler(adminUC, log)
-
 	healthChecker := health.New(pgPool, redisOpt)
-
-	// Передаем новый хэндлер в функцию инициализации роутера
-	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg)
+	router := newRouter(log, orderHandler, categoryHandler, healthChecker, cfg.HTTP)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -233,34 +244,24 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, categoryHandler *apphttp.CategoryHandler, adminHandler *apphttp.AdminHandler, checker *health.Checker, cfg *config.Config) http.Handler {
+// Обновленная сигнатура функции newRouter (добавлен categoryHandler)
+func newRouter(log *slog.Logger, orderHandler *apphttp.OrderHandler, categoryHandler *apphttp.CategoryHandler, checker *health.Checker, httpCfg config.HTTPConfig) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
-	r.Use(apphttp.MaxBodyBytes(cfg.HTTP.MaxBodyBytes))
-	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(cfg.HTTP.CORSAllowedOrigins)))
+	r.Use(apphttp.MaxBodyBytes(httpCfg.MaxBodyBytes))
+	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(httpCfg.CORSAllowedOrigins)))
 
 	r.Get("/healthz", checker.Handler)
+	// Prometheus-метрики. Доступны только с loopback/внутренней сети — фильтрацию
+	// по IP следует настраивать на уровне балансировщика или сетевых политик.
+	r.Handle("/metrics", pkgmetrics.Handler())
 
-	// Маршруты заказов
 	r.Mount("/api/v1/orders", orderHandler.Routes())
-
-	// Маршруты для получения категорий, вопросов квиза и генерации промптов
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
-
-	// Admin API: все маршруты защищены Bearer-токеном ADMIN_TOKEN.
-	r.With(apphttp.AdminAuth(cfg.AdminToken)).Mount("/api/v1/admin", adminHandler.Routes())
-
-	// SPA: отдаём index.html для всех маршрутов, которые не совпали с API.
-	// Браузер SPA-роутинг берёт на себя на стороне клиента.
-	spaFS := http.FS(web.FS)
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, web.FS, "index.html")
-	})
-	r.Handle("/static/*", http.StripPrefix("/static", http.FileServer(spaFS)))
 
 	return r
 }

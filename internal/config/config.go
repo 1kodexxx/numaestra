@@ -10,8 +10,13 @@ import (
 
 // Config - главная структура конфигурации, собирающая настройки всех подсистем.
 type Config struct {
-	Env       string // dev | staging | production
-	HTTP      HTTPConfig
+	Env  string // dev | staging | production
+	// Mode управляет тем, какие компоненты запускаются в процессе:
+	//   all    — HTTP-сервер + Asynq-воркер (по умолчанию, обратно совместимо)
+	//   api    — только HTTP-сервер (для горизонтального масштабирования API)
+	//   worker — только Asynq-воркер (для горизонтального масштабирования воркеров)
+	Mode string // all | api | worker
+	HTTP HTTPConfig
 	Postgres  PostgresConfig
 	Redis     RedisConfig
 	Robokassa RobokassaConfig
@@ -94,7 +99,8 @@ type PricingConfig struct {
 // Если обязательные переменные отсутствуют, возвращает ошибку.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Env: getEnv("APP_ENV", "dev"),
+		Env:  getEnv("APP_ENV", "dev"),
+		Mode: getEnv("APP_MODE", "all"),
 		HTTP: HTTPConfig{
 			Port:               getEnv("HTTP_PORT", "8080"),
 			ShutdownTimeout:    getDurationEnv("HTTP_SHUTDOWN_TIMEOUT", 15*time.Second),

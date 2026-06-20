@@ -376,7 +376,7 @@ func (r *hOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bo
 	return true, nil
 }
 
-func (r *hOrderRepo) ListByCustomerEmail(_ context.Context, email string) ([]*domain.Order, error) {
+func (r *hOrderRepo) ListByCustomerEmail(_ context.Context, email string, _, _ int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*domain.Order
@@ -388,7 +388,7 @@ func (r *hOrderRepo) ListByCustomerEmail(_ context.Context, email string) ([]*do
 	return out, nil
 }
 
-func (r *hOrderRepo) ListByCustomerPhone(_ context.Context, phone string) ([]*domain.Order, error) {
+func (r *hOrderRepo) ListByCustomerPhone(_ context.Context, phone string, _, _ int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []*domain.Order

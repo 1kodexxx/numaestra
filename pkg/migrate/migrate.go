@@ -30,17 +30,42 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )`
 
+// migrationsLockID — произвольный стабильный bigint для pg_advisory_lock.
+// Все инстансы приложения используют одно значение, поэтому Postgres
+// выстраивает их в очередь: второй инстанс ждёт, пока первый не завершит
+// все миграции и не освободит блокировку.
+const migrationsLockID = 8723456789012345678
+
 // Run применяет все ещё не применённые SQL-файлы из migrationsFS.
 // migrationsFS — это fs.FS, обычно go:embed директива в вызывающем пакете.
 // Уже применённые версии пропускаются; порядок применения — лексикографический.
+//
+// Для защиты от гонки при одновременном старте нескольких инстансов функция
+// захватывает pg_advisory_lock перед применением миграций и освобождает его
+// по завершении. Блокировка сессионная: она автоматически снимается при закрытии
+// соединения, поэтому утечка невозможна даже при панике.
 func Run(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, log *slog.Logger) error {
+	// Получаем выделенное соединение для сессионного advisory lock.
+	// pool.Acquire возвращает соединение, которое мы явно освободим в defer —
+	// это гарантирует снятие блокировки ровно по завершении Run.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire connection for migration lock: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationsLockID); err != nil {
+		return fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	log.Debug("advisory lock захвачен, применяем миграции")
+
 	// 1. Создаём таблицу версий, если ещё нет.
-	if _, err := pool.Exec(ctx, createMigrationsTable); err != nil {
+	if _, err := conn.Exec(ctx, createMigrationsTable); err != nil {
 		return fmt.Errorf("create schema_migrations table: %w", err)
 	}
 
 	// 2. Читаем уже применённые версии.
-	applied, err := appliedVersions(ctx, pool)
+	applied, err := appliedVersions(ctx, conn)
 	if err != nil {
 		return fmt.Errorf("load applied migrations: %w", err)
 	}
@@ -71,7 +96,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, log *slog.
 			return fmt.Errorf("read migration file %s: %w", name, err)
 		}
 
-		if err := applyMigration(ctx, pool, name, string(sql)); err != nil {
+		if err := applyMigration(ctx, conn, name, string(sql)); err != nil {
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
 
@@ -81,8 +106,8 @@ func Run(ctx context.Context, pool *pgxpool.Pool, migrationsFS fs.FS, log *slog.
 	return nil
 }
 
-func appliedVersions(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, error) {
-	rows, err := pool.Query(ctx, `SELECT version FROM schema_migrations`)
+func appliedVersions(ctx context.Context, conn *pgxpool.Conn) (map[string]bool, error) {
+	rows, err := conn.Query(ctx, `SELECT version FROM schema_migrations`)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +124,8 @@ func appliedVersions(ctx context.Context, pool *pgxpool.Pool) (map[string]bool, 
 	return applied, rows.Err()
 }
 
-func applyMigration(ctx context.Context, pool *pgxpool.Pool, version, sql string) error {
-	tx, err := pool.Begin(ctx)
+func applyMigration(ctx context.Context, conn *pgxpool.Conn, version, sql string) error {
+	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}

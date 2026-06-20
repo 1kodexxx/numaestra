@@ -4,18 +4,24 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/circuitbreaker"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 type ProviderAdapter struct {
-	client suno.APIClient
+	client  suno.APIClient
+	breaker *circuitbreaker.Breaker
 }
 
+// NewProviderAdapter создаёт адаптер с circuit breaker:
+// 5 последовательных ошибок → размыкание на 30 секунд.
 func NewProviderAdapter(client suno.APIClient) *ProviderAdapter {
 	return &ProviderAdapter{
-		client: client,
+		client:  client,
+		breaker: circuitbreaker.New("suno", 5, 30*time.Second),
 	}
 }
 
@@ -28,8 +34,12 @@ func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.Music
 		WaitAudio:        false,
 	}
 
-	clips, err := a.client.Generate(ctx, apiReq)
-	if err != nil {
+	var clips []suno.Clip
+	if err := a.breaker.Do(func() error {
+		var err error
+		clips, err = a.client.Generate(ctx, apiReq)
+		return err
+	}); err != nil {
 		return "", fmt.Errorf("ошибка генерации в Suno: %w", err)
 	}
 
@@ -52,8 +62,12 @@ func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string)
 	}
 
 	ids := strings.Split(providerJobID, ",")
-	clips, err := a.client.GetFeed(ctx, ids)
-	if err != nil {
+	var clips []suno.Clip
+	if err := a.breaker.Do(func() error {
+		var err error
+		clips, err = a.client.GetFeed(ctx, ids)
+		return err
+	}); err != nil {
 		return domain.MusicGenerationResult{}, fmt.Errorf("ошибка опроса статуса Suno: %w", err)
 	}
 

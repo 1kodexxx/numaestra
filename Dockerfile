@@ -1,6 +1,6 @@
 # Этап 1: сборка бинарника в полноценном Go-окружении.
 # Версия согласована с go.mod (go 1.24).
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -16,9 +16,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /numaestra ./cmd/server
 FROM alpine:3.19
 
 # ca-certificates нужны для TLS-запросов (например, к реселлеру Suno по HTTPS)
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /numaestra /numaestra
+
+USER app
 
 EXPOSE 8080
 

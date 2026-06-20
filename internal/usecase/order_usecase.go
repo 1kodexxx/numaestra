@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/metrics"
 	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/openai"
 )
@@ -37,7 +38,7 @@ type OrderUseCase struct {
 	storage   domain.TrackStorage
 	notifier  notify.Notifier
 	llmClient openai.APIClient
-	promptUC  *PromptUseCase
+	promptUC  PromptBuilder
 	pricing   Pricing
 	tx        TransactionManager
 	log       *slog.Logger
@@ -57,7 +58,7 @@ func NewOrderUseCase(
 	storage domain.TrackStorage,
 	notifier notify.Notifier,
 	llmClient openai.APIClient,
-	promptUC *PromptUseCase,
+	promptUC PromptBuilder,
 	pricing Pricing,
 	tx TransactionManager,
 	log *slog.Logger,
@@ -146,6 +147,7 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		return nil, fmt.Errorf("ошибка сохранения заказа: %w", err)
 	}
 
+	metrics.OrdersCreated.Inc()
 	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID, "category_id", categoryID)
 	return order, nil
 }
@@ -201,6 +203,7 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 		return err
 	}
 
+	metrics.PaymentsReceived.Inc()
 	uc.log.Info("заказ успешно оплачен и поставлен в очередь", "order_id", order.ID())
 	return nil
 }
@@ -253,6 +256,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		var err error
 		lyrics, err = uc.llmClient.GenerateLyrics(ctx, order.Brief())
 		if err != nil {
+			metrics.LLMErrors.Inc()
 			uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
 				"order_id", order.ID(), "err", err)
 			// LLM-сбой не вина аккаунта: НЕ инкрементируем failureCount, только
@@ -276,6 +280,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 
 	if err != nil {
+		metrics.SunoAPIErrors.Inc()
 		uc.log.Error("ошибка API Suno", "account", account.Email(), "err", err)
 		// Порядок важен: сначала регистрируем ошибку (она может перевести аккаунт в Banned),
 		// только потом Release — иначе Release выставит Active, а RegisterFailure затрёт его Banned.
@@ -366,6 +371,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 			return fmt.Errorf("завершение заказа в домене: %w", err)
 		}
 
+		metrics.OrdersCompleted.Inc()
 		_ = account.ConsumeTokens(1)
 		account.ResetFailures()
 		account.ReleaseSlot()
@@ -419,6 +425,7 @@ func (uc *OrderUseCase) FailGeneration(ctx context.Context, orderID uuid.UUID, r
 	if err := order.Fail(reason); err != nil {
 		return fmt.Errorf("перевод заказа в failed: %w", err)
 	}
+	metrics.OrdersFailed.Inc()
 
 	// Если аккаунт был захвачен — освобождаем его атомарно вместе с заказом,
 	// чтобы он не остался Busy навсегда.
@@ -457,22 +464,22 @@ func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Ord
 	return order, nil
 }
 
-func (uc *OrderUseCase) ListOrdersByEmail(ctx context.Context, email string) ([]*domain.Order, error) {
+func (uc *OrderUseCase) ListOrdersByEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, error) {
 	if email == "" {
 		return nil, fmt.Errorf("email не может быть пустым")
 	}
-	orders, err := uc.orderRepo.ListByCustomerEmail(ctx, email)
+	orders, err := uc.orderRepo.ListByCustomerEmail(ctx, email, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения заказов: %w", err)
 	}
 	return orders, nil
 }
 
-func (uc *OrderUseCase) ListOrdersByPhone(ctx context.Context, phone string) ([]*domain.Order, error) {
+func (uc *OrderUseCase) ListOrdersByPhone(ctx context.Context, phone string, limit, offset int) ([]*domain.Order, error) {
 	if phone == "" {
 		return nil, fmt.Errorf("phone не может быть пустым")
 	}
-	orders, err := uc.orderRepo.ListByCustomerPhone(ctx, phone)
+	orders, err := uc.orderRepo.ListByCustomerPhone(ctx, phone, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения заказов по телефону: %w", err)
 	}

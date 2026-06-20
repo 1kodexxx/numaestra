@@ -1,7 +1,6 @@
 package apphttp
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -10,12 +9,11 @@ import (
 )
 
 type CategoryHandler struct {
-	promptUC *usecase.PromptUseCase
+	promptUC usecase.PromptBuilder
 	log      *slog.Logger
 }
 
-// Теперь принимает UseCase и Logger, как и ожидает main.go
-func NewCategoryHandler(promptUC *usecase.PromptUseCase, log *slog.Logger) *CategoryHandler {
+func NewCategoryHandler(promptUC usecase.PromptBuilder, log *slog.Logger) *CategoryHandler {
 	return &CategoryHandler{
 		promptUC: promptUC,
 		log:      log,
@@ -39,16 +37,13 @@ func (h *CategoryHandler) HandleGetAll(w http.ResponseWriter, r *http.Request) {
 	categories, err := h.promptUC.GetAllCategories(r.Context())
 	if err != nil {
 		h.log.Error("ошибка при получении категорий", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	// Категории меняются редко — разрешаем браузерам и CDN кешировать на 1 час.
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	if err := json.NewEncoder(w).Encode(categories); err != nil {
-		h.log.Error("ошибка сериализации категорий", "error", err)
-	}
+	respondJSON(w, http.StatusOK, categories)
 }
 
 func (h *CategoryHandler) HandleGetWizard(w http.ResponseWriter, r *http.Request) {
@@ -56,12 +51,9 @@ func (h *CategoryHandler) HandleGetWizard(w http.ResponseWriter, r *http.Request
 	category, err := h.promptUC.GetCategoryWizard(r.Context(), id)
 	if err != nil {
 		h.log.Error("ошибка при получении визарда категории", "category_id", id, "error", err)
-		http.Error(w, "Not found", http.StatusNotFound)
+		respondError(w, r, http.StatusNotFound, "категория не найдена")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(category); err != nil {
-		h.log.Error("ошибка сериализации визарда", "category_id", id, "error", err)
-	}
+	respondJSON(w, http.StatusOK, category)
 }
