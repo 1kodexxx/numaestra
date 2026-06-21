@@ -170,8 +170,19 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("POSTGRES_DSN является обязательным параметром")
 	}
 
-	if cfg.Env != "dev" && cfg.AdminToken == "" {
-		return nil, fmt.Errorf("ADMIN_TOKEN обязателен в окружении %q (сгенерировать: openssl rand -hex 32)", cfg.Env)
+	if cfg.Env != "dev" {
+		if cfg.AdminToken == "" {
+			return nil, fmt.Errorf("ADMIN_TOKEN обязателен в окружении %q (сгенерировать: openssl rand -hex 32)", cfg.Env)
+		}
+		if cfg.Suno.APIKey == "" {
+			return nil, fmt.Errorf("SUNO_API_KEY обязателен в окружении %q", cfg.Env)
+		}
+		if cfg.OpenAI.APIKey == "" {
+			return nil, fmt.Errorf("OPENAI_API_KEY обязателен в окружении %q", cfg.Env)
+		}
+		if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" {
+			return nil, fmt.Errorf("S3_ACCESS_KEY и S3_SECRET_KEY обязательны в окружении %q", cfg.Env)
+		}
 	}
 
 	return cfg, nil

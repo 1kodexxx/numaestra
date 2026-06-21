@@ -54,7 +54,10 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	t.Setenv("HTTP_PORT", "9090")
 	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "30s")
 	t.Setenv("ROBOKASSA_IS_TEST", "false")
-	t.Setenv("SUNO_API_KEY", "secret-key")
+	t.Setenv("SUNO_API_KEY", "secret-suno-key")
+	t.Setenv("OPENAI_API_KEY", "secret-openai-key")
+	t.Setenv("S3_ACCESS_KEY", "s3-access")
+	t.Setenv("S3_SECRET_KEY", "s3-secret")
 	t.Setenv("ADMIN_TOKEN", "test-admin-token")
 
 	cfg, err := Load()
@@ -73,7 +76,7 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	if cfg.Robokassa.IsTest {
 		t.Error("ROBOKASSA_IS_TEST=false должен дать false")
 	}
-	if cfg.Suno.APIKey != "secret-key" {
+	if cfg.Suno.APIKey != "secret-suno-key" {
 		t.Errorf("ожидали suno key, получили %q", cfg.Suno.APIKey)
 	}
 }
@@ -107,6 +110,45 @@ func TestLoad_AdminTokenRequired_NonDev(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("ожидали ошибку: ADMIN_TOKEN обязателен в staging")
+	}
+}
+
+func TestLoad_SunoKeyRequired_NonDev(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("SUNO_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "openai-key")
+	t.Setenv("S3_ACCESS_KEY", "s3-access")
+	t.Setenv("S3_SECRET_KEY", "s3-secret")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку: SUNO_API_KEY обязателен в staging")
+	}
+}
+
+func TestLoad_OpenAIKeyRequired_NonDev(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("SUNO_API_KEY", "suno-key")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("S3_ACCESS_KEY", "s3-access")
+	t.Setenv("S3_SECRET_KEY", "s3-secret")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку: OPENAI_API_KEY обязателен в staging")
+	}
+}
+
+func TestLoad_S3KeysRequired_NonDev(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("SUNO_API_KEY", "suno-key")
+	t.Setenv("OPENAI_API_KEY", "openai-key")
+	t.Setenv("S3_ACCESS_KEY", "")
+	t.Setenv("S3_SECRET_KEY", "")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку: S3-ключи обязательны в staging")
 	}
 }
 

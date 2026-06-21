@@ -1,4 +1,4 @@
-.PHONY: help build run test test-race cover vet lint tidy fmt docker-up docker-down clean \
+.PHONY: help build run test test-integration test-race cover vet lint tidy fmt docker-up docker-down clean \
         frontend-install frontend-dev frontend-build frontend-typecheck dev
 
 APP_NAME := numaestra
@@ -15,6 +15,9 @@ run: ## Запустить сервис локально
 
 test: ## Прогнать все тесты
 	go test ./...
+
+test-integration: ## Интеграционные тесты Postgres (требует Docker)
+	go test -tags=integration -timeout 120s -v ./internal/repository/postgres/...
 
 test-race: ## Прогнать тесты с детектором гонок
 	go test -race ./...
