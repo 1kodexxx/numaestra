@@ -1,0 +1,71 @@
+.container { max-width: 680px; margin: 0 auto; padding: 40px 24px 80px; }
+.center { text-align: center; padding: 40px 0; }
+
+.header { margin-bottom: 32px; }
+.back { color: var(--muted); background: none; border: none; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; }
+.back:hover { color: var(--text); }
+.title { font-size: 28px; font-weight: 800; }
+.subtitle { color: var(--muted); margin-top: 6px; }
+
+.stepIndicator { display: flex; align-items: center; gap: 4px; margin-bottom: 32px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background var(--trans); }
+.done { background: var(--accent2); }
+.active { background: var(--accent); }
+.stepCount { font-size: 13px; color: var(--muted); margin-left: 10px; }
+
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; }
+
+.label { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
+.req { color: var(--error); margin-left: 4px; }
+
+.options { display: flex; flex-direction: column; gap: 10px; }
+.optionBtn {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; text-align: left; color: var(--text); cursor: pointer; font-size: 15px;
+  transition: all var(--trans);
+}
+.optionBtn:hover { border-color: var(--accent2); background: rgba(124,58,237,.1); }
+.selected { border-color: var(--accent); background: rgba(168,85,247,.15); color: var(--accent); }
+
+.input {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; color: var(--text); font-size: 15px; outline: none;
+  transition: border-color var(--trans); resize: vertical; font-family: inherit;
+}
+.input:focus { border-color: var(--accent2); }
+.input::placeholder { color: var(--muted); }
+
+.error {
+  background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); border-radius: 8px;
+  padding: 12px 16px; color: var(--error); font-size: 14px; margin: 12px 0;
+}
+
+.nav { display: flex; justify-content: space-between; margin-top: 28px; gap: 12px; }
+.btnPrimary {
+  padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: none;
+  background: linear-gradient(135deg, var(--accent2), var(--accent)); color: #fff;
+  transition: filter var(--trans);
+}
+.btnPrimary:hover:not(:disabled) { filter: brightness(1.15); }
+.btnPrimary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btnOutline {
+  padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  cursor: pointer; background: transparent; border: 1px solid var(--accent2); color: var(--accent);
+  transition: all var(--trans);
+}
+.btnOutline:hover:not(:disabled) { background: rgba(168,85,247,.1); }
+.btnOutline:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.contactForm { display: flex; flex-direction: column; gap: 16px; }
+.formGroup { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+.plansGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.planCard {
+  background: var(--bg3); border: 2px solid var(--border); border-radius: 10px;
+  padding: 16px; cursor: pointer; transition: all var(--trans); text-align: center;
+}
+.planCard:hover { border-color: var(--accent2); }
+.planSelected { border-color: var(--accent); background: rgba(168,85,247,.12); }
+.planName { font-weight: 700; font-size: 16px; }
+.planPrice { color: var(--gold); font-size: 22px; font-weight: 800; margin: 6px 0; }
+.planDesc { font-size: 12px; color: var(--muted); }

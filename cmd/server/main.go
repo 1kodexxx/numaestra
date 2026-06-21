@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -42,6 +43,7 @@ import (
 	"github.com/numaestra/numaestra/pkg/robokassa"
 	"github.com/numaestra/numaestra/pkg/s3"
 	"github.com/numaestra/numaestra/pkg/suno"
+	"github.com/numaestra/numaestra/web"
 )
 
 // runMode перечисляет допустимые значения APP_MODE.
@@ -256,8 +258,13 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("разбор METRICS_ALLOWED_IPS: %w", err)
 	}
 
+	spaFS, err := fs.Sub(web.FS, "out")
+	if err != nil {
+		return fmt.Errorf("SPA filesystem: %w", err)
+	}
+
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg, metricsNets)
+	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg, metricsNets, spaFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -306,6 +313,7 @@ func newRouter(
 	checker *health.Checker,
 	cfg *config.Config,
 	metricsNets []*net.IPNet,
+	spaFS fs.FS,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -330,6 +338,10 @@ func newRouter(
 		r.Use(apphttp.AdminAuth(cfg.AdminToken))
 		r.Mount("/api/v1/admin", adminHandler.Routes())
 	})
+
+	// React SPA — catch-all, должен быть последним.
+	// API-маршруты выше имеют приоритет по специфичности.
+	r.Mount("/", apphttp.NewSPAHandler(spaFS))
 
 	return r
 }

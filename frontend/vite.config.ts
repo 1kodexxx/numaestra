@@ -1,0 +1,42 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { fileURLToPath, URL } from 'node:url'
+
+const src = (dir: string) => fileURLToPath(new URL(`./src/${dir}`, import.meta.url))
+
+export default defineConfig({
+  plugins: [react()],
+
+  build: {
+    // Собираем прямо в web/out/ — оттуда Go подхватывает через //go:embed
+    outDir: '../web/out',
+    emptyOutDir: true,
+  },
+
+  resolve: {
+    alias: {
+      // FSD-слои доступны без относительных путей
+      '@app':      src('app'),
+      '@pages':    src('pages'),
+      '@widgets':  src('widgets'),
+      '@features': src('features'),
+      '@entities': src('entities'),
+      '@shared':   src('shared'),
+    },
+  },
+
+  server: {
+    port: 3000,
+    proxy: {
+      // Все /api/* и /webhook/* проксируются на Go-сервер во время разработки
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/webhook': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
+  },
+})

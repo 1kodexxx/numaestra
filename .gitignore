@@ -3,3 +3,12 @@
 /numaestra.exe
 .env
 *.log
+
+# Frontend dependencies
+frontend/node_modules/
+
+# Vite build output — генерируется через `make frontend-build`
+# Коммитим только placeholder web/out/index.html
+web/out/assets/
+web/out/*.js
+web/out/*.css

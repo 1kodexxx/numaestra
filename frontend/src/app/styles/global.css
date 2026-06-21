@@ -1,0 +1,32 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0d0d1a;
+  --bg2:     #14142a;
+  --bg3:     #1e1e3f;
+  --accent:  #a855f7;
+  --accent2: #7c3aed;
+  --gold:    #f59e0b;
+  --text:    #e2e8f0;
+  --muted:   #94a3b8;
+  --border:  #2d2d5e;
+  --success: #22c55e;
+  --error:   #ef4444;
+  --radius:  12px;
+  --trans:   0.3s ease;
+}
+
+html, body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+footer {
+  text-align: center;
+  padding: 24px;
+  color: var(--muted);
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+}

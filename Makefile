@@ -1,4 +1,5 @@
-.PHONY: help build run test test-race cover vet lint tidy fmt docker-up docker-down clean
+.PHONY: help build run test test-race cover vet lint tidy fmt docker-up docker-down clean \
+        frontend-install frontend-dev frontend-build frontend-typecheck dev
 
 APP_NAME := numaestra
 CMD_PATH := ./cmd/server
@@ -41,4 +42,21 @@ docker-down: ## Остановить инфраструктуру
 	docker compose down
 
 clean: ## Удалить артефакты сборки
-	rm -rf bin coverage.out
+	rm -rf bin coverage.out web/out
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+
+frontend-install: ## Установить npm-зависимости фронтенда
+	cd frontend && npm install
+
+frontend-dev: ## Запустить Vite dev-сервер (порт 3000, проксирует /api → :8080)
+	cd frontend && npm run dev
+
+frontend-build: ## Собрать React SPA в web/out/ (встраивается в Go-бинарник)
+	cd frontend && npm run build
+
+frontend-typecheck: ## Проверить типы TypeScript без сборки
+	cd frontend && npm run typecheck
+
+dev: ## Запустить бэкенд и фронтенд одновременно (требует GNU make + bash)
+	$(MAKE) -j2 run frontend-dev
