@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { Navbar } from './Navbar'
 
 describe('Navbar', () => {
-  it('рендерит ссылки на каталог и статус заказа', () => {
+  it('рендерит логотип и ссылку на статус заказа', () => {
     render(
       <MemoryRouter>
         <Navbar />
@@ -12,7 +12,7 @@ describe('Navbar', () => {
     )
 
     expect(screen.getByText(/Numaestra/)).toBeInTheDocument()
-    expect(screen.getByText('Каталог')).toBeInTheDocument()
     expect(screen.getByText('Мой заказ')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Мой заказ' })).toHaveAttribute('href', '/status')
   })
 })

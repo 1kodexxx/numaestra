@@ -1,8 +1,18 @@
-export function Spinner() {
+export function Spinner({ size = 36 }: { size?: number }) {
   return (
     <div
-      className="inline-block w-9 h-9 rounded-full border-[3px] border-border border-t-accent animate-[spin_0.8s_linear_infinite] mx-auto my-8"
-      aria-label="Загрузка..."
+      className="spin-anim"
+      role="status"
+      aria-label="Загрузка"
+      style={{
+        display: 'inline-block',
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        border: `${Math.max(2, Math.round(size / 12))}px solid rgba(255,255,255,0.1)`,
+        borderTopColor: '#00e5c0',
+        margin: '0 auto',
+      }}
     />
   )
 }

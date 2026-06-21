@@ -1,18 +1,45 @@
 @import "tailwindcss";
 
 @theme {
+  /* Surfaces (Material elevation tones on dark) */
   --color-bg:       #080808;
-  --color-surface:  #111111;
-  --color-surface2: #1a1a1a;
-  --color-border:   rgba(255, 255, 255, 0.07);
+  --color-bg2:      #121212;
+  --color-bg3:      #1c1c1c;
+  --color-surface:  #121212;
+  --color-surface2: #1c1c1c;
+  --color-border:   rgba(255, 255, 255, 0.08);
+
+  /* Brand */
   --color-accent:   #00e5c0;
   --color-accent2:  #00bfa5;
   --color-gold:     #f59e0b;
+
+  /* Text roles */
   --color-txt:      #ffffff;
-  --color-txt2:     rgba(255, 255, 255, 0.5);
-  --color-txt3:     rgba(255, 255, 255, 0.25);
+  --color-txt2:     rgba(255, 255, 255, 0.6);
+  --color-txt3:     rgba(255, 255, 255, 0.38);
+  --color-muted:    rgba(255, 255, 255, 0.6);
+
+  /* Semantic */
   --color-success:  #22c55e;
   --color-error:    #ef4444;
+
+  /* ── Material motion (standard easing set) ── */
+  --ease-standard:    cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate:  cubic-bezier(0, 0, 0, 1);
+  --ease-accelerate:  cubic-bezier(0.3, 0, 1, 1);
+  --ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-short:  150ms;
+  --dur-medium: 250ms;
+  --dur-long:   400ms;
+
+  /* ── Material elevation (dark theme: shadow + subtle ambient) ── */
+  --elevation-1: 0 1px 2px rgba(0,0,0,0.5), 0 1px 3px 1px rgba(0,0,0,0.3);
+  --elevation-2: 0 1px 2px rgba(0,0,0,0.5), 0 2px 6px 2px rgba(0,0,0,0.3);
+  --elevation-3: 0 4px 8px 3px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.5);
+  --elevation-4: 0 6px 10px 4px rgba(0,0,0,0.3), 0 2px 3px rgba(0,0,0,0.5);
+  --elevation-5: 0 8px 12px 6px rgba(0,0,0,0.3), 0 4px 4px rgba(0,0,0,0.5);
 }
 
 *, *::before, *::after {
@@ -28,13 +55,72 @@ html, body, #root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button { font-family: inherit; }
+
+::selection {
+  background: rgba(0, 229, 192, 0.3);
+  color: #fff;
+}
+
+/* Keyboard focus ring — only for keyboard users, not mouse clicks */
+:focus-visible {
+  outline: 2px solid #00e5c0;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Material ripple ── */
+@keyframes md-ripple {
+  from { transform: scale(0); opacity: 0.45; }
+  to   { transform: scale(1); opacity: 0; }
+}
+.md-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: currentColor;
+  animation: md-ripple 0.55s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* ── State layer (Material hover/focus overlay) ── */
+.state-layer { position: relative; overflow: hidden; }
+.state-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity var(--dur-short) var(--ease-standard);
+  pointer-events: none;
+  border-radius: inherit;
+}
+.state-layer:hover::after { opacity: 0.08; }
+
+/* ── Elevation utilities ── */
+@utility elevation-1 { box-shadow: var(--elevation-1); }
+@utility elevation-2 { box-shadow: var(--elevation-2); }
+@utility elevation-3 { box-shadow: var(--elevation-3); }
+@utility elevation-4 { box-shadow: var(--elevation-4); }
+@utility elevation-5 { box-shadow: var(--elevation-5); }
 
 /* Animations */
 @keyframes pulse-ring {
@@ -52,22 +138,37 @@ html, body, #root {
 @keyframes spin { to { transform: rotate(360deg); } }
 @utility spin-anim { animation: spin 0.75s linear infinite; }
 
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@utility skeleton {
+  background: linear-gradient(
+    100deg,
+    rgba(255,255,255,0.04) 30%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 70%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-@utility fade-in { animation: fade-in 0.25s ease forwards; }
+@utility fade-in { animation: fade-in var(--dur-medium) var(--ease-decelerate) forwards; }
 
 @keyframes scale-in {
-  from { opacity: 0; transform: scale(0.96); }
+  from { opacity: 0; transform: scale(0.94); }
   to   { opacity: 1; transform: scale(1); }
 }
-@utility scale-in { animation: scale-in 0.2s ease forwards; }
+@utility scale-in { animation: scale-in 0.22s var(--ease-emphasized) forwards; }
 
 /* Range input */
 input[type="range"] {
   -webkit-appearance: none;
-  height: 3px;
+  height: 4px;
   border-radius: 2px;
   outline: none;
   cursor: pointer;
@@ -79,6 +180,9 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   background: #00e5c0;
   cursor: pointer;
-  transition: transform 0.15s;
+  transition: transform var(--dur-short) var(--ease-standard), box-shadow var(--dur-short);
 }
-input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 6px rgba(0,229,192,0.16);
+}

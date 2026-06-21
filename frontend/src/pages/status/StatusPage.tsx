@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
+import { Button, TextField } from '@shared/ui'
 import type { OrderDetail } from '@entities/order'
 
 const ACCENT = '#00e5c0'
@@ -50,34 +51,17 @@ export function StatusPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && setActive(input.trim())}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              style={{
-                flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '12px', padding: '13px 16px',
-                color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
-                transition: 'border-color 0.15s',
-              }}
-              onFocus={(e) => { e.target.style.borderColor = 'rgba(0,229,192,0.4)' }}
-              onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
-            />
-            <button
-              onClick={() => setActive(input.trim())}
-              style={{
-                padding: '13px 20px', borderRadius: '12px',
-                background: ACCENT, border: 'none', color: DARK,
-                fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
-                cursor: 'pointer', whiteSpace: 'nowrap', transition: 'opacity 0.15s',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88' }}
-              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-            >
-              Найти
-            </button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', textAlign: 'left' }}>
+            <div style={{ flex: 1 }} onKeyDown={(e) => e.key === 'Enter' && setActive(input.trim())}>
+              <TextField
+                label="ID заказа"
+                value={input}
+                onChange={setInput}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                surfaceColor="#0f0f0f"
+              />
+            </div>
+            <Button size="lg" onClick={() => setActive(input.trim())}>Найти</Button>
           </div>
         </div>
       </div>
@@ -190,35 +174,8 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
       {/* Actions */}
       {isTerminal && (
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={onClear}
-            style={{
-              flex: 1, padding: '14px',
-              background: 'transparent',
-              border: `1px solid rgba(0,229,192,0.3)`,
-              borderRadius: '14px', color: ACCENT,
-              fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
-              cursor: 'pointer', transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,229,192,0.06)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-          >
-            Новый заказ
-          </button>
-          <button
-            onClick={onBack}
-            style={{
-              flex: 1, padding: '14px',
-              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
-              border: 'none', borderRadius: '14px', color: DARK,
-              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
-              cursor: 'pointer', transition: 'opacity 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88' }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-          >
-            На главную
-          </button>
+          <Button variant="outlined" size="lg" fullWidth onClick={onClear}>Новый заказ</Button>
+          <Button size="lg" fullWidth onClick={onBack}>На главную</Button>
         </div>
       )}
     </div>

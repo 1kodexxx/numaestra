@@ -4,14 +4,25 @@ import { categoryApi } from '@entities/category'
 import { useCatalog } from '@features/load-catalog'
 import { useCreateOrder } from '@features/create-order'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
+import { Button, TextField } from '@shared/ui'
 import type { Category, Question, WizardData } from '@entities/category'
 
 const ACCENT = '#00e5c0'
-const SURFACE = '#111111'
 const BORDER = 'rgba(255,255,255,0.07)'
 const TEXT2 = 'rgba(255,255,255,0.48)'
 const TEXT3 = 'rgba(255,255,255,0.22)'
 const PANEL_W = 210
+
+/* ─── breakpoint hook ─── */
+function useBreakpoint() {
+  const [w, setW] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200)
+  useEffect(() => {
+    const fn = () => setW(window.innerWidth)
+    window.addEventListener('resize', fn)
+    return () => { window.removeEventListener('resize', fn) }
+  }, [])
+  return { isMobile: w < 640, isTablet: w >= 640 && w < 1200, isDesktop: w >= 1200 }
+}
 
 /* ── side list item ── */
 function SideItem({ title, sub, onClick }: { title: string; sub?: string; onClick: () => void }) {
@@ -109,33 +120,22 @@ function ContactModal({
     onSubmit(email, phone)
   }
 
-  const inputStyle = (focused: boolean): React.CSSProperties => ({
-    width: '100%', background: 'rgba(255,255,255,0.04)',
-    border: `1px solid ${focused ? 'rgba(0,229,192,0.45)' : 'rgba(255,255,255,0.1)'}`,
-    borderRadius: '12px', padding: '13px 16px',
-    color: '#fff', fontSize: '14px', fontFamily: 'inherit', outline: 'none',
-    transition: 'border-color 0.15s',
-  })
-
-  const [em1, setEm1] = useState(false)
-  const [em2, setEm2] = useState(false)
-
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div
-        className="scale-in"
-        style={{
-          background: '#0f0f0f',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '24px', padding: '36px 32px',
-          width: '100%', maxWidth: '420px',
-          boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
-        }}
-      >
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '16px',
+      }}
+    >
+      <div className="scale-in" onClick={(e) => e.stopPropagation()} style={{
+        background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '28px', padding: '36px 32px',
+        width: '100%', maxWidth: '420px',
+        boxShadow: 'var(--elevation-5)',
+      }}>
         <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '6px' }}>
           Оформление заказа
         </div>
@@ -143,33 +143,14 @@ function ContactModal({
           Отправим готовые треки на вашу почту
         </div>
 
-        <div style={{ marginBottom: '14px' }}>
-          <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>
-            Email
-          </label>
-          <input
-            type="email" placeholder="your@email.com"
-            value={email} onChange={(e) => setEmail(e.target.value)}
-            style={inputStyle(em1)}
-            onFocus={() => setEm1(true)} onBlur={() => setEm1(false)}
-          />
-        </div>
-
-        <div style={{ marginBottom: '24px' }}>
-          <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>
-            Телефон <span style={{ color: TEXT3 }}>(необязательно)</span>
-          </label>
-          <input
-            type="tel" placeholder="+7 999 000 00 00"
-            value={phone} onChange={(e) => setPhone(e.target.value)}
-            style={inputStyle(em2)}
-            onFocus={() => setEm2(true)} onBlur={() => setEm2(false)}
-          />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
+          <TextField label="Email" type="email" value={email} onChange={setEmail} placeholder="your@email.com" surfaceColor="#0f0f0f" />
+          <TextField label="Телефон (необязательно)" type="tel" value={phone} onChange={setPhone} placeholder="+7 999 000 00 00" surfaceColor="#0f0f0f" />
         </div>
 
         <div style={{
           background: 'rgba(0,229,192,0.07)', border: '1px solid rgba(0,229,192,0.18)',
-          borderRadius: '14px', padding: '16px 20px',
+          borderRadius: '16px', padding: '16px 20px',
           textAlign: 'center', marginBottom: '20px',
         }}>
           <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>4 уникальных версии</div>
@@ -180,7 +161,7 @@ function ContactModal({
         {(err || error) && (
           <div style={{
             background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
-            borderRadius: '10px', padding: '10px 14px',
+            borderRadius: '12px', padding: '10px 14px',
             fontSize: '13px', color: '#ef4444', marginBottom: '14px',
           }}>
             {err || error}
@@ -188,33 +169,8 @@ function ContactModal({
         )}
 
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={onClose}
-            style={{
-              flex: 1, padding: '14px', borderRadius: '14px',
-              background: 'transparent', border: '1px solid rgba(255,255,255,0.1)',
-              color: TEXT2, fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
-              cursor: 'pointer', transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff' }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = TEXT2 }}
-          >
-            Отмена
-          </button>
-          <button
-            onClick={go}
-            disabled={loading}
-            style={{
-              flex: 2, padding: '14px', borderRadius: '14px',
-              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
-              border: 'none', color: '#080808',
-              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
-              cursor: loading ? 'wait' : 'pointer',
-              opacity: loading ? 0.7 : 1, transition: 'opacity 0.15s',
-            }}
-          >
-            {loading ? 'Создаём заказ...' : 'К оплате →'}
-          </button>
+          <Button variant="text" size="lg" onClick={onClose} style={{ flex: 1 }}>Отмена</Button>
+          <Button size="lg" onClick={go} loading={loading} style={{ flex: 2 }}>К оплате →</Button>
         </div>
       </div>
     </div>
@@ -230,12 +186,14 @@ function buildBrief(questions: Question[], answers: Record<string, string>, cat:
 export function CategoryPage() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { isMobile, isTablet, isDesktop } = useBreakpoint()
   const { categories } = useCatalog()
   const [wizard, setWizard] = useState<WizardData | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [brief, setBrief] = useState('')
   const [briefTouched, setBriefTouched] = useState(false)
   const [showContact, setShowContact] = useState(false)
+  const [questionsOpen, setQuestionsOpen] = useState(false)
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
 
   const category = categories.find(c => c.id === id)
@@ -257,7 +215,111 @@ export function CategoryPage() {
   }
 
   const topCats = categories.slice(0, 8)
+  const pad = isMobile ? '16px' : isTablet ? '24px' : '28px'
 
+  /* ── mobile / tablet layout ── */
+  if (!isDesktop) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
+        {showContact && (
+          <ContactModal loading={submitting} error={submitError} onClose={() => setShowContact(false)} onSubmit={handleOrder} />
+        )}
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: `20px ${pad} 0` }}>
+          <button
+            onClick={() => navigate('/')}
+            style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: 0, marginBottom: '16px', transition: 'color 0.15s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
+          >
+            ← Назад
+          </button>
+
+          {category && (
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.2)', borderRadius: '20px', padding: '4px 12px 4px 8px', marginBottom: '10px' }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: ACCENT }} />
+                <span style={{ fontSize: '12px', fontWeight: 600, color: ACCENT }}>{category.title}</span>
+              </div>
+              <div style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.2 }}>
+                Расскажите о вашей песне
+              </div>
+            </div>
+          )}
+
+          <textarea
+            placeholder="Опишите, какую песню хотите получить..."
+            value={brief}
+            onChange={(e) => { setBrief(e.target.value); setBriefTouched(true) }}
+            rows={6}
+            style={{
+              width: '100%',
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.09)',
+              borderRadius: '16px', padding: '18px 20px',
+              color: '#fff', fontSize: '15px', lineHeight: 1.7,
+              fontFamily: 'inherit', resize: 'none', outline: 'none',
+              transition: 'border-color 0.2s, box-shadow 0.2s',
+              marginBottom: '12px',
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = 'rgba(0,229,192,0.35)'
+              e.target.style.boxShadow = '0 0 0 4px rgba(0,229,192,0.06)'
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = 'rgba(255,255,255,0.09)'
+              e.target.style.boxShadow = 'none'
+            }}
+          />
+
+          {/* Collapsible questions */}
+          {wizard && wizard.questions.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <button
+                onClick={() => setQuestionsOpen(o => !o)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
+                  borderRadius: questionsOpen ? '14px 14px 0 0' : '14px',
+                  padding: '13px 16px', cursor: 'pointer', transition: 'all 0.15s',
+                }}
+              >
+                <span style={{ fontSize: '13px', fontWeight: 600, color: TEXT2 }}>
+                  Помощник — заполните вопросы
+                </span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT2} strokeWidth="2.5" strokeLinecap="round"
+                  style={{ transform: questionsOpen ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                  <path d="m6 9 6 6 6-6"/>
+                </svg>
+              </button>
+              {questionsOpen && (
+                <div className="fade-in" style={{
+                  background: 'rgba(255,255,255,0.02)', border: `1px solid ${BORDER}`,
+                  borderTop: 'none', borderRadius: '0 0 14px 14px', padding: '16px',
+                }}>
+                  {wizard.questions.map(q => (
+                    <QuestionWidget
+                      key={q.id} q={q}
+                      value={answers[q.mapping_key] ?? ''}
+                      onChange={v => setAnswers(prev => ({ ...prev, [q.mapping_key]: v }))}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: `12px ${pad} 20px`, borderTop: `1px solid ${BORDER}` }}>
+          <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
+            Заказать песню — 2 000 ₽ →
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  /* ── desktop layout: 4 panels ── */
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
       {showContact && (
@@ -322,53 +384,26 @@ export function CategoryPage() {
           }}
         />
 
-        <button
-          onClick={() => setShowContact(true)}
-          style={{
-            marginTop: '14px', padding: '16px 24px',
-            background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
-            border: 'none', borderRadius: '14px',
-            color: '#080808', fontSize: '15px', fontWeight: 700,
-            fontFamily: 'inherit', cursor: 'pointer',
-            transition: 'all 0.2s cubic-bezier(0.34,1.56,0.64,1)',
-            boxShadow: '0 4px 20px rgba(0,229,192,0.2)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-1px)'
-            e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,229,192,0.3)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)'
-            e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,229,192,0.2)'
-          }}
-        >
-          Заказать песню — 2 000 ₽ →
-        </button>
+        <div style={{ marginTop: '14px' }}>
+          <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
+            Заказать песню — 2 000 ₽ →
+          </Button>
+        </div>
       </main>
 
       {/* Questions panel */}
       <aside style={{ width: 270, borderLeft: `1px solid ${BORDER}`, borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 16px 0', borderBottom: `1px solid ${BORDER}`, paddingBottom: '14px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: TEXT3, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Помощник
-          </div>
+        <div style={{ padding: '20px 16px 14px', borderBottom: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: TEXT3, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Помощник</div>
           <div style={{ fontSize: '12px', color: TEXT2, marginTop: '4px' }}>Ответы формируют промпт</div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
           {wizard ? wizard.questions.map(q => (
-            <QuestionWidget
-              key={q.id}
-              q={q}
-              value={answers[q.mapping_key] ?? ''}
-              onChange={v => setAnswers(prev => ({ ...prev, [q.mapping_key]: v }))}
-            />
+            <QuestionWidget key={q.id} q={q} value={answers[q.mapping_key] ?? ''}
+              onChange={v => setAnswers(prev => ({ ...prev, [q.mapping_key]: v }))} />
           )) : (
             Array.from({ length: 7 }, (_, i) => (
-              <div key={i} style={{
-                height: '44px', borderRadius: '10px',
-                background: 'rgba(255,255,255,0.04)', marginBottom: '12px',
-                opacity: 1 - i * 0.1,
-              }} />
+              <div key={i} style={{ height: '44px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', marginBottom: '12px', opacity: 1 - i * 0.1 }} />
             ))
           )}
         </div>

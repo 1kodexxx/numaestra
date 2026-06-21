@@ -49,27 +49,31 @@ export function Navbar() {
 
       <Link
         to="/status"
+        className="state-layer"
         style={{
           textDecoration: 'none',
           fontSize: '13px',
-          fontWeight: 500,
-          color: pathname === '/status' ? '#00e5c0' : 'rgba(255,255,255,0.5)',
-          padding: '7px 16px',
+          fontWeight: 600,
+          color: pathname === '/status' ? '#00e5c0' : 'rgba(255,255,255,0.7)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          height: '38px',
+          padding: '0 18px',
           borderRadius: '20px',
           border: '1px solid',
-          borderColor: pathname === '/status' ? 'rgba(0,229,192,0.3)' : 'rgba(255,255,255,0.08)',
+          borderColor: pathname === '/status' ? 'rgba(0,229,192,0.35)' : 'rgba(255,255,255,0.12)',
           transition: 'all 0.15s',
         }}
         onMouseEnter={(e) => {
           if (pathname !== '/status') {
             e.currentTarget.style.color = '#fff'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)'
           }
         }}
         onMouseLeave={(e) => {
           if (pathname !== '/status') {
-            e.currentTarget.style.color = 'rgba(255,255,255,0.5)'
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+            e.currentTarget.style.color = 'rgba(255,255,255,0.7)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
           }
         }}
       >

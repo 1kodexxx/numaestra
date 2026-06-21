@@ -2,26 +2,13 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { categoryApi } from '@entities/category'
 import { useCreateOrder } from '@features/create-order'
+import { Button, TextField } from '@shared/ui'
 import type { Question, WizardData } from '@entities/category'
 
 const ACCENT  = '#00e5c0'
-const DARK    = '#080808'
-const SURFACE = '#111111'
 const BORDER  = 'rgba(255,255,255,0.07)'
 const TEXT2   = 'rgba(255,255,255,0.5)'
 const TEXT3   = 'rgba(255,255,255,0.25)'
-
-function inputStyle(focused: boolean): React.CSSProperties {
-  return {
-    width: '100%',
-    background: 'rgba(255,255,255,0.04)',
-    border: `1px solid ${focused ? 'rgba(0,229,192,0.4)' : BORDER}`,
-    borderRadius: '12px', padding: '13px 16px',
-    color: '#fff', fontSize: '14px', fontFamily: 'inherit',
-    outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
-    boxShadow: focused ? '0 0 0 3px rgba(0,229,192,0.07)' : 'none',
-  }
-}
 
 export function QuizPage() {
   const { categoryId = '' } = useParams<{ categoryId: string }>()
@@ -36,8 +23,6 @@ export function QuizPage() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [stepError, setStepError] = useState<string | null>(null)
-  const [emailF, setEmailF] = useState(false)
-  const [phoneF, setPhoneF] = useState(false)
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
 
   useEffect(() => {
@@ -147,15 +132,9 @@ export function QuizPage() {
           />
         ) : (
           <div>
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>Email</label>
-              <input type="email" placeholder="your@email.com" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle(emailF)} onFocus={() => setEmailF(true)} onBlur={() => setEmailF(false)} />
-            </div>
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>
-                Телефон <span style={{ color: TEXT3 }}>(необязательно)</span>
-              </label>
-              <input type="tel" placeholder="+7 999 000 00 00" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle(phoneF)} onFocus={() => setPhoneF(true)} onBlur={() => setPhoneF(false)} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
+              <TextField label="Email" type="email" value={email} onChange={setEmail} placeholder="your@email.com" surfaceColor="#0f0f0f" />
+              <TextField label="Телефон (необязательно)" type="tel" value={phone} onChange={setPhone} placeholder="+7 999 000 00 00" surfaceColor="#0f0f0f" />
             </div>
             <div style={{
               background: 'rgba(0,229,192,0.06)', border: '1px solid rgba(0,229,192,0.15)',
@@ -177,55 +156,14 @@ export function QuizPage() {
 
       {/* Navigation */}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-        <button
-          onClick={goPrev}
-          disabled={step === 0}
-          style={{
-            padding: '14px 24px', borderRadius: '14px',
-            background: 'transparent', border: `1px solid ${BORDER}`,
-            color: step === 0 ? TEXT3 : TEXT2,
-            fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
-            cursor: step === 0 ? 'default' : 'pointer',
-            transition: 'all 0.15s', opacity: step === 0 ? 0.4 : 1,
-          }}
-          onMouseEnter={(e) => { if (step > 0) { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' } }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2; e.currentTarget.style.borderColor = BORDER }}
-        >
-          ← Назад
-        </button>
+        <Button variant="outlined" size="lg" onClick={goPrev} disabled={step === 0}>← Назад</Button>
 
         {!isContactStep ? (
-          <button
-            onClick={goNext}
-            style={{
-              flex: 1, padding: '14px', borderRadius: '14px',
-              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
-              border: 'none', color: DARK,
-              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
-              cursor: 'pointer', transition: 'opacity 0.15s',
-              boxShadow: '0 4px 20px rgba(0,229,192,0.2)',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88' }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-          >
-            Далее →
-          </button>
+          <Button size="lg" onClick={goNext} style={{ flex: 1 }}>Далее →</Button>
         ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            style={{
-              flex: 1, padding: '14px', borderRadius: '14px',
-              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
-              border: 'none', color: DARK,
-              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
-              cursor: submitting ? 'wait' : 'pointer',
-              opacity: submitting ? 0.7 : 1, transition: 'opacity 0.15s',
-              boxShadow: '0 4px 20px rgba(0,229,192,0.2)',
-            }}
-          >
-            {submitting ? 'Оформляем заказ...' : 'Перейти к оплате →'}
-          </button>
+          <Button size="lg" onClick={handleSubmit} loading={submitting} style={{ flex: 1 }}>
+            Перейти к оплате →
+          </Button>
         )}
       </div>
     </div>
@@ -234,7 +172,6 @@ export function QuizPage() {
 
 function QuestionStep({ question, value, onChange }: { question: Question; value: string; onChange: (v: string) => void }) {
   const isChoice = question.ui_type === 'select' || question.ui_type === 'tags' || question.ui_type === 'radio'
-  const [focused, setFocused] = useState(false)
 
   return (
     <>
@@ -269,28 +206,14 @@ function QuestionStep({ question, value, onChange }: { question: Question; value
             )
           })}
         </div>
-      ) : question.ui_type === 'textarea' ? (
-        <textarea
-          rows={4}
-          placeholder="Введите ваш ответ..."
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          style={{
-            ...inputStyle(focused),
-            resize: 'vertical', lineHeight: 1.6,
-          }}
-        />
       ) : (
-        <input
-          type="text"
-          placeholder="Введите ваш ответ..."
+        <TextField
+          label="Ваш ответ"
           value={value}
-          onChange={e => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          style={inputStyle(focused)}
+          onChange={onChange}
+          multiline={question.ui_type === 'textarea'}
+          rows={4}
+          surfaceColor="#0f0f0f"
         />
       )}
     </>

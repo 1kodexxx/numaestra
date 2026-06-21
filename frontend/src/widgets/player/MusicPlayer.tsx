@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { IconButton, useRipple } from '@shared/ui'
 import type { Track } from '@entities/order'
 
 /* ─── precomputed waveform heights ─── */
@@ -51,7 +52,6 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
   const [vol, setVol]         = useState(0.85)
   const [muted, setMuted]     = useState(false)
   const audioRef  = useRef<HTMLAudioElement>(null)
-  const barRef    = useRef<HTMLDivElement>(null)
 
   const track    = tracks[idx]
   const progress = dur > 0 ? time / dur : 0
@@ -94,11 +94,10 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
     if (audioRef.current) audioRef.current.volume = muted ? 0 : vol
   }, [vol, muted])
 
-  const seek = useCallback((e: React.MouseEvent) => {
-    const el  = audioRef.current
-    const bar = barRef.current
-    if (!el || !bar || !dur) return
-    const r = bar.getBoundingClientRect()
+  const seek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const el = audioRef.current
+    if (!el || !dur) return
+    const r = e.currentTarget.getBoundingClientRect()
     const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
     el.currentTime = p * dur
     setTime(p * dur)
@@ -111,6 +110,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
   }
 
   const pct = `${(progress * 100).toFixed(1)}%`
+  const playRipple = useRipple('rgba(0,0,0,0.4)')
 
   return (
     <div style={{
@@ -166,7 +166,6 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
 
         {/* Waveform */}
         <div
-          ref={barRef}
           onClick={seek}
           style={{
             display: 'flex',
@@ -201,10 +200,10 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
 
         {/* Progress bar */}
         <div
-          ref={barRef}
           onClick={seek}
-          style={{ height: '3px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', cursor: 'pointer', marginBottom: '8px' }}
+          style={{ height: '6px', display: 'flex', alignItems: 'center', cursor: 'pointer', marginBottom: '8px' }}
         >
+        <div style={{ height: '3px', width: '100%', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', position: 'relative' }}>
           <div style={{
             width: pct, height: '100%', borderRadius: '2px',
             background: 'linear-gradient(90deg, #00bfa5, #00e5c0)',
@@ -216,6 +215,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
               background: '#00e5c0', boxShadow: '0 0 0 3px rgba(0,229,192,0.2)',
             }} />
           </div>
+        </div>
         </div>
 
         {/* Time */}
@@ -230,30 +230,20 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
         </div>
 
         {/* Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '24px' }}>
-          <button
-            onClick={() => idx > 0 && switchTrack(idx - 1)}
-            disabled={idx === 0}
-            style={{
-              background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)',
-              cursor: idx > 0 ? 'pointer' : 'default', opacity: idx > 0 ? 1 : 0.25,
-              display: 'flex', alignItems: 'center', transition: 'color 0.15s',
-              padding: '8px',
-            }}
-            onMouseEnter={(e) => { if (idx > 0) e.currentTarget.style.color = '#fff' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)' }}
-          >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', marginBottom: '24px' }}>
+          <IconButton label="Предыдущий вариант" disabled={idx === 0} onClick={() => idx > 0 && switchTrack(idx - 1)}>
             <PrevIcon />
-          </button>
+          </IconButton>
 
           <button
             onClick={() => setPlaying(p => !p)}
+            onPointerDown={playRipple.onPointerDown}
+            aria-label={playing ? 'Пауза' : 'Воспроизвести'}
             style={{
+              position: 'relative', overflow: 'hidden',
               width: '64px', height: '64px',
               borderRadius: '50%',
-              background: playing
-                ? 'linear-gradient(135deg, #00e5c0, #00bfa5)'
-                : 'linear-gradient(135deg, #00e5c0, #00bfa5)',
+              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
               border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: '#080808',
@@ -262,6 +252,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
                 : '0 4px 16px rgba(0,229,192,0.2)',
               transition: 'all 0.2s cubic-bezier(0.34,1.56,0.64,1)',
               transform: 'scale(1)',
+              WebkitTapHighlightColor: 'transparent',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.06)' }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
@@ -269,33 +260,19 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
             onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1.06)' }}
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
+            {playRipple.rippleEl}
           </button>
 
-          <button
-            onClick={() => idx < tracks.length - 1 && switchTrack(idx + 1)}
-            disabled={idx === tracks.length - 1}
-            style={{
-              background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)',
-              cursor: idx < tracks.length - 1 ? 'pointer' : 'default',
-              opacity: idx < tracks.length - 1 ? 1 : 0.25,
-              display: 'flex', alignItems: 'center', transition: 'color 0.15s',
-              padding: '8px',
-            }}
-            onMouseEnter={(e) => { if (idx < tracks.length - 1) e.currentTarget.style.color = '#fff' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)' }}
-          >
+          <IconButton label="Следующий вариант" disabled={idx === tracks.length - 1} onClick={() => idx < tracks.length - 1 && switchTrack(idx + 1)}>
             <NextIcon />
-          </button>
+          </IconButton>
         </div>
 
         {/* Volume */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '240px', margin: '0 auto' }}>
-          <button
-            onClick={() => setMuted(m => !m)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 0 }}
-          >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '260px', margin: '0 auto' }}>
+          <IconButton label={muted ? 'Включить звук' : 'Выключить звук'} size={36} onClick={() => setMuted(m => !m)}>
             <VolIcon muted={muted} />
-          </button>
+          </IconButton>
           <input
             type="range" min="0" max="1" step="0.01"
             value={muted ? 0 : vol}
