@@ -4,7 +4,12 @@ import { categoryApi } from '@entities/category'
 import { useCreateOrder } from '@features/create-order'
 import { Spinner } from '@shared/ui'
 import type { Question, WizardData } from '@entities/category'
-import styles from './QuizPage.module.css'
+
+const inputCls = [
+  'w-full bg-bg3 border border-border rounded-lg px-4 py-3',
+  'text-txt text-[15px] outline-none transition-colors',
+  'focus:border-accent2 placeholder:text-muted font-[inherit] resize-y',
+].join(' ')
 
 export function QuizPage() {
   const { categoryId = '' } = useParams<{ categoryId: string }>()
@@ -30,11 +35,15 @@ export function QuizPage() {
       .catch((err: Error) => setLoadError(err.message))
   }, [categoryId])
 
-  if (loadError) return <div className={styles.error}>{loadError}</div>
-  if (!wizard) return <div className={styles.center}><Spinner /></div>
+  if (loadError) return (
+    <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm m-4">
+      {loadError}
+    </div>
+  )
+  if (!wizard) return <div className="text-center py-10"><Spinner /></div>
 
   const questions: Question[] = wizard.questions
-  const totalSteps = questions.length + 1 // +1 для шага контактов
+  const totalSteps = questions.length + 1
   const isContactStep = step === questions.length
 
   function goNext() {
@@ -63,33 +72,40 @@ export function QuizPage() {
   async function handleSubmit() {
     if (!email && !phone) { setStepError('Укажите email или телефон'); return }
     setStepError(null)
-    const brief = questions
-      .map((q) => answers[q.mapping_key] ? `${q.question_text}: ${answers[q.mapping_key]}` : null)
-      .filter(Boolean)
-      .join('; ') || 'Персональная песня'
-
+    const brief =
+      questions
+        .map((q) => answers[q.mapping_key] ? `${q.question_text}: ${answers[q.mapping_key]}` : null)
+        .filter(Boolean)
+        .join('; ') || 'Персональная песня'
     await submit({ email, phone, brief, plan, category_id: categoryId, answers })
   }
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <button className={styles.back} onClick={() => navigate('/')}>← Назад</button>
-        <div className={styles.title}>{categoryTitle}</div>
-        <div className={styles.subtitle}>Ответьте на несколько вопросов</div>
+    <div className="max-w-2xl mx-auto px-6 pt-10 pb-20">
+      <div className="mb-8">
+        <button
+          className="text-muted bg-transparent border-none cursor-pointer text-sm inline-flex items-center gap-1.5 mb-4 hover:text-txt transition-colors"
+          onClick={() => navigate('/')}
+        >
+          ← Назад
+        </button>
+        <div className="text-[28px] font-extrabold">{categoryTitle}</div>
+        <div className="text-muted mt-1.5">Ответьте на несколько вопросов</div>
       </div>
 
-      <div className={styles.stepIndicator}>
+      <div className="flex items-center gap-1 mb-8">
         {Array.from({ length: totalSteps }, (_, i) => (
           <div
             key={i}
-            className={`${styles.dot} ${i < step ? styles.done : ''} ${i === step ? styles.active : ''}`}
+            className={`w-2 h-2 rounded-full transition-colors ${
+              i < step ? 'bg-accent2' : i === step ? 'bg-accent' : 'bg-border'
+            }`}
           />
         ))}
-        <span className={styles.stepCount}>{step + 1} / {totalSteps}</span>
+        <span className="text-[13px] text-muted ml-2.5">{step + 1} / {totalSteps}</span>
       </div>
 
-      <div className={styles.card}>
+      <div className="bg-bg2 border border-border rounded-xl p-7">
         {!isContactStep ? (
           <QuestionStep
             question={questions[step]}
@@ -104,16 +120,36 @@ export function QuizPage() {
         )}
 
         {(stepError ?? submitError) && (
-          <div className={styles.error}>{stepError ?? submitError}</div>
+          <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm my-3">
+            {stepError ?? submitError}
+          </div>
         )}
 
-        <div className={styles.nav}>
-          <button className={styles.btnOutline} onClick={goPrev} disabled={step === 0}>← Назад</button>
+        <div className="flex justify-between mt-7 gap-3">
+          <button
+            className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-transparent border border-accent2 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            onClick={goPrev}
+            disabled={step === 0}
+          >
+            ← Назад
+          </button>
           {!isContactStep
-            ? <button className={styles.btnPrimary} onClick={goNext}>Далее →</button>
-            : <button className={styles.btnPrimary} onClick={handleSubmit} disabled={submitting}>
+            ? (
+              <button
+                className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] transition-all"
+                onClick={goNext}
+              >
+                Далее →
+              </button>
+            ) : (
+              <button
+                className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                onClick={handleSubmit}
+                disabled={submitting}
+              >
                 {submitting ? 'Создаём заказ...' : 'Оплатить →'}
               </button>
+            )
           }
         </div>
       </div>
@@ -126,16 +162,20 @@ function QuestionStep({
 }: { question: Question; value: string; onChange: (v: string) => void }) {
   return (
     <>
-      <div className={styles.label}>
+      <div className="text-lg font-semibold mb-5">
         {question.question_text}
-        {question.is_required && <span className={styles.req}>*</span>}
+        {question.is_required && <span className="text-error ml-1">*</span>}
       </div>
       {question.ui_type === 'select' ? (
-        <div className={styles.options}>
+        <div className="flex flex-col gap-2.5">
           {question.options.map((opt) => (
             <button
               key={opt.value}
-              className={`${styles.optionBtn} ${value === opt.value ? styles.selected : ''}`}
+              className={`bg-bg3 border rounded-lg px-4 py-3 text-left text-txt cursor-pointer text-[15px] transition-all ${
+                value === opt.value
+                  ? 'border-accent bg-accent/15 text-accent'
+                  : 'border-border hover:border-accent2 hover:bg-accent2/10'
+              }`}
               onClick={() => onChange(opt.value)}
             >
               {opt.label}
@@ -144,7 +184,7 @@ function QuestionStep({
         </div>
       ) : question.ui_type === 'textarea' ? (
         <textarea
-          className={styles.input}
+          className={inputCls}
           rows={4}
           placeholder="Введите ваш ответ..."
           value={value}
@@ -152,7 +192,7 @@ function QuestionStep({
         />
       ) : (
         <input
-          className={styles.input}
+          className={inputCls}
           type="text"
           placeholder="Введите ваш ответ..."
           value={value}
@@ -171,26 +211,30 @@ function ContactStep({
 }) {
   return (
     <>
-      <div className={styles.label}>Контактные данные и тариф</div>
-      <div className={styles.contactForm}>
-        <div className={styles.formGroup}>
-          <label>Email <span className={styles.req}>*</span></label>
-          <input className={styles.input} type="email" placeholder="your@email.com" value={email} onChange={(e) => onEmail(e.target.value)} />
+      <div className="text-lg font-semibold mb-5">Контактные данные и тариф</div>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5 text-sm text-muted">
+          <label>Email <span className="text-error">*</span></label>
+          <input className={inputCls} type="email" placeholder="your@email.com" value={email} onChange={(e) => onEmail(e.target.value)} />
         </div>
-        <div className={styles.formGroup}>
+        <div className="flex flex-col gap-1.5 text-sm text-muted">
           <label>Телефон (необязательно)</label>
-          <input className={styles.input} type="tel" placeholder="+7 999 000 00 00" value={phone} onChange={(e) => onPhone(e.target.value)} />
+          <input className={inputCls} type="tel" placeholder="+7 999 000 00 00" value={phone} onChange={(e) => onPhone(e.target.value)} />
         </div>
-        <div className={styles.plansGrid}>
+        <div className="grid grid-cols-2 gap-3">
           {(['standard', 'premium'] as const).map((p) => (
             <div
               key={p}
-              className={`${styles.planCard} ${plan === p ? styles.planSelected : ''}`}
+              className={`rounded-[10px] p-4 cursor-pointer text-center transition-all ${
+                plan === p
+                  ? 'border-2 border-accent bg-accent/12'
+                  : 'border-2 border-border bg-bg3 hover:border-accent2'
+              }`}
               onClick={() => onPlan(p)}
             >
-              <div className={styles.planName}>{p === 'standard' ? 'Стандарт' : 'Премиум ✨'}</div>
-              <div className={styles.planPrice}>{p === 'standard' ? '1 500 ₽' : '2 900 ₽'}</div>
-              <div className={styles.planDesc}>{p === 'standard' ? '4 варианта песни' : '8 вариантов + приоритет'}</div>
+              <div className="font-bold text-base">{p === 'standard' ? 'Стандарт' : 'Премиум ✨'}</div>
+              <div className="text-gold text-[22px] font-extrabold my-1.5">{p === 'standard' ? '1 500 ₽' : '2 900 ₽'}</div>
+              <div className="text-xs text-muted">{p === 'standard' ? '4 варианта песни' : '8 вариантов + приоритет'}</div>
             </div>
           ))}
         </div>

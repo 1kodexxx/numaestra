@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath, URL } from 'node:url'
 
 const src = (dir: string) => fileURLToPath(new URL(`./src/${dir}`, import.meta.url))
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
 
   build: {
     // Собираем прямо в web/out/ — оттуда Go подхватывает через //go:embed

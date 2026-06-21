@@ -1,32 +1,33 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+@import "tailwindcss";
 
-:root {
-  --bg:      #0d0d1a;
-  --bg2:     #14142a;
-  --bg3:     #1e1e3f;
-  --accent:  #a855f7;
-  --accent2: #7c3aed;
-  --gold:    #f59e0b;
-  --text:    #e2e8f0;
-  --muted:   #94a3b8;
-  --border:  #2d2d5e;
-  --success: #22c55e;
-  --error:   #ef4444;
-  --radius:  12px;
-  --trans:   0.3s ease;
+@theme {
+  --color-bg:      #0d0d1a;
+  --color-bg2:     #14142a;
+  --color-bg3:     #1e1e3f;
+  --color-accent:  #a855f7;
+  --color-accent2: #7c3aed;
+  --color-gold:    #f59e0b;
+  --color-txt:     #e2e8f0;
+  --color-muted:   #94a3b8;
+  --color-border:  #2d2d5e;
+  --color-success: #22c55e;
+  --color-error:   #ef4444;
 }
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
   min-height: 100%;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--color-bg);
+  color: var(--color-txt);
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
-footer {
-  text-align: center;
-  padding: 24px;
-  color: var(--muted);
-  font-size: 13px;
-  border-top: 1px solid var(--border);
+@keyframes progress-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.6); }
+  50%       { box-shadow: 0 0 0 8px rgba(168, 85, 247, 0); }
+}
+
+@utility progress-pulse {
+  animation: progress-pulse 1.5s infinite;
 }

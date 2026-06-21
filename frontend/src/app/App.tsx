@@ -9,7 +9,9 @@ export function App() {
       <main>
         <AppRouter />
       </main>
-      <footer>© 2025 Numaestra · Персональные песни на заказ</footer>
+      <footer className="text-center p-6 text-muted text-[13px] border-t border-border">
+        © 2025 Numaestra · Персональные песни на заказ
+      </footer>
     </BrowserRouter>
   )
 }
