@@ -2,20 +2,28 @@ import { BrowserRouter, useLocation } from 'react-router-dom'
 import { Navbar } from '@widgets/navbar'
 import { AppRouter } from './router/AppRouter'
 
-// /admin — отдельный раздел со своим layout (AdminLayout), публичная
-// навигация и футер сайта ему не нужны.
 function PublicChrome({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation()
   const isAdmin = pathname.startsWith('/admin')
+  const isFullscreen = pathname === '/' || pathname.startsWith('/category/')
+
   if (isAdmin) return <>{children}</>
+
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Navbar />
-      <main>{children}</main>
-      <footer className="text-center p-6 text-muted text-[13px] border-t border-border">
-        © 2025 Numaestra · Персональные песни на заказ
-      </footer>
-    </>
+      <div style={{ flex: 1, overflow: isFullscreen ? 'hidden' : 'auto' }}>
+        {children}
+      </div>
+      {!isFullscreen && (
+        <footer
+          className="text-center p-4 text-xs"
+          style={{ color: '#444', borderTop: '1px solid #1a1a1a' }}
+        >
+          © 2025 Numaestra · Персональные песни на заказ
+        </footer>
+      )}
+    </div>
   )
 }
 

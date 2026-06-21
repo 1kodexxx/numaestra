@@ -2,25 +2,28 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
-import { Spinner } from '@shared/ui'
+import { MusicPlayer } from '@widgets/player'
 import type { OrderDetail } from '@entities/order'
 
-const inputCls = 'flex-1 bg-bg3 border border-border rounded-lg px-3.5 py-2.5 text-txt text-sm outline-none transition-colors focus:border-accent2 font-[inherit]'
-const btnOutlineCls = 'px-5 py-2.5 rounded-lg text-sm font-semibold bg-transparent border border-accent2 text-accent cursor-pointer hover:bg-accent/10 transition-all'
+const CYAN = '#00e5c0'
+const DARK = '#0d0d0d'
+
+const inputStyle = {
+  background: '#1c1c1c', border: '1px solid #333',
+  borderRadius: '12px', padding: '12px 16px',
+  color: '#fff', fontSize: '14px', outline: 'none',
+  width: '100%',
+} as const
 
 export function StatusPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  // Инициализируем из URL-параметров (magic-link из email) или из localStorage.
   const urlOrderId = searchParams.get('order_id')
   const urlToken = searchParams.get('token')
 
-  // При наличии URL-параметров — сохраняем в localStorage и сразу показываем заказ.
   useEffect(() => {
-    if (urlOrderId && urlToken) {
-      orderStorage.saveOrder(urlOrderId, urlToken)
-    }
+    if (urlOrderId && urlToken) orderStorage.saveOrder(urlOrderId, urlToken)
   }, [urlOrderId, urlToken])
 
   const initId = urlOrderId ?? orderStorage.getOrderId()
@@ -40,31 +43,48 @@ export function StatusPage() {
     setLookupId('')
   }
 
-  if (loading) return <div className="text-center py-20"><Spinner /></div>
+  if (loading && !order) {
+    return (
+      <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}>
+        <div
+          className="w-10 h-10 rounded-full border-2 border-t-transparent spin-anim"
+          style={{ borderColor: `${CYAN} transparent transparent transparent` }}
+        />
+      </div>
+    )
+  }
 
   if (!activeId || error) {
     return (
-      <div className="max-w-2xl mx-auto px-6 pt-10 pb-20">
-        <div className="bg-bg2 border border-border rounded-xl p-8 text-center">
-          <div className="text-[56px] mb-4">🔍</div>
-          <div className="text-[22px] font-bold mb-2">Проверить статус заказа</div>
-          <div className="text-muted mb-6">Введите ID вашего заказа</div>
+      <div className="max-w-lg mx-auto px-6 pt-16 pb-20">
+        <div
+          className="rounded-2xl p-8 text-center"
+          style={{ background: '#141414', border: '1px solid #252525' }}
+        >
+          <div className="text-5xl mb-4">🔍</div>
+          <div className="text-xl font-bold mb-2">Проверить статус заказа</div>
+          <div className="text-sm mb-6" style={{ color: '#777' }}>Введите ID вашего заказа</div>
+
           {error && (
-            <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm my-3">
+            <div className="text-sm mb-4 p-3 rounded-lg" style={{ background: '#2a1010', color: '#ef4444', border: '1px solid #4a2020' }}>
               {error}
             </div>
           )}
-          <div className="flex gap-2.5 max-w-120 mx-auto mt-6">
+
+          <div className="flex gap-2.5">
             <input
-              className={inputCls}
+              style={inputStyle}
               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
               value={lookupId}
               onChange={(e) => setLookupId(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
+              onFocus={(e) => { e.target.style.borderColor = CYAN }}
+              onBlur={(e) => { e.target.style.borderColor = '#333' }}
             />
             <button
-              className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] transition-all"
               onClick={handleLookup}
+              className="px-5 rounded-xl text-sm font-semibold shrink-0"
+              style={{ background: CYAN, color: DARK, border: 'none', cursor: 'pointer' }}
             >
               Найти
             </button>
@@ -83,75 +103,105 @@ export function StatusPage() {
   )
 }
 
-function OrderStatusCard({ order, onClear, onBack }: {
-  order: OrderDetail; onClear: () => void; onBack: () => void
-}) {
+function OrderStatusCard({
+  order, onClear, onBack,
+}: { order: OrderDetail; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
 
-  let icon = '⏳', title = 'Обрабатываем заказ', sub = 'Это займёт несколько минут...'
-  if (ps === 'pending')         { icon = '💳'; title = 'Ожидается оплата';    sub = 'После оплаты начнём создавать песню' }
-  else if (gs === 'completed')  { icon = '🎉'; title = 'Ваша песня готова!';  sub = 'Слушайте все варианты ниже' }
-  else if (gs === 'failed')     { icon = '😔'; title = 'Произошла ошибка';   sub = 'Обратитесь в поддержку с ID заказа' }
-  else if (gs === 'processing') { icon = '🎹'; title = 'Создаём вашу песню'; sub = 'Работает наша AI-студия...' }
-  else if (gs === 'queued')     { icon = '🎶'; title = 'Заказ в очереди';    sub = 'Скоро начнём генерацию' }
+  let statusIcon = '⏳'
+  let statusTitle = 'Обрабатываем заказ'
+  let statusSub = 'Это займёт несколько минут...'
 
-  const steps = ['Оплата', 'В очереди', 'Создание', 'Готово']
+  if (ps === 'pending')        { statusIcon = '💳'; statusTitle = 'Ожидается оплата';    statusSub = 'После оплаты начнём создавать песню' }
+  else if (gs === 'completed') { statusIcon = '🎉'; statusTitle = 'Ваша песня готова!';  statusSub = 'Все 4 версии доступны для прослушивания' }
+  else if (gs === 'failed')    { statusIcon = '😔'; statusTitle = 'Произошла ошибка';   statusSub = 'Обратитесь в поддержку с ID заказа' }
+  else if (gs === 'processing'){ statusIcon = '🎹'; statusTitle = 'Создаём вашу песню'; statusSub = 'AI-студия работает над вашим треком...' }
+  else if (gs === 'queued')    { statusIcon = '🎶'; statusTitle = 'Заказ в очереди';    statusSub = 'Скоро начнём генерацию' }
+
+  const steps = ['Оплата', 'Очередь', 'Создание', 'Готово']
   const stepKeys = ['paid', 'queued', 'processing', 'completed'] as const
   const currentIdx = gs === 'failed' ? 2 : stepKeys.findIndex((k) => k === gs || (gs === 'new' && k === 'paid'))
   const isTerminal = gs === 'completed' || gs === 'failed'
 
   return (
-    <div className="bg-bg2 border border-border rounded-xl p-8 text-center">
-      <div className="text-[56px] mb-4">{icon}</div>
-      <div className="text-[22px] font-bold mb-2">{title}</div>
-      <div className="text-muted mb-6">{sub}</div>
+    <div>
+      {/* Status header */}
+      <div
+        className="rounded-2xl p-8 text-center mb-6"
+        style={{ background: '#141414', border: '1px solid #252525' }}
+      >
+        <div className="text-5xl mb-4">{statusIcon}</div>
+        <div className="text-2xl font-bold mb-2">{statusTitle}</div>
+        <div className="text-sm mb-8" style={{ color: '#777' }}>{statusSub}</div>
 
-      <div className="flex justify-center my-6">
-        {steps.map((label, i) => (
-          <div key={label} className="flex items-center">
-            <div className="flex flex-col items-center">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                i < currentIdx
-                  ? 'bg-accent2'
-                  : i === currentIdx
-                    ? 'bg-accent progress-pulse'
-                    : 'bg-border'
-              }`}>
-                {i < currentIdx ? '✓' : i + 1}
+        {/* Progress steps */}
+        <div className="flex justify-center items-center">
+          {steps.map((label, i) => (
+            <div key={label} className="flex items-center">
+              <div className="flex flex-col items-center">
+                <div
+                  className="flex items-center justify-center rounded-full text-xs font-bold"
+                  style={{
+                    width: '32px', height: '32px',
+                    background: i < currentIdx ? CYAN : i === currentIdx ? CYAN : '#252525',
+                    color: (i <= currentIdx) ? DARK : '#555',
+                    boxShadow: i === currentIdx && !isTerminal ? `0 0 0 0 rgba(0,229,192,0.6)` : 'none',
+                  }}
+                  className={i === currentIdx && !isTerminal ? 'progress-pulse' : ''}
+                >
+                  {i < currentIdx ? '✓' : i + 1}
+                </div>
+                <div className="text-xs mt-1.5" style={{ color: i <= currentIdx ? '#aaa' : '#444', width: '56px', textAlign: 'center' }}>
+                  {label}
+                </div>
               </div>
-              <div className="text-[11px] text-muted text-center mt-1 w-14">{label}</div>
-            </div>
-            {i < steps.length - 1 && (
-              <div className={`w-10 h-0.5 mb-5 transition-colors ${i < currentIdx ? 'bg-accent2' : 'bg-border'}`} />
-            )}
-          </div>
-        ))}
-      </div>
-
-      {gs === 'completed' && order.tracks.length > 0 && (
-        <div className="flex flex-col gap-3 mt-6 text-left">
-          {order.tracks.map((t, i) => (
-            <div key={t.index} className="bg-bg3 border border-border rounded-[10px] p-4">
-              <div className="font-semibold mb-2">🎵 Вариант {t.index || i + 1}</div>
-              <audio controls src={t.audio_url} className="w-full mt-1">
-                Ваш браузер не поддерживает аудио
-              </audio>
+              {i < steps.length - 1 && (
+                <div
+                  className="mb-5"
+                  style={{
+                    width: '48px', height: '2px',
+                    background: i < currentIdx ? CYAN : '#252525',
+                  }}
+                />
+              )}
             </div>
           ))}
         </div>
+
+        <p className="mt-6 text-xs" style={{ color: '#444' }}>
+          ID: <code style={{ color: CYAN, fontFamily: 'monospace' }}>{order.id}</code>
+        </p>
+        {!isTerminal && (
+          <p className="text-xs mt-1" style={{ color: '#444' }}>Обновляется автоматически каждые 10 секунд</p>
+        )}
+      </div>
+
+      {/* Music Player */}
+      {gs === 'completed' && order.tracks.length > 0 && (
+        <div className="mb-6">
+          <div className="text-sm font-semibold mb-3" style={{ color: '#aaa' }}>Ваши треки</div>
+          <MusicPlayer tracks={order.tracks} />
+        </div>
       )}
 
-      <p className="mt-6 text-muted text-[13px]">
-        ID заказа: <code className="text-accent font-mono">{order.id}</code>
-      </p>
-      {!isTerminal && (
-        <p className="text-muted text-xs mt-2">Страница обновляется автоматически каждые 10 секунд</p>
-      )}
+      {/* Actions */}
       {isTerminal && (
-        <div className="flex gap-3 justify-center mt-4">
-          <button className={btnOutlineCls} onClick={onClear}>Новый заказ</button>
-          <button className={btnOutlineCls} onClick={onBack}>На главную</button>
+        <div className="flex gap-3">
+          <button
+            onClick={onClear}
+            className="flex-1 py-3 rounded-xl text-sm font-semibold"
+            style={{ background: 'transparent', border: `1px solid ${CYAN}`, color: CYAN, cursor: 'pointer' }}
+          >
+            Новый заказ
+          </button>
+          <button
+            onClick={onBack}
+            className="flex-1 py-3 rounded-xl text-sm font-semibold"
+            style={{ background: CYAN, color: DARK, border: 'none', cursor: 'pointer' }}
+          >
+            На главную
+          </button>
         </div>
       )}
     </div>

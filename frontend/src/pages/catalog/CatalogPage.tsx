@@ -1,73 +1,197 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCatalog } from '@features/load-catalog'
-import { Spinner } from '@shared/ui'
+import { EXAMPLE_SONGS } from '@shared/data/examples'
+import type { Category } from '@entities/category'
 
-const EMOJI: Record<string, string> = {
-  wedding: '💍',
-  birthday: '🎂',
-  corporate: '🏢',
-  roast: '🔥',
+const CYAN = '#00e5c0'
+const DARK = '#0d0d0d'
+
+function ExampleCard({ title, onClick }: { title: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full rounded-xl text-left transition-all cursor-pointer"
+      style={{
+        background: CYAN, color: DARK, border: 'none',
+        padding: '18px 14px', marginBottom: '8px',
+        fontWeight: 600, fontSize: '14px',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
+    >
+      {title}
+    </button>
+  )
+}
+
+function CategorySideCard({ title, onClick }: { title: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full rounded-xl text-left transition-all cursor-pointer"
+      style={{
+        background: CYAN, color: DARK, border: 'none',
+        padding: '18px 14px', marginBottom: '8px',
+        fontWeight: 600, fontSize: '14px',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.1)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
+    >
+      {title}
+    </button>
+  )
+}
+
+function CategoryGridCard({ cat, onClick }: { cat: Category; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-xl transition-all cursor-pointer w-full aspect-square flex items-center justify-center"
+      style={{
+        background: CYAN, color: DARK, border: 'none',
+        fontWeight: 700, fontSize: '15px',
+        textAlign: 'center', padding: '12px',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(1.12)'; e.currentTarget.style.transform = 'scale(1.03)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.filter = ''; e.currentTarget.style.transform = '' }}
+    >
+      {cat.title}
+    </button>
+  )
+}
+
+function CenterInput({ onFocus }: { onFocus: () => void }) {
+  return (
+    <div className="flex justify-center px-6 py-5">
+      <div
+        className="w-full max-w-xl rounded-2xl flex items-center gap-3 cursor-text"
+        style={{
+          background: '#fff', padding: '16px 22px',
+          boxShadow: '0 2px 20px rgba(0,0,0,0.3)',
+        }}
+        onClick={onFocus}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="#999">
+          <path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.39ZM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7Z"/>
+        </svg>
+        <span style={{ color: '#999', fontSize: '15px', flex: 1 }}>
+          Опишите песню или выберите категорию ниже...
+        </span>
+      </div>
+    </div>
+  )
 }
 
 export function CatalogPage() {
-  const { categories, loading, error } = useCatalog()
+  const { categories, loading } = useCatalog()
   const navigate = useNavigate()
+  const [briefInput, setBriefInput] = useState('')
+  const [inputOpen, setInputOpen] = useState(false)
+
+  const topCategories = categories.slice(0, 6)
+  const gridCategories = categories
+
+  function openCategory(catId: string) {
+    navigate(`/category/${catId}`)
+  }
+
+  function openExample(id: string) {
+    navigate(`/examples/${id}`)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}>
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent spin-anim" style={{ borderColor: `${CYAN} transparent transparent transparent` }} />
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <div className="text-center px-6 pt-20 pb-10 bg-[radial-gradient(ellipse_at_50%_0%,rgba(168,85,247,0.15)_0%,transparent_70%)]">
-        <h1 className="text-[clamp(2rem,5vw,3.5rem)] font-extrabold leading-[1.1] mb-4">
-          Персональная песня<br />
-          <span className="bg-linear-to-br from-accent to-gold bg-clip-text text-transparent">
-            для каждого момента
-          </span>
-        </h1>
-        <p className="text-lg text-muted max-w-140 mx-auto mb-10">
-          Создаём уникальные треки под ваш запрос — свадьба, день рождения, корпоратив или просто признание в любви.
-        </p>
-      </div>
-
-      {loading && <div className="text-center py-10"><Spinner /></div>}
-      {error && (
-        <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error max-w-150 mx-auto mb-6">
-          {error}
+    <div className="flex" style={{ height: 'calc(100vh - 56px)' }}>
+      {/* Left panel – example songs */}
+      <aside
+        className="flex flex-col p-4"
+        style={{ width: '210px', borderRight: '1px solid #252525', flexShrink: 0, overflowY: 'auto' }}
+      >
+        <div className="flex-1">
+          {EXAMPLE_SONGS.map((ex) => (
+            <ExampleCard key={ex.id} title={ex.title} onClick={() => openExample(ex.id)} />
+          ))}
         </div>
-      )}
+        <p className="text-xs mt-4 text-center" style={{ color: '#555' }}>Список из примеров работ</p>
+      </aside>
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-6 px-6 pb-20 max-w-300 mx-auto">
-        {categories.map((cat) => (
-          <div
-            key={cat.id}
-            className="bg-bg2 border border-border rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:border-accent2 hover:shadow-[0_8px_32px_rgba(124,58,237,0.25)]"
-          >
-            {cat.cover_image_url
-              ? <img src={cat.cover_image_url} alt={cat.title} className="w-full aspect-video object-cover" loading="lazy" />
-              : (
-                <div className="w-full aspect-video bg-linear-to-br from-bg3 to-bg2 flex items-center justify-center text-5xl">
-                  {EMOJI[cat.id] ?? '🎵'}
-                </div>
-              )
-            }
-            <div className="p-5">
-              <div className="text-lg font-bold mb-2">{cat.title}</div>
-              <div className="text-sm text-muted leading-relaxed mb-4">{cat.description}</div>
-              <div className="flex flex-wrap gap-1.5 mb-4">
-                {cat.seo_tags.slice(0, 3).map((t) => (
-                  <span key={t} className="bg-accent/15 border border-accent/30 text-accent px-2.5 py-0.5 rounded-full text-xs">
-                    {t}
-                  </span>
-                ))}
-              </div>
+      {/* Center */}
+      <main className="flex-1 flex flex-col overflow-y-auto">
+        {inputOpen ? (
+          /* Expanded brief input */
+          <div className="flex flex-col items-center px-8 py-6 gap-4">
+            <div className="w-full max-w-2xl">
               <button
-                className="w-full py-2.5 px-5 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] transition-all"
-                onClick={() => navigate(`/quiz/${cat.id}`, { state: { title: cat.title } })}
+                className="text-sm mb-4 flex items-center gap-1.5 transition-colors"
+                style={{ background: 'none', border: 'none', color: '#777', cursor: 'pointer' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = '#777' }}
+                onClick={() => setInputOpen(false)}
               >
-                Заказать песню →
+                ← Вернуться к категориям
               </button>
+              <textarea
+                autoFocus
+                placeholder="Опишите свою песню... Например: весёлая песня на день рождения лучшей подруги, которая любит котов и путешествия"
+                value={briefInput}
+                onChange={(e) => setBriefInput(e.target.value)}
+                rows={8}
+                className="w-full rounded-2xl resize-none outline-none text-base"
+                style={{
+                  background: '#fff', color: '#0d0d0d',
+                  padding: '24px', fontSize: '16px',
+                  border: 'none', lineHeight: 1.6,
+                  boxShadow: '0 4px 32px rgba(0,0,0,0.4)',
+                }}
+              />
+              <p className="text-sm mt-3 text-center" style={{ color: '#555' }}>
+                Или выберите категорию ниже — мы зададим уточняющие вопросы
+              </p>
             </div>
           </div>
-        ))}
-      </div>
+        ) : (
+          <CenterInput onFocus={() => setInputOpen(true)} />
+        )}
+
+        {/* Category grid */}
+        {loading ? null : (
+          <div className="px-6 pb-6">
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}
+            >
+              {gridCategories.map((cat) => (
+                <CategoryGridCard key={cat.id} cat={cat} onClick={() => openCategory(cat.id)} />
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Right panel – top categories */}
+      <aside
+        className="flex flex-col p-4"
+        style={{ width: '210px', borderLeft: '1px solid #252525', flexShrink: 0, overflowY: 'auto' }}
+      >
+        <div className="flex-1">
+          {topCategories.map((cat, i) => (
+            <CategorySideCard
+              key={cat.id}
+              title={`Категория #${i + 1}`}
+              onClick={() => openCategory(cat.id)}
+            />
+          ))}
+        </div>
+        <p className="text-xs mt-4 text-center" style={{ color: '#555' }}>Список из топовых категорий</p>
+      </aside>
     </div>
   )
 }

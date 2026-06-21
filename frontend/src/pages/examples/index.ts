@@ -1,0 +1,1 @@
+export { ExampleDetailPage } from './ExampleDetailPage'
