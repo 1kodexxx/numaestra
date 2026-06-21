@@ -7,8 +7,23 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numaestra/numaestra/internal/domain"
+)
+
+// pgErrCode возвращает SQLSTATE-код ошибки Postgres, если err — *pgconn.PgError.
+func pgErrCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
+}
+
+const (
+	pgErrUniqueViolation     = "23505"
+	pgErrForeignKeyViolation = "23503"
 )
 
 type CategoryRepository struct {
@@ -110,4 +125,112 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 	}
 
 	return domain.RestoreCategory(snap), nil
+}
+
+// Create сохраняет новую категорию каталога.
+func (r *CategoryRepository) Create(ctx context.Context, c *domain.Category) error {
+	snap := c.Snapshot()
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO categories (id, title, description, cover_image_url, seo_tags, base_prompt_template)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, snap.ID, snap.Title, snap.Description, snap.CoverImageURL, snap.SeoTags, snap.BasePromptTemplate)
+	if err != nil {
+		if pgErrCode(err) == pgErrUniqueViolation {
+			return domain.ErrCategoryAlreadyExists
+		}
+		return fmt.Errorf("insert category: %w", err)
+	}
+	return nil
+}
+
+// Update перезаписывает изменяемые поля категории (ID неизменен).
+func (r *CategoryRepository) Update(ctx context.Context, c *domain.Category) error {
+	snap := c.Snapshot()
+	cmd, err := r.db.Exec(ctx, `
+		UPDATE categories
+		SET title = $1, description = $2, cover_image_url = $3, seo_tags = $4, base_prompt_template = $5
+		WHERE id = $6
+	`, snap.Title, snap.Description, snap.CoverImageURL, snap.SeoTags, snap.BasePromptTemplate, snap.ID)
+	if err != nil {
+		return fmt.Errorf("update category: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrCategoryNotFound
+	}
+	return nil
+}
+
+// Delete удаляет категорию; вопросы и варианты ответов удаляются каскадно (ON DELETE CASCADE).
+func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
+	cmd, err := r.db.Exec(ctx, `DELETE FROM categories WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete category: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrCategoryNotFound
+	}
+	return nil
+}
+
+// AddQuestion добавляет новый вопрос (и его варианты ответов) к категории.
+func (r *CategoryRepository) AddQuestion(ctx context.Context, categoryID string, q domain.Question) (domain.Question, error) {
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO questions (category_id, step_number, question_text, ui_type, mapping_key, is_required)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id
+	`, categoryID, q.StepNumber, q.QuestionText, q.UIType, q.MappingKey, q.IsRequired).Scan(&q.ID)
+	if err != nil {
+		if pgErrCode(err) == pgErrForeignKeyViolation {
+			return domain.Question{}, domain.ErrCategoryNotFound
+		}
+		return domain.Question{}, fmt.Errorf("insert question: %w", err)
+	}
+
+	if err := r.insertOptions(ctx, q.ID, q.Options); err != nil {
+		return domain.Question{}, err
+	}
+	return q, nil
+}
+
+// UpdateQuestion перезаписывает вопрос и полностью заменяет его варианты ответов.
+func (r *CategoryRepository) UpdateQuestion(ctx context.Context, categoryID string, q domain.Question) error {
+	cmd, err := r.db.Exec(ctx, `
+		UPDATE questions
+		SET step_number = $1, question_text = $2, ui_type = $3, mapping_key = $4, is_required = $5
+		WHERE id = $6 AND category_id = $7
+	`, q.StepNumber, q.QuestionText, q.UIType, q.MappingKey, q.IsRequired, q.ID, categoryID)
+	if err != nil {
+		return fmt.Errorf("update question: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrQuestionNotFound
+	}
+
+	if _, err := r.db.Exec(ctx, `DELETE FROM question_options WHERE question_id = $1`, q.ID); err != nil {
+		return fmt.Errorf("clear question options: %w", err)
+	}
+	return r.insertOptions(ctx, q.ID, q.Options)
+}
+
+// DeleteQuestion удаляет вопрос; варианты ответов удаляются каскадно.
+func (r *CategoryRepository) DeleteQuestion(ctx context.Context, categoryID string, questionID int) error {
+	cmd, err := r.db.Exec(ctx, `DELETE FROM questions WHERE id = $1 AND category_id = $2`, questionID, categoryID)
+	if err != nil {
+		return fmt.Errorf("delete question: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrQuestionNotFound
+	}
+	return nil
+}
+
+func (r *CategoryRepository) insertOptions(ctx context.Context, questionID int, options []domain.Option) error {
+	for _, o := range options {
+		if _, err := r.db.Exec(ctx, `
+			INSERT INTO question_options (question_id, label, value) VALUES ($1, $2, $3)
+		`, questionID, o.Label, o.Value); err != nil {
+			return fmt.Errorf("insert question option: %w", err)
+		}
+	}
+	return nil
 }

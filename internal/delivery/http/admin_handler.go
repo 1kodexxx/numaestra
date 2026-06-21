@@ -40,6 +40,15 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Post("/{id}/refund", h.RefundOrder)
 	})
 
+	r.Route("/categories", func(r chi.Router) {
+		r.Post("/", h.CreateCategory)
+		r.Put("/{id}", h.UpdateCategory)
+		r.Delete("/{id}", h.DeleteCategory)
+		r.Post("/{id}/questions", h.AddQuestion)
+		r.Put("/{id}/questions/{qid}", h.UpdateQuestion)
+		r.Delete("/{id}/questions/{qid}", h.DeleteQuestion)
+	})
+
 	return r
 }
 
@@ -237,6 +246,226 @@ func (h *AdminHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Error("admin: ошибка возврата платежа", "order_id", id, "error", err)
 		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ==========================================
+// Категории и вопросы квиза (server-driven UI)
+// ==========================================
+
+type categoryRequest struct {
+	ID                 string   `json:"id"`
+	Title              string   `json:"title"`
+	Description        string   `json:"description"`
+	CoverImageURL      string   `json:"cover_image_url"`
+	SeoTags            []string `json:"seo_tags"`
+	BasePromptTemplate string   `json:"base_prompt_template"`
+}
+
+type optionDTO struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+type questionRequest struct {
+	StepNumber   int         `json:"step_number"`
+	QuestionText string      `json:"question_text"`
+	UIType       string      `json:"ui_type"`
+	MappingKey   string      `json:"mapping_key"`
+	IsRequired   bool        `json:"is_required"`
+	Options      []optionDTO `json:"options"`
+}
+
+func (q questionRequest) toDomainOptions() []domain.Option {
+	opts := make([]domain.Option, 0, len(q.Options))
+	for _, o := range q.Options {
+		opts = append(opts, domain.Option{Label: o.Label, Value: o.Value})
+	}
+	return opts
+}
+
+type categoryAdminResponse struct {
+	ID                 string             `json:"id"`
+	Title              string             `json:"title"`
+	Description        string             `json:"description"`
+	CoverImageURL      string             `json:"cover_image_url"`
+	SeoTags            []string           `json:"seo_tags"`
+	BasePromptTemplate string             `json:"base_prompt_template"`
+	Questions          []questionResponse `json:"questions,omitempty"`
+}
+
+type questionResponse struct {
+	ID           int         `json:"id"`
+	StepNumber   int         `json:"step_number"`
+	QuestionText string      `json:"question_text"`
+	UIType       string      `json:"ui_type"`
+	MappingKey   string      `json:"mapping_key"`
+	IsRequired   bool        `json:"is_required"`
+	Options      []optionDTO `json:"options,omitempty"`
+}
+
+func questionToResponse(q domain.Question) questionResponse {
+	opts := make([]optionDTO, 0, len(q.Options))
+	for _, o := range q.Options {
+		opts = append(opts, optionDTO{Label: o.Label, Value: o.Value})
+	}
+	return questionResponse{
+		ID:           q.ID,
+		StepNumber:   q.StepNumber,
+		QuestionText: q.QuestionText,
+		UIType:       q.UIType,
+		MappingKey:   q.MappingKey,
+		IsRequired:   q.IsRequired,
+		Options:      opts,
+	}
+}
+
+func categoryToAdminResponse(c *domain.Category) categoryAdminResponse {
+	questions := make([]questionResponse, 0, len(c.Questions()))
+	for _, q := range c.Questions() {
+		questions = append(questions, questionToResponse(q))
+	}
+	return categoryAdminResponse{
+		ID:                 c.ID(),
+		Title:              c.Title(),
+		Description:        c.Description(),
+		CoverImageURL:      c.CoverImageURL(),
+		SeoTags:            c.SeoTags(),
+		BasePromptTemplate: c.BasePromptTemplate(),
+		Questions:          questions,
+	}
+}
+
+// CreateCategory создаёт новую категорию каталога (включая, например, категорию
+// "general"/"freeform" для свободного сценария без жёсткого набора вопросов).
+// POST /api/v1/admin/categories
+func (h *AdminHandler) CreateCategory(w http.ResponseWriter, r *http.Request) {
+	var req categoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+
+	category, err := h.uc.CreateCategory(r.Context(), req.ID, req.Title, req.Description, req.CoverImageURL, req.SeoTags, req.BasePromptTemplate)
+	if err != nil {
+		if errors.Is(err, domain.ErrCategoryAlreadyExists) {
+			respondError(w, r, http.StatusConflict, "категория с таким id уже существует")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusCreated, categoryToAdminResponse(category))
+}
+
+// UpdateCategory обновляет изменяемые поля категории.
+// PUT /api/v1/admin/categories/{id}
+func (h *AdminHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req categoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+
+	category, err := h.uc.UpdateCategory(r.Context(), id, req.Title, req.Description, req.CoverImageURL, req.SeoTags, req.BasePromptTemplate)
+	if err != nil {
+		if errors.Is(err, domain.ErrCategoryNotFound) {
+			respondError(w, r, http.StatusNotFound, "категория не найдена")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, categoryToAdminResponse(category))
+}
+
+// DeleteCategory удаляет категорию вместе со всеми её вопросами.
+// DELETE /api/v1/admin/categories/{id}
+func (h *AdminHandler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.uc.DeleteCategory(r.Context(), id); err != nil {
+		if errors.Is(err, domain.ErrCategoryNotFound) {
+			respondError(w, r, http.StatusNotFound, "категория не найдена")
+			return
+		}
+		h.log.Error("admin: ошибка удаления категории", "category_id", id, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось удалить категорию")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// AddQuestion добавляет вопрос квиза к категории.
+// POST /api/v1/admin/categories/{id}/questions
+func (h *AdminHandler) AddQuestion(w http.ResponseWriter, r *http.Request) {
+	categoryID := chi.URLParam(r, "id")
+
+	var req questionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+
+	q, err := h.uc.AddQuestion(r.Context(), categoryID, req.StepNumber, req.QuestionText, req.UIType, req.MappingKey, req.IsRequired, req.toDomainOptions())
+	if err != nil {
+		if errors.Is(err, domain.ErrCategoryNotFound) {
+			respondError(w, r, http.StatusNotFound, "категория не найдена")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusCreated, questionToResponse(q))
+}
+
+// UpdateQuestion перезаписывает вопрос квиза (включая полную замену вариантов ответов).
+// PUT /api/v1/admin/categories/{id}/questions/{qid}
+func (h *AdminHandler) UpdateQuestion(w http.ResponseWriter, r *http.Request) {
+	categoryID := chi.URLParam(r, "id")
+	qid, err := strconv.Atoi(chi.URLParam(r, "qid"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный id вопроса")
+		return
+	}
+
+	var req questionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+
+	if err := h.uc.UpdateQuestion(r.Context(), categoryID, qid, req.StepNumber, req.QuestionText, req.UIType, req.MappingKey, req.IsRequired, req.toDomainOptions()); err != nil {
+		if errors.Is(err, domain.ErrQuestionNotFound) {
+			respondError(w, r, http.StatusNotFound, "вопрос не найден")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteQuestion удаляет вопрос квиза.
+// DELETE /api/v1/admin/categories/{id}/questions/{qid}
+func (h *AdminHandler) DeleteQuestion(w http.ResponseWriter, r *http.Request) {
+	categoryID := chi.URLParam(r, "id")
+	qid, err := strconv.Atoi(chi.URLParam(r, "qid"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный id вопроса")
+		return
+	}
+
+	if err := h.uc.DeleteQuestion(r.Context(), categoryID, qid); err != nil {
+		if errors.Is(err, domain.ErrQuestionNotFound) {
+			respondError(w, r, http.StatusNotFound, "вопрос не найден")
+			return
+		}
+		h.log.Error("admin: ошибка удаления вопроса", "category_id", categoryID, "question_id", qid, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось удалить вопрос")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

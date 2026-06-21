@@ -25,7 +25,7 @@ func newAdminUC(t *testing.T) (*AdminUseCase, *inMemOrderRepo, *inMemAccountRepo
 	t.Helper()
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()
-	uc := NewAdminUseCase(orders, accounts, &mockRefunder{}, testLogger())
+	uc := NewAdminUseCase(orders, accounts, nil, &mockRefunder{}, nil, testLogger())
 	return uc, orders, accounts
 }
 
@@ -115,7 +115,7 @@ func TestAdminUseCase_ListOrders_Pagination(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
 	for i := int64(1); i <= 5; i++ {
-		o, _ := domain.NewOrder(i, "u@a.com", "", "бриф", "standard", "", "", 100)
+		o, _ := domain.NewOrder(i, "u@a.com", "", "бриф", "", "", 100)
 		_ = orders.Create(context.Background(), o)
 	}
 
@@ -147,7 +147,7 @@ func TestAdminUseCase_ListOrders_DefaultsOnInvalidParams(t *testing.T) {
 func TestAdminUseCase_GetOrder_Found(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
-	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "standard", "", "", 500)
+	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "", "", 500)
 	_ = orders.Create(context.Background(), o)
 
 	got, err := uc.GetOrder(context.Background(), o.ID())
@@ -174,9 +174,9 @@ func TestAdminUseCase_RefundOrder_Success(t *testing.T) {
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()
 	rk := &mockRefunder{}
-	uc := NewAdminUseCase(orders, accounts, rk, testLogger())
+	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, testLogger())
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "standard", "", "", 10000)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 
@@ -193,7 +193,7 @@ func TestAdminUseCase_RefundOrder_Success(t *testing.T) {
 func TestAdminUseCase_RefundOrder_NotPaid(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "standard", "", "", 100)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 100)
 	// Заказ не оплачен (статус pending).
 	_ = orders.Create(context.Background(), o)
 
@@ -274,7 +274,7 @@ func TestAdminUseCase_RefundOrder_NotFound(t *testing.T) {
 func TestAdminUseCase_RefundOrder_UpdateError(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "standard", "", "", 10000)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 
@@ -290,9 +290,9 @@ func TestAdminUseCase_RefundOrder_RobokassaFailure(t *testing.T) {
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()
 	rk := &mockRefunder{err: errors.New("Robokassa 500")}
-	uc := NewAdminUseCase(orders, accounts, rk, testLogger())
+	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, testLogger())
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "standard", "", "", 10000)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 

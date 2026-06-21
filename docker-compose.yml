@@ -23,6 +23,9 @@ x-app-env: &app-env
   # В prod обязателен: openssl rand -hex 32
   SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
   ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+  # 172.16.0.0/12 — дефолтный диапазон docker-сетей, нужен чтобы Prometheus
+  # (profile monitoring) мог скрейпить /metrics из соседнего контейнера.
+  METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-127.0.0.1/8,::1/128,172.16.0.0/12}
 
 services:
   postgres:
@@ -111,6 +114,82 @@ services:
       start_period: 10s
     stop_grace_period: 30s
 
+  # Reverse-proxy с автоматическим TLS (Let's Encrypt) для прод-деплоя на VPS.
+  # Запуск: docker compose --profile proxy up -d
+  # Требует DOMAIN и ACME_EMAIL в .env, и что 80/443 порта VPS смотрят сюда
+  # (а не напрямую на app — порт app лучше тогда биндить только на localhost).
+  caddy:
+    image: caddy:2-alpine
+    container_name: numaestra-caddy
+    profiles: [proxy]
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN обязателен для профиля proxy}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL обязателен для профиля proxy}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - numaestra_caddy_data:/data
+      - numaestra_caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  # Ночные дампы Postgres с ротацией (BACKUP_RETENTION_DAYS, по умолчанию 7 дней).
+  # Запуск: docker compose --profile backup up -d
+  # Дампы складываются в ./backups на хосте — учти это в своём бэкапе VPS/диска.
+  backup:
+    image: postgres:16-alpine
+    container_name: numaestra-backup
+    profiles: [backup]
+    environment:
+      PGHOST: postgres
+      PGUSER: numaestra
+      PGPASSWORD: numaestra
+      PGDATABASE: numaestra
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    entrypoint: ["sh", "/scripts/backup-postgres.sh"]
+    volumes:
+      - ./deploy/backup-postgres.sh:/scripts/backup-postgres.sh:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Мониторинг и алерты. Запуск: docker compose --profile monitoring up -d
+  # Prometheus UI: :9090, Alertmanager UI: :9093.
+  # Перед продом заполни deploy/alertmanager.yml реальным receiver'ом (email/Telegram/Slack),
+  # иначе алерты будут копиться в Alertmanager без уведомления кого-либо.
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: numaestra-prometheus
+    profiles: [monitoring]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - numaestra_prometheus_data:/prometheus
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: numaestra-alertmanager
+    profiles: [monitoring]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./deploy/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    restart: unless-stopped
+
 volumes:
   numaestra_pgdata:
   numaestra_redisdata:
+  numaestra_caddy_data:
+  numaestra_caddy_config:
+  numaestra_prometheus_data:

@@ -5,7 +5,6 @@ export interface CreateOrderPayload {
   email: string
   phone: string
   brief: string
-  plan: string
   category_id: string
   answers: Record<string, string>
 }

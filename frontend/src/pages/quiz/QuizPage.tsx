@@ -23,7 +23,6 @@ export function QuizPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [plan, setPlan] = useState<'standard' | 'premium'>('standard')
   const [stepError, setStepError] = useState<string | null>(null)
 
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
@@ -77,7 +76,7 @@ export function QuizPage() {
         .map((q) => answers[q.mapping_key] ? `${q.question_text}: ${answers[q.mapping_key]}` : null)
         .filter(Boolean)
         .join('; ') || 'Персональная песня'
-    await submit({ email, phone, brief, plan, category_id: categoryId, answers })
+    await submit({ email, phone, brief, category_id: categoryId, answers })
   }
 
   return (
@@ -114,8 +113,8 @@ export function QuizPage() {
           />
         ) : (
           <ContactStep
-            email={email} phone={phone} plan={plan}
-            onEmail={setEmail} onPhone={setPhone} onPlan={setPlan}
+            email={email} phone={phone}
+            onEmail={setEmail} onPhone={setPhone}
           />
         )}
 
@@ -207,14 +206,14 @@ function QuestionStep({
 }
 
 function ContactStep({
-  email, phone, plan, onEmail, onPhone, onPlan,
+  email, phone, onEmail, onPhone,
 }: {
-  email: string; phone: string; plan: string
-  onEmail: (v: string) => void; onPhone: (v: string) => void; onPlan: (v: 'standard' | 'premium') => void
+  email: string; phone: string
+  onEmail: (v: string) => void; onPhone: (v: string) => void
 }) {
   return (
     <>
-      <div className="text-lg font-semibold mb-5">Контактные данные и тариф</div>
+      <div className="text-lg font-semibold mb-5">Контактные данные</div>
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5 text-sm text-muted">
           <label>Email <span className="text-error">*</span></label>
@@ -224,22 +223,10 @@ function ContactStep({
           <label>Телефон (необязательно)</label>
           <input className={inputCls} type="tel" placeholder="+7 999 000 00 00" value={phone} onChange={(e) => onPhone(e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          {(['standard', 'premium'] as const).map((p) => (
-            <div
-              key={p}
-              className={`rounded-[10px] p-4 cursor-pointer text-center transition-all ${
-                plan === p
-                  ? 'border-2 border-accent bg-accent/12'
-                  : 'border-2 border-border bg-bg3 hover:border-accent2'
-              }`}
-              onClick={() => onPlan(p)}
-            >
-              <div className="font-bold text-base">{p === 'standard' ? 'Стандарт' : 'Премиум ✨'}</div>
-              <div className="text-gold text-[22px] font-extrabold my-1.5">{p === 'standard' ? '1 500 ₽' : '2 900 ₽'}</div>
-              <div className="text-xs text-muted">{p === 'standard' ? '4 варианта песни' : '8 вариантов + приоритет'}</div>
-            </div>
-          ))}
+        <div className="rounded-[10px] p-4 text-center border-2 border-accent bg-accent/12">
+          <div className="font-bold text-base">4 версии песни</div>
+          <div className="text-gold text-[22px] font-extrabold my-1.5">2 000 ₽</div>
+          <div className="text-xs text-muted">Один платёж, без подписок и тарифов</div>
         </div>
       </div>
     </>

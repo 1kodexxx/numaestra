@@ -50,9 +50,12 @@ type OrderUseCase struct {
 	notifier  notify.Notifier
 	llmClient openai.APIClient
 	promptUC  PromptBuilder
-	pricing   Pricing
-	tx        TransactionManager
-	log       *slog.Logger
+	// priceKopecks — фиксированная серверная цена заказа (4 версии песни).
+	// Клиент не может повлиять на сумму — иначе её можно занизить и пройти
+	// сверку в вебхуке оплаты (см. CreateOrder).
+	priceKopecks int64
+	tx           TransactionManager
+	log          *slog.Logger
 }
 
 // Алиасы для интерфейсов, чтобы сократить код (или используйте напрямую domain.*)
@@ -70,22 +73,22 @@ func NewOrderUseCase(
 	notifier notify.Notifier,
 	llmClient openai.APIClient,
 	promptUC PromptBuilder,
-	pricing Pricing,
+	priceKopecks int64,
 	tx TransactionManager,
 	log *slog.Logger,
 ) *OrderUseCase {
 	return &OrderUseCase{
-		orderRepo: orderRepo,
-		accRepo:   accRepo,
-		queue:     queue,
-		provider:  provider,
-		storage:   storage,
-		notifier:  notifier,
-		llmClient: llmClient,
-		promptUC:  promptUC,
-		pricing:   pricing,
-		tx:        tx,
-		log:       log,
+		orderRepo:    orderRepo,
+		accRepo:      accRepo,
+		queue:        queue,
+		provider:     provider,
+		storage:      storage,
+		notifier:     notifier,
+		llmClient:    llmClient,
+		promptUC:     promptUC,
+		priceKopecks: priceKopecks,
+		tx:           tx,
+		log:          log,
 	}
 }
 
@@ -119,7 +122,7 @@ var ErrInvalidPhone = errors.New("некорректный формат теле
 // Минимум 7 цифр, максимум 15 (E.164), допускаются пробелы, дефисы, скобки.
 var phoneRe = regexp.MustCompile(`^\+?[\d\s\-\(\)]{7,20}$`)
 
-func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, plan, categoryID string, answers map[string]string) (*domain.Order, error) {
+func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, categoryID string, answers map[string]string) (*domain.Order, error) {
 	// Проверяем формат email, если он передан. Поле необязательное (можно оставить пустым),
 	// но если передано — должно соответствовать RFC 5322 (net/mail).
 	if email != "" {
@@ -132,12 +135,10 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		return nil, fmt.Errorf("%w: %q", ErrInvalidPhone, phone)
 	}
 
-	// Цену определяет сервер по выбранному тарифу, а НЕ клиент. Иначе сумму заказа
-	// можно занизить до 1 копейки и пройти сверку в вебхуке оплаты.
-	amountKopecks, err := uc.pricing.PriceFor(plan)
-	if err != nil {
-		return nil, fmt.Errorf("определение цены тарифа: %w", err)
-	}
+	// Цена фиксированная и определяется сервером (4 версии песни за один платёж,
+	// без тарифов и подписок) — клиент не передаёт и не может повлиять на сумму.
+	// Иначе её можно было бы занизить до 1 копейки и пройти сверку в вебхуке оплаты.
+	amountKopecks := uc.priceKopecks
 
 	// InvoiceID берём из PostgreSQL sequence — атомарно и без коллизий
 	// при параллельных запросах или нескольких инстансах сервиса.
@@ -161,7 +162,7 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		}
 	}
 
-	order, err := domain.NewOrder(invoiceID, email, phone, brief, plan, categoryID, sunoPrompt, amountKopecks)
+	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, amountKopecks)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка валидации заказа: %w", err)
 	}
@@ -307,15 +308,11 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	}
 
 	// 4. Отправка структурированного запроса в Suno API.
-	// Для тарифа "premium" генерируем 8 вариантов, для остальных — 4.
-	trackCount := 4
-	if order.Plan() == "premium" {
-		trackCount = 8
-	}
+	// Продукт фиксированный — 4 версии песни на заказ, без тарифов.
 	req := domain.MusicGenerationRequest{
 		Brief:        lyrics,
 		Instrumental: false,
-		TrackCount:   trackCount,
+		TrackCount:   domain.DefaultTrackCount,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 

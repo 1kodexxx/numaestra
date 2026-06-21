@@ -107,14 +107,15 @@ docker compose down      # с -v снесёт и данные Postgres
 ```bash
 curl -X POST http://localhost:8080/api/v1/orders/ \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","brief":"Песня на юбилей","plan":"standard"}'
+  -d '{"email":"user@example.com","brief":"Песня на юбилей"}'
 ```
 
-**Цену определяет сервер по тарифу (`plan`)** — сумма НЕ принимается из тела запроса,
-иначе её можно было бы занизить и пройти сверку в вебхуке оплаты. Доступные тарифы и
-цены задаются переменными `PRICE_*` (см. `.env.example`). Ответ содержит итоговую
-`amount_kopecks` и `access_token` — токен нужно сохранить и передавать в заголовке
-`X-Access-Token` для доступа к заказу.
+**Цена фиксированная и определяется сервером** — без тарифов и подписок: один платёж
+за 4 версии песни. Сумма НЕ принимается из тела запроса, иначе её можно было бы занизить
+и пройти сверку в вебхуке оплаты. Цена задаётся переменной `PRICE_KOPECKS` (см.
+`.env.example`, по умолчанию 200000 = 2000 ₽). Ответ содержит итоговую `amount_kopecks`
+и `access_token` — токен нужно сохранить и передавать в заголовке `X-Access-Token`
+для доступа к заказу.
 
 Вебхук Robokassa идемпотентен (повторные доставки уже оплаченного заказа возвращают
 `OK{InvId}`), а постановка задачи генерации защищена от гонки двойной оплаты
@@ -157,9 +158,75 @@ pkg/
   banner, health, logger, migrate, notify, openai, robokassa, s3, suno
 ```
 
+## Продакшен-деплой (VPS / Docker Compose)
+
+Базовый `docker compose up -d` поднимает только `postgres`, `redis` и `app` — этого
+достаточно для dev. Для прода на VPS добавлены три опциональных профиля
+(`deploy/`), каждый включается отдельно:
+
+### TLS / reverse-proxy (`profile proxy`)
+
+`app` сам по себе слушает голый HTTP на `:8080`. На VPS перед ним должен стоять
+TLS-терминатор. Используется Caddy с автоматическим Let's Encrypt:
+
+```powershell
+# В .env: DOMAIN=numaestra.example.com, ACME_EMAIL=you@example.com
+docker compose --profile proxy up -d
+```
+
+Caddy слушает `:80`/`:443` на хосте и проксирует на `app:8080` внутри docker-сети.
+Конфиг — `deploy/Caddyfile`. Порт `8080` самого `app` в `docker-compose.yml` стоит
+либо не публиковать на хост вовсе, либо забиндить только на `127.0.0.1`, если
+порт пробрасывается напрямую для отладки.
+
+### Бэкапы Postgres (`profile backup`)
+
+```powershell
+docker compose --profile backup up -d
+```
+
+Сервис `backup` каждые `BACKUP_INTERVAL_SECONDS` (по умолчанию раз в сутки) снимает
+`pg_dump` через `deploy/backup-postgres.sh`, кладёт сжатый дамп в `./backups/` на
+хосте и удаляет дампы старше `BACKUP_RETENTION_DAYS` (по умолчанию 7 дней).
+`./backups/` — это обычная директория хоста, её нужно включить в свой бэкап
+VPS/диска (snapshot, rsync на другой сервер и т.п.) — сам контейнер не отправляет
+дампы за пределы хоста.
+
+Восстановление:
+
+```bash
+POSTGRES_DSN=postgres://numaestra:numaestra@localhost:5432/numaestra \
+  ./deploy/restore-postgres.sh ./backups/numaestra-20260621T120000Z.sql.gz
+```
+
+### Мониторинг и алерты (`profile monitoring`)
+
+```powershell
+docker compose --profile monitoring up -d
+```
+
+Поднимает Prometheus (`:9090`) со скрейпом `app:8080/metrics` и Alertmanager
+(`:9093`). Правила алертов — `deploy/alerts.yml` (даунтайм сервиса, доля 5xx,
+латентность p95, массовые `failed`-заказы, ошибки Suno API).
+
+**Перед продом обязательно** заполни реальный receiver в `deploy/alertmanager.yml`
+(email/Telegram/Slack) — Alertmanager не подставляет переменные окружения в
+конфиг, плейсхолдеры там нужно заменить руками, иначе алерты будут просто копиться
+в UI и никто их не увидит.
+
+### Чек-лист обязательных переменных для prod (`APP_ENV != dev`)
+
+Без них `config.Load()` вернёт фатальную ошибку при старте: `ADMIN_TOKEN`,
+`SUNO_API_KEY`, `OPENAI_API_KEY`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`,
+`SESSION_ENCRYPTION_KEY`. Дополнительно рекомендуется задать `SMTP_HOST` —
+без него уведомления клиентам уходят только в лог (заглушка), без реальной отправки.
+
 ## Тестирование
 
 Юнит-тесты покрывают доменные стейт-машины, use-case (с in-memory моками репозиториев),
 HTTP-хендлеры, middleware, адаптер Suno, воркер, а также клиентов `robokassa`, `openai`,
 `s3`, `suno` (через `httptest`). Репозитории на Postgres требуют живой БД и в юнит-наборе
-не покрыты — для них предполагаются интеграционные тесты.
+не покрыты — для них есть интеграционные тесты (`make test-integration`, testcontainers).
+
+Фронтенд: `make frontend-test` (vitest + Testing Library). CI прогоняет typecheck,
+тесты и build фронта отдельным job'ом (`.github/workflows/ci.yml`).

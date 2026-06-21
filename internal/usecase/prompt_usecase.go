@@ -26,9 +26,9 @@ type PromptUseCase struct {
 	// In-memory TTL-кеш для GetAllCategories. Данные меняются крайне редко
 	// (раз в месяц при обновлении каталога), поэтому кешируем на 1 час и не
 	// тратим лишний round-trip к Postgres на каждый запрос главной страницы.
-	mu         sync.RWMutex
-	cachedAll  []*domain.Category
-	cachedAt   time.Time
+	mu        sync.RWMutex
+	cachedAll []*domain.Category
+	cachedAt  time.Time
 }
 
 // NewPromptUseCase создаёт UseCase для работы с категориями и промптами.
@@ -70,6 +70,16 @@ func (uc *PromptUseCase) GetAllCategories(ctx context.Context) ([]*domain.Catego
 // Обертка для получения конкретной категории с вопросами
 func (uc *PromptUseCase) GetCategoryWizard(ctx context.Context, id string) (*domain.Category, error) {
 	return uc.categoryRepo.GetByID(ctx, id)
+}
+
+// InvalidateCache сбрасывает кеш GetAllCategories. Вызывается AdminUseCase после
+// создания/изменения/удаления категории, чтобы изменения админки сразу появились
+// на главной странице, а не ждали истечения categoriesCacheTTL.
+func (uc *PromptUseCase) InvalidateCache() {
+	uc.mu.Lock()
+	uc.cachedAll = nil
+	uc.cachedAt = time.Time{}
+	uc.mu.Unlock()
 }
 
 // BuildFinalPrompt строит итоговый промпт для Suno API, подставляя ответы

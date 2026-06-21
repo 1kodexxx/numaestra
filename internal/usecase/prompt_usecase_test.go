@@ -55,6 +55,85 @@ func (r *inMemCategoryRepo) GetByID(_ context.Context, id string) (*domain.Categ
 	return domain.RestoreCategory(s), nil
 }
 
+func (r *inMemCategoryRepo) Create(_ context.Context, c *domain.Category) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := c.Snapshot()
+	if _, exists := r.categories[snap.ID]; exists {
+		return domain.ErrCategoryAlreadyExists
+	}
+	r.categories[snap.ID] = snap
+	return nil
+}
+
+func (r *inMemCategoryRepo) Update(_ context.Context, c *domain.Category) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := c.Snapshot()
+	if _, exists := r.categories[snap.ID]; !exists {
+		return domain.ErrCategoryNotFound
+	}
+	r.categories[snap.ID] = snap
+	return nil
+}
+
+func (r *inMemCategoryRepo) Delete(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.categories[id]; !exists {
+		return domain.ErrCategoryNotFound
+	}
+	delete(r.categories, id)
+	return nil
+}
+
+func (r *inMemCategoryRepo) AddQuestion(_ context.Context, categoryID string, q domain.Question) (domain.Question, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.categories[categoryID]
+	if !ok {
+		return domain.Question{}, domain.ErrCategoryNotFound
+	}
+	q.ID = len(snap.Questions) + 1
+	snap.Questions = append(snap.Questions, q)
+	r.categories[categoryID] = snap
+	return q, nil
+}
+
+func (r *inMemCategoryRepo) UpdateQuestion(_ context.Context, categoryID string, q domain.Question) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.categories[categoryID]
+	if !ok {
+		return domain.ErrQuestionNotFound
+	}
+	for i, existing := range snap.Questions {
+		if existing.ID == q.ID {
+			snap.Questions[i] = q
+			r.categories[categoryID] = snap
+			return nil
+		}
+	}
+	return domain.ErrQuestionNotFound
+}
+
+func (r *inMemCategoryRepo) DeleteQuestion(_ context.Context, categoryID string, questionID int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.categories[categoryID]
+	if !ok {
+		return domain.ErrQuestionNotFound
+	}
+	for i, existing := range snap.Questions {
+		if existing.ID == questionID {
+			snap.Questions = append(snap.Questions[:i], snap.Questions[i+1:]...)
+			r.categories[categoryID] = snap
+			return nil
+		}
+	}
+	return domain.ErrQuestionNotFound
+}
+
 var _ domain.CategoryRepository = (*inMemCategoryRepo)(nil)
 
 // --- тесты ---

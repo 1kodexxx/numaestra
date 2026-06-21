@@ -126,7 +126,6 @@ type CreateOrderRequest struct {
 	Email      string            `json:"email"`
 	Phone      string            `json:"phone"`
 	Brief      string            `json:"brief"`
-	Plan       string            `json:"plan"`
 	CategoryID string            `json:"category_id"`
 	Answers    map[string]string `json:"answers"`
 }
@@ -163,12 +162,8 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.Plan, req.CategoryID, req.Answers)
+	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.CategoryID, req.Answers)
 	if err != nil {
-		if errors.Is(err, usecase.ErrUnknownPlan) {
-			respondError(w, r, http.StatusBadRequest, "неизвестный тариф")
-			return
-		}
 		if errors.Is(err, domain.ErrBriefTooLong) {
 			respondError(w, r, http.StatusBadRequest, "поле brief слишком длинное")
 			return

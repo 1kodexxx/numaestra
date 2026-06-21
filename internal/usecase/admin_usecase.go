@@ -16,27 +16,47 @@ type Refunder interface {
 	Refund(ctx context.Context, outSum string, invID int64) error
 }
 
+// categoryCacheInvalidator — порт сброса кеша каталога категорий.
+// Реализуется *PromptUseCase; позволяет AdminUseCase не зависеть от его
+// конкретной реализации и не тащить кеш в тесты, где он не нужен (nil-safe).
+type categoryCacheInvalidator interface {
+	InvalidateCache()
+}
+
 // AdminUseCase предоставляет операции управления для административного API:
-// добавление и управление Suno-аккаунтами, просмотр заказов, инициация возвратов.
+// добавление и управление Suno-аккаунтами, просмотр заказов, инициация возвратов,
+// CRUD категорий и вопросов квиза.
 type AdminUseCase struct {
-	orderRepo   domain.OrderRepository
-	accountRepo domain.AccountRepository
-	rk          Refunder
-	log         *slog.Logger
+	orderRepo     domain.OrderRepository
+	accountRepo   domain.AccountRepository
+	categoryRepo  domain.CategoryRepository
+	rk            Refunder
+	categoryCache categoryCacheInvalidator
+	log           *slog.Logger
 }
 
 // NewAdminUseCase создаёт AdminUseCase.
 func NewAdminUseCase(
 	orderRepo domain.OrderRepository,
 	accountRepo domain.AccountRepository,
+	categoryRepo domain.CategoryRepository,
 	rk Refunder,
+	categoryCache categoryCacheInvalidator,
 	log *slog.Logger,
 ) *AdminUseCase {
 	return &AdminUseCase{
-		orderRepo:   orderRepo,
-		accountRepo: accountRepo,
-		rk:          rk,
-		log:         log,
+		orderRepo:     orderRepo,
+		accountRepo:   accountRepo,
+		categoryRepo:  categoryRepo,
+		rk:            rk,
+		categoryCache: categoryCache,
+		log:           log,
+	}
+}
+
+func (uc *AdminUseCase) invalidateCategoryCache() {
+	if uc.categoryCache != nil {
+		uc.categoryCache.InvalidateCache()
 	}
 }
 
@@ -143,5 +163,94 @@ func (uc *AdminUseCase) RefundOrder(ctx context.Context, orderID uuid.UUID) erro
 	}
 
 	uc.log.Info("возврат платежа выполнен", "order_id", orderID, "amount", outSum)
+	return nil
+}
+
+// ==========================================
+// Категории и вопросы квиза (server-driven UI)
+// ==========================================
+
+// CreateCategory создаёт новую категорию каталога (например, новый повод для
+// песни или "general"/"freeform" — категорию-заглушку для свободного сценария
+// без жёсткого набора вопросов).
+func (uc *AdminUseCase) CreateCategory(ctx context.Context, id, title, description, coverImageURL string, seoTags []string, basePromptTemplate string) (*domain.Category, error) {
+	category, err := domain.NewCategory(id, title, description, coverImageURL, seoTags, basePromptTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("валидация категории: %w", err)
+	}
+	if err := uc.categoryRepo.Create(ctx, category); err != nil {
+		return nil, err
+	}
+	uc.invalidateCategoryCache()
+	uc.log.Info("admin: создана категория", "category_id", id, "title", title)
+	return category, nil
+}
+
+// UpdateCategory обновляет изменяемые поля существующей категории.
+func (uc *AdminUseCase) UpdateCategory(ctx context.Context, id, title, description, coverImageURL string, seoTags []string, basePromptTemplate string) (*domain.Category, error) {
+	category, err := uc.categoryRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, domain.ErrCategoryNotFound
+	}
+	if err := category.UpdateDetails(title, description, coverImageURL, seoTags, basePromptTemplate); err != nil {
+		return nil, fmt.Errorf("валидация категории: %w", err)
+	}
+	if err := uc.categoryRepo.Update(ctx, category); err != nil {
+		return nil, err
+	}
+	uc.invalidateCategoryCache()
+	uc.log.Info("admin: обновлена категория", "category_id", id)
+	return category, nil
+}
+
+// DeleteCategory удаляет категорию вместе со всеми её вопросами (каскадно).
+// Уже созданные заказы с этой category_id не затрагиваются — у них уже есть
+// готовый sunoPrompt, сформированный на момент заказа.
+func (uc *AdminUseCase) DeleteCategory(ctx context.Context, id string) error {
+	if err := uc.categoryRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	uc.invalidateCategoryCache()
+	uc.log.Info("admin: удалена категория", "category_id", id)
+	return nil
+}
+
+// AddQuestion добавляет новый вопрос квиза к категории.
+func (uc *AdminUseCase) AddQuestion(ctx context.Context, categoryID string, stepNumber int, questionText, uiType, mappingKey string, isRequired bool, options []domain.Option) (domain.Question, error) {
+	q, err := domain.NewQuestion(stepNumber, questionText, uiType, mappingKey, isRequired, options)
+	if err != nil {
+		return domain.Question{}, fmt.Errorf("валидация вопроса: %w", err)
+	}
+	saved, err := uc.categoryRepo.AddQuestion(ctx, categoryID, q)
+	if err != nil {
+		return domain.Question{}, err
+	}
+	uc.invalidateCategoryCache()
+	uc.log.Info("admin: добавлен вопрос", "category_id", categoryID, "question_id", saved.ID)
+	return saved, nil
+}
+
+// UpdateQuestion перезаписывает вопрос квиза (включая полную замену вариантов ответов).
+func (uc *AdminUseCase) UpdateQuestion(ctx context.Context, categoryID string, questionID, stepNumber int, questionText, uiType, mappingKey string, isRequired bool, options []domain.Option) error {
+	q, err := domain.NewQuestion(stepNumber, questionText, uiType, mappingKey, isRequired, options)
+	if err != nil {
+		return fmt.Errorf("валидация вопроса: %w", err)
+	}
+	q.ID = questionID
+	if err := uc.categoryRepo.UpdateQuestion(ctx, categoryID, q); err != nil {
+		return err
+	}
+	uc.invalidateCategoryCache()
+	uc.log.Info("admin: обновлён вопрос", "category_id", categoryID, "question_id", questionID)
+	return nil
+}
+
+// DeleteQuestion удаляет вопрос квиза.
+func (uc *AdminUseCase) DeleteQuestion(ctx context.Context, categoryID string, questionID int) error {
+	if err := uc.categoryRepo.DeleteQuestion(ctx, categoryID, questionID); err != nil {
+		return err
+	}
+	uc.invalidateCategoryCache()
+	uc.log.Info("admin: удалён вопрос", "category_id", categoryID, "question_id", questionID)
 	return nil
 }

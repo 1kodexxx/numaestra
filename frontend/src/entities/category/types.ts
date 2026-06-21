@@ -8,7 +8,7 @@ export interface Category {
   is_active: boolean
 }
 
-export type QuestionUIType = 'select' | 'textarea' | 'text'
+export type QuestionUIType = 'select' | 'tags' | 'radio' | 'textarea' | 'text'
 
 export interface QuestionOption {
   value: string

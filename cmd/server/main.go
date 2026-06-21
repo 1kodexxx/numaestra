@@ -152,10 +152,7 @@ func run(ctx context.Context) error {
 		log.Warn("SMTP_HOST не задан — уведомления только в лог (заглушка)")
 	}
 
-	// Прайс определяется сервером по тарифу: цена не принимается из запроса клиента.
-	pricing := usecase.NewStaticPricing(cfg.Pricing.Plans, cfg.Pricing.DefaultPlan)
-
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, pricing, txManager, log)
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log)
 
 	mode := runMode(cfg.Mode)
 
@@ -252,7 +249,7 @@ func run(ctx context.Context) error {
 		WithIdempotency(idempotency.NewStore(rdb)).
 		WithRedis(rdb)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
-	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, robokassa.NewRefunderWithBreaker(rkClient), log), log)
+	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, log), log)
 	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор METRICS_ALLOWED_IPS: %w", err)

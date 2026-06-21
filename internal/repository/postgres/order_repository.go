@@ -37,11 +37,11 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
 		queryOrder := `
-			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		`
 		_, err := db.Exec(ctx, queryOrder,
-			snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief, snap.Plan,
+			snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
 			nullableString(snap.CategoryID), nullableString(snap.SunoPrompt),
 			snap.AmountKopecks, snap.Currency, snap.PaymentStatus, snap.GenerationStatus,
 			snap.AssignedAccountID, snap.FailureReason, snap.AccessToken, snap.CreatedAt, snap.UpdatedAt,
@@ -60,12 +60,12 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE id = $1
 	`
 	var snap domain.OrderSnapshot
 	err := r.conn(ctx).QueryRow(ctx, query, id).Scan(
-		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.CategoryID, &snap.SunoPrompt,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -89,12 +89,12 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Or
 
 func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE invoice_id = $1
 	`
 	var snap domain.OrderSnapshot
 	err := r.conn(ctx).QueryRow(ctx, query, invoiceID).Scan(
-		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.CategoryID, &snap.SunoPrompt,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -165,7 +165,7 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, error) {
 	// 1. Загружаем заказы клиента одним запросом с пагинацией.
 	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
 	rows, err := r.conn(ctx).Query(ctx, orderQuery, email, limit, offset)
@@ -179,7 +179,7 @@ func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string,
 	for rows.Next() {
 		var snap domain.OrderSnapshot
 		err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -245,7 +245,7 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 
 func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*domain.Order, error) {
 	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
 	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone, limit, offset)
@@ -259,7 +259,7 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string,
 	for rows.Next() {
 		var snap domain.OrderSnapshot
 		err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -294,12 +294,12 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string,
 // GetByAccessToken находит заказ по токену доступа клиента.
 func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE access_token = $1
 	`
 	var snap domain.OrderSnapshot
 	err := r.conn(ctx).QueryRow(ctx, query, token).Scan(
-		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.CategoryID, &snap.SunoPrompt,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -351,7 +351,7 @@ func (r *OrderRepository) saveTracks(ctx context.Context, db dbConn, orderID uui
 // ListAll возвращает страницу всех заказов для Admin API (без фильтрации по клиенту).
 func (r *OrderRepository) ListAll(ctx context.Context, limit, offset int) ([]*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt,
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt,
 		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
 		       failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders
@@ -368,7 +368,7 @@ func (r *OrderRepository) ListAll(ctx context.Context, limit, offset int) ([]*do
 	for rows.Next() {
 		var snap domain.OrderSnapshot
 		if err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
@@ -414,7 +414,7 @@ func (r *OrderRepository) CountAll(ctx context.Context) (int, error) {
 // заказов, брошенных после краша пода/воркера.
 func (r *OrderRepository) ListStuckProcessing(ctx context.Context, olderThan time.Time) ([]*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, plan, category_id, suno_prompt,
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt,
 		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
 		       failure_reason, access_token, created_at, updated_at, paid_at, completed_at
 		FROM orders
@@ -431,7 +431,7 @@ func (r *OrderRepository) ListStuckProcessing(ctx context.Context, olderThan tim
 	for rows.Next() {
 		var snap domain.OrderSnapshot
 		if err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief, &snap.Plan,
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
 			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,

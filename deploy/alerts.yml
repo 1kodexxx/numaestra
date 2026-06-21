@@ -1,0 +1,50 @@
+groups:
+  - name: numaestra
+    rules:
+      - alert: NumaestraDown
+        expr: up{job="numaestra"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Numaestra недоступен для Prometheus"
+          description: "Скрейп job=numaestra не отвечает более 1 минуты."
+
+      - alert: NumaestraHighErrorRate
+        expr: |
+          sum(rate(numaestra_http_request_duration_seconds_count{status=~"5.."}[5m]))
+          / sum(rate(numaestra_http_request_duration_seconds_count[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая доля 5xx ответов"
+          description: "Более 5% HTTP-ответов за последние 5 минут — статус 5xx."
+
+      - alert: NumaestraHighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(numaestra_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая латентность HTTP (p95 > 2s)"
+          description: "95-й перцентиль времени ответа превышает 2 секунды последние 5 минут."
+
+      - alert: NumaestraOrdersFailing
+        expr: increase(numaestra_orders_failed_total[15m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Заказы массово падают в failed"
+          description: "За последние 15 минут более 3 заказов завершились ошибкой после ретраев — возможна проблема с Suno/LLM/S3."
+
+      - alert: NumaestraSunoAPIErrors
+        expr: increase(numaestra_suno_api_errors_total[10m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Рост ошибок Suno API"
+          description: "Более 5 ошибок вызова Suno API за 10 минут — возможен сбой провайдера или истёкшие сессии аккаунтов."

@@ -35,8 +35,7 @@ const (
 func newTestHandler(t *testing.T) (*OrderHandler, http.Handler, *hOrderRepo) {
 	t.Helper()
 	repo := newHOrderRepo()
-	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), pricing, hTxManager{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
 	h := NewOrderHandler(uc, discardLogger(), rk, nil)
 	return h, h.Routes(), repo
@@ -56,7 +55,7 @@ func webhookSig(outSum, invID string) string {
 func TestHandler_CreateOrder_Success(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 
-	body := `{"email":"user@example.com","brief":"Песня","plan":"standard"}`
+	body := `{"email":"user@example.com","brief":"Песня"}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -84,7 +83,7 @@ func TestHandler_CreateOrder_IgnoresClientAmount(t *testing.T) {
 
 	// Клиент пытается занизить цену через amount_kopecks — поле игнорируется,
 	// цена берётся из серверного тарифа.
-	body := `{"email":"user@example.com","brief":"Песня","plan":"standard","amount_kopecks":1}`
+	body := `{"email":"user@example.com","brief":"Песня","amount_kopecks":1}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -93,17 +92,6 @@ func TestHandler_CreateOrder_IgnoresClientAmount(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp.AmountKopecks != 150000 {
 		t.Errorf("клиентская сумma должна игнорироваться, ожидали 150000, получили %d", resp.AmountKopecks)
-	}
-}
-
-func TestHandler_CreateOrder_UnknownPlan(t *testing.T) {
-	_, router, _ := newTestHandler(t)
-	body := `{"email":"user@example.com","brief":"Песня","plan":"vip-неизвестный"}`
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("ожидали 400 для неизвестного тарифа, получили %d", rec.Code)
 	}
 }
 
@@ -120,7 +108,7 @@ func TestHandler_CreateOrder_InvalidJSON(t *testing.T) {
 func TestHandler_CreateOrder_BriefTooLong(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 	longBrief := strings.Repeat("я", domain.MaxBriefLength+1)
-	body := fmt.Sprintf(`{"email":"user@example.com","brief":%q,"plan":"standard"}`, longBrief)
+	body := fmt.Sprintf(`{"email":"user@example.com","brief":%q}`, longBrief)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -154,9 +142,9 @@ func TestHandler_ErrorResponse_IncludesRequestID(t *testing.T) {
 func TestHandler_CreateOrder_MissingFields(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 	cases := []string{
-		`{"brief":"Песня","plan":"standard"}`,        // нет контакта
-		`{"email":"a@b.c","plan":"standard"}`,        // нет brief
-		`{"phone":"+79990000000","plan":"standard"}`, // нет brief (только телефон)
+		`{"brief":"Песня"}`,        // нет контакта
+		`{"email":"a@b.c"}`,        // нет brief
+		`{"phone":"+79990000000"}`, // нет brief (только телефон)
 	}
 	for i, body := range cases {
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -172,7 +160,7 @@ func TestHandler_CreateOrder_MissingFields(t *testing.T) {
 
 func TestHandler_Webhook_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	outSum := robokassa.FormatAmount(150000)
@@ -196,7 +184,7 @@ func TestHandler_Webhook_Success(t *testing.T) {
 
 func TestHandler_Webhook_InvalidSignature(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	form := url.Values{}
@@ -216,7 +204,7 @@ func TestHandler_Webhook_InvalidSignature(t *testing.T) {
 
 func TestHandler_Webhook_AmountMismatch(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	outSum := robokassa.FormatAmount(100000) // оплачено меньше, подпись валидна для этой суммы
@@ -249,7 +237,7 @@ func TestHandler_GetOrder_RequiresToken(t *testing.T) {
 
 func TestHandler_GetOrder_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String(), nil)
 	req.Header.Set("X-Access-Token", order.AccessToken())
@@ -268,7 +256,7 @@ func TestHandler_GetOrder_Success(t *testing.T) {
 
 func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	// Токен валиден, но в URL чужой ID.
 	req := httptest.NewRequest(http.MethodGet, "/"+uuid.NewString(), nil)
@@ -283,7 +271,7 @@ func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 
 func TestHandler_ListOrders_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Access-Token", order.AccessToken())
@@ -368,14 +356,13 @@ func TestParsePagination_NonNumericIgnored(t *testing.T) {
 
 func TestHandler_WithIdempotency_SecondCallReturnsCached(t *testing.T) {
 	repo := newHOrderRepo()
-	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), pricing, hTxManager{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
 	store := newFakeStore()
 	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithIdempotency(store)
 	router := h.Routes()
 
-	body := `{"email":"idem@example.com","brief":"Идемпотентный заказ","plan":"standard"}`
+	body := `{"email":"idem@example.com","brief":"Идемпотентный заказ"}`
 	const idempotencyKey = "unique-order-key-1"
 
 	// Первый запрос — создаёт заказ, кешируется ответ.
@@ -450,7 +437,7 @@ func TestHandler_Webhook_InternalError(t *testing.T) {
 
 func TestHandler_GetOrder_InvalidUUID(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	req := httptest.NewRequest(http.MethodGet, "/not-a-uuid", nil)
 	req.Header.Set("X-Access-Token", order.AccessToken())
@@ -465,7 +452,7 @@ func TestHandler_GetOrder_InvalidUUID(t *testing.T) {
 func TestHandler_ListOrders_ByPhone(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	// Создаём заказ только с телефоном (без email)
-	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "standard", "", nil)
+	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
@@ -489,8 +476,7 @@ func TestHandler_ListOrders_ByPhone(t *testing.T) {
 
 func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 	repo := newHOrderRepo()
-	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), pricing, hTxManager{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
 	mini := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
@@ -498,7 +484,7 @@ func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithRedis(rdb)
 	router := h.Routes()
 
-	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", nil)
 	if err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
@@ -534,7 +520,7 @@ func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 
 func TestHandler_Webhook_PaymentWindowExpired(t *testing.T) {
 	h, router, repo := newTestHandler(t)
-	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
 	// Вручную сдвигаем CreatedAt заказа в прошлое — за пределы 72-часового окна.
 	repo.mu.Lock()
@@ -562,9 +548,9 @@ func TestHandler_Webhook_PaymentWindowExpired(t *testing.T) {
 
 // --- helpers ---
 
-func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief, plan string) *domain.Order {
+func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief string) *domain.Order {
 	t.Helper()
-	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, plan, "", nil)
+	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, "", nil)
 	if err != nil {
 		t.Fatalf("подготовка заказа: %v", err)
 	}

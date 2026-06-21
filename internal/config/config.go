@@ -94,11 +94,10 @@ type NotifyConfig struct {
 	FromName     string // SMTP_FROM_NAME, например Numaestra
 }
 
-// PricingConfig задаёт серверный прайс. Цены НЕ принимаются от клиента —
-// клиент выбирает только тариф (plan), а сумму определяет сервер.
+// PricingConfig задаёт серверную цену заказа. Цена НЕ принимается от клиента —
+// продукт фиксированный (4 версии песни за один платёж, без тарифов и подписок).
 type PricingConfig struct {
-	Plans       map[string]int64 // тариф -> цена в копейках
-	DefaultPlan string           // тариф по умолчанию, если клиент не указал
+	PriceKopecks int64 // фиксированная цена заказа в копейках
 }
 
 // Load считывает переменные окружения и собирает их в структуру Config.
@@ -147,12 +146,8 @@ func Load() (*Config, error) {
 			APIKey:  getEnv("OPENAI_API_KEY", ""),
 		},
 		Pricing: PricingConfig{
-			// Тарифы и их цены задаются сервером. Стандартный тариф — 4 версии песни.
-			Plans: map[string]int64{
-				"standard": getInt64Env("PRICE_STANDARD_KOPECKS", 150000),
-				"premium":  getInt64Env("PRICE_PREMIUM_KOPECKS", 290000),
-			},
-			DefaultPlan: getEnv("PRICE_DEFAULT_PLAN", "standard"),
+			// Фиксированная цена за 4 версии песни. По умолчанию — 2000 ₽.
+			PriceKopecks: getInt64Env("PRICE_KOPECKS", 200000),
 		},
 		Notify: NotifyConfig{
 			SMTPHost:     getEnv("SMTP_HOST", ""),

@@ -10,7 +10,7 @@ import (
 // --- NewOrder ---
 
 func TestNewOrder_Valid(t *testing.T) {
-	o, err := NewOrder(1, "user@example.com", "+79991234567", "Р’РµСЃС‘Р»Р°СЏ РїРµСЃРЅСЏ", "standard", "", "", 150000)
+	o, err := NewOrder(1, "user@example.com", "+79991234567", "Р’РµСЃС‘Р»Р°СЏ РїРµСЃРЅСЏ", "", "", 150000)
 	if err != nil {
 		t.Fatalf("РѕР¶РёРґР°Р»Рё СѓСЃРїРµС…, РїРѕР»СѓС‡РёР»Рё РѕС€РёР±РєСѓ: %v", err)
 	}
@@ -26,8 +26,8 @@ func TestNewOrder_Valid(t *testing.T) {
 }
 
 func TestNewOrder_GeneratesUniqueAccessTokens(t *testing.T) {
-	o1, _ := NewOrder(1, "a@example.com", "", "Р‘СЂРёС„ 1", "standard", "", "", 100)
-	o2, _ := NewOrder(2, "b@example.com", "", "Р‘СЂРёС„ 2", "standard", "", "", 100)
+	o1, _ := NewOrder(1, "a@example.com", "", "Р‘СЂРёС„ 1", "", "", 100)
+	o2, _ := NewOrder(2, "b@example.com", "", "Р‘СЂРёС„ 2", "", "", 100)
 
 	if o1.AccessToken() == "" {
 		t.Error("С‚РѕРєРµРЅ РЅРµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј")
@@ -41,14 +41,14 @@ func TestNewOrder_GeneratesUniqueAccessTokens(t *testing.T) {
 }
 
 func TestNewOrder_RequiresContact(t *testing.T) {
-	_, err := NewOrder(1, "", "", "Р‘СЂРёС„", "standard", "", "", 100)
+	_, err := NewOrder(1, "", "", "Р‘СЂРёС„", "", "", 100)
 	if err == nil {
 		t.Error("РѕР¶РёРґР°Р»Рё РѕС€РёР±РєСѓ РїСЂРё РѕС‚СЃСѓС‚СЃС‚РІРёРё email Рё С‚РµР»РµС„РѕРЅР°")
 	}
 }
 
 func TestNewOrder_RequiresBrief(t *testing.T) {
-	_, err := NewOrder(1, "user@example.com", "", "", "standard", "", "", 100)
+	_, err := NewOrder(1, "user@example.com", "", "", "", "", 100)
 	if err == nil {
 		t.Error("РѕР¶РёРґР°Р»Рё РѕС€РёР±РєСѓ РїСЂРё РїСѓСЃС‚РѕРј Р±СЂРёС„Рµ")
 	}
@@ -56,7 +56,7 @@ func TestNewOrder_RequiresBrief(t *testing.T) {
 
 func TestNewOrder_RejectsTooLongBrief(t *testing.T) {
 	longBrief := strings.Repeat("a", MaxBriefLength+1)
-	_, err := NewOrder(1, "user@example.com", "", longBrief, "standard", "", "", 100)
+	_, err := NewOrder(1, "user@example.com", "", longBrief, "", "", 100)
 	if err == nil {
 		t.Fatal("РѕР¶РёРґР°Р»Рё РѕС€РёР±РєСѓ РїСЂРё СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРј Р±СЂРёС„Рµ")
 	}
@@ -66,24 +66,24 @@ func TestNewOrder_RejectsTooLongBrief(t *testing.T) {
 
 	// Р‘СЂРёС„ СЂРѕРІРЅРѕ РЅР° РіСЂР°РЅРёС†Рµ РґР»РёРЅС‹ РґРѕР»Р¶РµРЅ РїСЂРёРЅРёРјР°С‚СЊСЃСЏ.
 	maxBrief := strings.Repeat("a", MaxBriefLength)
-	if _, err := NewOrder(1, "user@example.com", "", maxBrief, "standard", "", "", 100); err != nil {
+	if _, err := NewOrder(1, "user@example.com", "", maxBrief, "", "", 100); err != nil {
 		t.Errorf("Р±СЂРёС„ РґР»РёРЅРѕР№ СЂРѕРІРЅРѕ MaxBriefLength РґРѕР»Р¶РµРЅ РїСЂРёРЅРёРјР°С‚СЊСЃСЏ, РїРѕР»СѓС‡РёР»Рё %v", err)
 	}
 }
 
 func TestNewOrder_RequiresPositiveAmount(t *testing.T) {
-	_, err := NewOrder(1, "user@example.com", "", "Р‘СЂРёС„", "standard", "", "", 0)
+	_, err := NewOrder(1, "user@example.com", "", "Р‘СЂРёС„", "", "", 0)
 	if err == nil {
 		t.Error("РѕР¶РёРґР°Р»Рё РѕС€РёР±РєСѓ РїСЂРё РЅСѓР»РµРІРѕР№ СЃСѓРјРјРµ")
 	}
-	_, err = NewOrder(1, "user@example.com", "", "Р‘СЂРёС„", "standard", "", "", -100)
+	_, err = NewOrder(1, "user@example.com", "", "Р‘СЂРёС„", "", "", -100)
 	if err == nil {
 		t.Error("РѕР¶РёРґР°Р»Рё РѕС€РёР±РєСѓ РїСЂРё РѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕР№ СЃСѓРјРјРµ")
 	}
 }
 
 func TestNewOrder_OnlyPhone(t *testing.T) {
-	_, err := NewOrder(1, "", "+79991234567", "Р‘СЂРёС„", "standard", "", "", 100)
+	_, err := NewOrder(1, "", "+79991234567", "Р‘СЂРёС„", "", "", 100)
 	if err != nil {
 		t.Errorf("С‚РµР»РµС„РѕРЅ Р±РµР· email РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РґРѕРїСѓСЃС‚РёРј: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestOrder_Fail(t *testing.T) {
 // --- Snapshot / Restore ---
 
 func TestOrder_SnapshotRestore_PreservesToken(t *testing.T) {
-	original, _ := NewOrder(42, "user@example.com", "", "Р‘СЂРёС„", "standard", "", "", 100000)
+	original, _ := NewOrder(42, "user@example.com", "", "Р‘СЂРёС„", "", "", 100000)
 	snap := original.Snapshot()
 
 	if snap.AccessToken == "" {
@@ -242,7 +242,7 @@ func TestOrder_MarkRefunded_WhenNotPaid_ReturnsError(t *testing.T) {
 // --- Р“РµС‚С‚РµСЂС‹ ---
 
 func TestOrder_Getters(t *testing.T) {
-	o, err := NewOrder(42, "user@example.com", "+79991234567", "РўРµСЃС‚РѕРІС‹Р№ Р±СЂРёС„", "standard", "wedding", "Create a song", 150000)
+	o, err := NewOrder(42, "user@example.com", "+79991234567", "РўРµСЃС‚РѕРІС‹Р№ Р±СЂРёС„", "wedding", "Create a song", 150000)
 	if err != nil {
 		t.Fatalf("NewOrder: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestOrder_Getters(t *testing.T) {
 }
 
 func TestOrder_RestoreOrder_PreservesAllFields(t *testing.T) {
-	o, _ := NewOrder(7, "a@example.com", "+70000000001", "Р‘СЂРёС„", "standard", "boss", "Prompt", 290000)
+	o, _ := NewOrder(7, "a@example.com", "+70000000001", "Р‘СЂРёС„", "boss", "Prompt", 290000)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 
@@ -308,7 +308,7 @@ func TestOrder_RestoreOrder_PreservesAllFields(t *testing.T) {
 
 func newTestOrder(t *testing.T) *Order {
 	t.Helper()
-	o, err := NewOrder(1, "user@example.com", "", "РўРµСЃС‚РѕРІС‹Р№ Р±СЂРёС„", "standard", "", "", 150000)
+	o, err := NewOrder(1, "user@example.com", "", "РўРµСЃС‚РѕРІС‹Р№ Р±СЂРёС„", "", "", 150000)
 	if err != nil {
 		t.Fatalf("РЅРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ С‚РµСЃС‚РѕРІС‹Р№ Р·Р°РєР°Р·: %v", err)
 	}

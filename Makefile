@@ -1,5 +1,5 @@
 .PHONY: help build run test test-integration test-race cover vet lint tidy fmt docker-up docker-down clean \
-        frontend-install frontend-dev frontend-build frontend-typecheck dev
+        frontend-install frontend-dev frontend-build frontend-typecheck frontend-test dev
 
 APP_NAME := numaestra
 CMD_PATH := ./cmd/server
@@ -60,6 +60,9 @@ frontend-build: ## Собрать React SPA в web/out/ (встраиваетс�
 
 frontend-typecheck: ## Проверить типы TypeScript без сборки
 	cd frontend && npm run typecheck
+
+frontend-test: ## Прогнать тесты фронтенда (vitest)
+	cd frontend && npm run test
 
 dev: ## Запустить бэкенд и фронтенд одновременно (требует GNU make + bash)
 	$(MAKE) -j2 run frontend-dev
