@@ -401,3 +401,232 @@ func TestIntegration_ListByEmail_BatchLoadsTracks(t *testing.T) {
 		t.Errorf("ожидали 2 трека, загруженных батчем, получили %d", len(orders[0].Tracks()))
 	}
 }
+
+// --- GetByInvoiceID ---
+
+func TestIntegration_GetByInvoiceID(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	order := mustOrder(t, pool)
+	got, err := repo.GetByInvoiceID(ctx, order.InvoiceID())
+	if err != nil {
+		t.Fatalf("GetByInvoiceID: %v", err)
+	}
+	if got.ID() != order.ID() {
+		t.Errorf("GetByInvoiceID вернул неверный заказ: хотели %s, получили %s", order.ID(), got.ID())
+	}
+
+	_, err = repo.GetByInvoiceID(ctx, -1)
+	if err != domain.ErrOrderNotFound {
+		t.Errorf("ожидали ErrOrderNotFound для несуществующего invoiceID, получили %v", err)
+	}
+}
+
+// --- GetByAccessToken ---
+
+func TestIntegration_GetByAccessToken(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	order := mustOrder(t, pool)
+	got, err := repo.GetByAccessToken(ctx, order.AccessToken())
+	if err != nil {
+		t.Fatalf("GetByAccessToken: %v", err)
+	}
+	if got.ID() != order.ID() {
+		t.Errorf("GetByAccessToken вернул неверный заказ")
+	}
+
+	_, err = repo.GetByAccessToken(ctx, "nonexistent-token")
+	if err != domain.ErrOrderNotFound {
+		t.Errorf("ожидали ErrOrderNotFound для несуществующего токена, получили %v", err)
+	}
+}
+
+// --- ListByCustomerPhone ---
+
+func TestIntegration_ListByPhone(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	inv, _ := repo.NextInvoiceID(ctx)
+	order, _ := domain.NewOrder(inv, "", "+79991234567", "Бриф по телефону", "", "", 150000)
+	if err := repo.Create(ctx, order); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	orders, err := repo.ListByCustomerPhone(ctx, "+79991234567", 20, 0)
+	if err != nil {
+		t.Fatalf("ListByCustomerPhone: %v", err)
+	}
+	if len(orders) != 1 || orders[0].ID() != order.ID() {
+		t.Errorf("ListByCustomerPhone: ожидали 1 заказ с правильным ID")
+	}
+}
+
+// --- ListAll + CountAll ---
+
+func TestIntegration_ListAll_CountAll(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	const n = 3
+	for i := 0; i < n; i++ {
+		mustOrder(t, pool)
+	}
+
+	total, err := repo.CountAll(ctx)
+	if err != nil {
+		t.Fatalf("CountAll: %v", err)
+	}
+	if total != n {
+		t.Errorf("CountAll: ожидали %d, получили %d", n, total)
+	}
+
+	page, err := repo.ListAll(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("ListAll(limit=2): %v", err)
+	}
+	if len(page) != 2 {
+		t.Errorf("ListAll(limit=2): ожидали 2 записи, получили %d", len(page))
+	}
+
+	page2, err := repo.ListAll(ctx, 10, 2)
+	if err != nil {
+		t.Fatalf("ListAll(offset=2): %v", err)
+	}
+	if len(page2) != n-2 {
+		t.Errorf("ListAll(offset=2): ожидали %d записи, получили %d", n-2, len(page2))
+	}
+}
+
+// --- ListStuckProcessing ---
+
+func TestIntegration_ListStuckProcessing(t *testing.T) {
+	pool := setup(t)
+	orderRepo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	acc := mustAccount(t, pool, 10, 2)
+
+	// Заказ 1: застрял в processing.
+	processing := mustOrder(t, pool)
+	_ = processing.MarkPaid()
+	_ = processing.Enqueue()
+	_ = processing.StartProcessing(acc.ID())
+	if err := orderRepo.Update(ctx, processing); err != nil {
+		t.Fatalf("Update processing order: %v", err)
+	}
+
+	// Заказ 2: ещё в queued — не должен попасть в результат.
+	queued := mustOrder(t, pool)
+	_ = queued.MarkPaid()
+	_ = queued.Enqueue()
+	if err := orderRepo.Update(ctx, queued); err != nil {
+		t.Fatalf("Update queued order: %v", err)
+	}
+
+	// Порог в будущем: updated_at < now+1h — обязан вернуть processing-заказ.
+	stuck, err := orderRepo.ListStuckProcessing(ctx, time.Now().UTC().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ListStuckProcessing: %v", err)
+	}
+	if len(stuck) != 1 {
+		t.Fatalf("ожидали 1 застрявший заказ, получили %d", len(stuck))
+	}
+	if stuck[0].ID() != processing.ID() {
+		t.Errorf("ожидали заказ %s, получили %s", processing.ID(), stuck[0].ID())
+	}
+
+	// Порог в прошлом: updated_at < now-1h — заказ слишком свежий, не должен попасть.
+	fresh, err := orderRepo.ListStuckProcessing(ctx, time.Now().UTC().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ListStuckProcessing (прошлое): %v", err)
+	}
+	if len(fresh) != 0 {
+		t.Errorf("порог в прошлом не должен возвращать свежие заказы, получили %d", len(fresh))
+	}
+}
+
+// --- Account: List, ListByStatus, SetStatus ---
+
+func TestIntegration_Account_List_SetStatus_ListByStatus(t *testing.T) {
+	pool := setup(t)
+	repo := NewAccountRepository(pool, testCipher)
+	ctx := context.Background()
+
+	acc1 := mustAccount(t, pool, 10, 1)
+	acc2 := mustAccount(t, pool, 20, 2)
+
+	all, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("List: ожидали 2 аккаунта, получили %d", len(all))
+	}
+
+	// Ban первого аккаунта через SetStatus.
+	if err := repo.SetStatus(ctx, acc1.ID(), domain.AccountStatusBanned); err != nil {
+		t.Fatalf("SetStatus banned: %v", err)
+	}
+
+	active, err := repo.ListByStatus(ctx, domain.AccountStatusActive)
+	if err != nil {
+		t.Fatalf("ListByStatus active: %v", err)
+	}
+	if len(active) != 1 || active[0].ID() != acc2.ID() {
+		t.Errorf("после бана должен остаться 1 активный аккаунт — acc2")
+	}
+
+	banned, err := repo.ListByStatus(ctx, domain.AccountStatusBanned)
+	if err != nil {
+		t.Fatalf("ListByStatus banned: %v", err)
+	}
+	if len(banned) != 1 || banned[0].ID() != acc1.ID() {
+		t.Errorf("после бана должен быть 1 забаненный аккаунт — acc1")
+	}
+}
+
+// --- Account: Update (BanForInvalidSession round-trip) ---
+
+func TestIntegration_Account_Update_RoundTrip(t *testing.T) {
+	pool := setup(t)
+	repo := NewAccountRepository(pool, testCipher)
+	ctx := context.Background()
+
+	acc := mustAccount(t, pool, 50, 2)
+
+	// Симулируем регистрацию ошибки и обновление.
+	acc.RegisterFailure(3)
+	if err := repo.Update(ctx, acc); err != nil {
+		t.Fatalf("Update после RegisterFailure: %v", err)
+	}
+
+	loaded, err := repo.GetByID(ctx, acc.ID())
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if loaded.FailureCount() != 1 {
+		t.Errorf("ожидали failure_count=1, получили %d", loaded.FailureCount())
+	}
+
+	// BanForInvalidSession.
+	loaded.BanForInvalidSession()
+	if err := repo.Update(ctx, loaded); err != nil {
+		t.Fatalf("Update после BanForInvalidSession: %v", err)
+	}
+
+	banned, err := repo.GetByID(ctx, acc.ID())
+	if err != nil {
+		t.Fatalf("GetByID после бана: %v", err)
+	}
+	if banned.Status() != domain.AccountStatusBanned {
+		t.Errorf("ожидали status=banned, получили %q", banned.Status())
+	}
+}

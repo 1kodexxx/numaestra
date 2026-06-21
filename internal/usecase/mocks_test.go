@@ -32,6 +32,8 @@ type inMemOrderRepo struct {
 	applyPaymentNotApplied bool // возвращает (false, nil) вместо реального CAS
 	countAllErr            error
 	listAllErr             error
+	stuckOrders            []*domain.Order
+	listStuckErr           error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -171,7 +173,10 @@ func (r *inMemOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domai
 }
 
 func (r *inMemOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*domain.Order, error) {
-	return nil, nil
+	if r.listStuckErr != nil {
+		return nil, r.listStuckErr
+	}
+	return r.stuckOrders, nil
 }
 
 func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {

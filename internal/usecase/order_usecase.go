@@ -21,7 +21,16 @@ var (
 	// ErrPaymentAmountMismatch возникает, когда оплаченная по вебхуку сумма
 	// не совпадает с суммой заказа. Защищает от подмены суммы при валидной подписи.
 	ErrPaymentAmountMismatch = errors.New("оплаченная сумма не совпадает с суммой заказа")
+	// ErrPaymentWindowExpired возникает, когда вебхук оплаты поступает спустя
+	// слишком долгое время после создания заказа. Защищает от реплея старых
+	// вебхуков с валидной подписью.
+	ErrPaymentWindowExpired = errors.New("платёжное окно заказа истекло")
 )
+
+// maxPaymentWindow — максимальное время от создания заказа до принятия оплаты.
+// Robokassa завершает оплату за секунды-минуты; 72 часа — щедрый запас для
+// медленных банков и мобильного интернета, при этом отсекает месячные реплеи.
+const maxPaymentWindow = 72 * time.Hour
 
 // TransactionManager — порт Unit of Work: выполняет переданную функцию в рамках
 // одной транзакции БД. Позволяет UseCase атомарно сохранять несколько независимых
@@ -166,6 +175,16 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 		uc.log.Info("повторная доставка вебхука для уже оплаченного заказа — идемпотентно ОК",
 			"order_id", order.ID(), "invoice_id", invoiceID)
 		return nil
+	}
+
+	// Проверка платёжного окна: отклоняем оплату заказов старше maxPaymentWindow.
+	// Robokassa завершает оплату за минуты; сверхстарый вебхук с валидной подписью —
+	// признак реплея захваченного запроса, а не легитимной повторной доставки.
+	if age := time.Since(order.CreatedAt()); age > maxPaymentWindow {
+		uc.log.Warn("вебхук отклонён: платёжное окно истекло",
+			"order_id", order.ID(), "invoice_id", invoiceID,
+			"order_age", age.Round(time.Minute))
+		return ErrPaymentWindowExpired
 	}
 
 	// Подпись вебхука уже проверена в слое доставки, но это не гарантирует,

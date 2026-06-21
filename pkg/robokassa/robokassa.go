@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -45,7 +46,7 @@ func New(merchantLogin, password1, password2 string, isTest bool) *Client {
 		password1:     password1,
 		password2:     password2,
 		isTest:        isTest,
-		httpClient:    http.DefaultClient,
+		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		refundURL:     refundBaseURL,
 	}
 }

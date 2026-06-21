@@ -681,3 +681,138 @@ func (f *fixture) processingOrder(t *testing.T, acc *domain.SunoAccount) *domain
 	}
 	return order
 }
+
+// --- RecoverStuckOrders ---
+
+func TestRecoverStuckOrders_Empty_NoOp(t *testing.T) {
+	f := newFixture(t)
+	// stuckOrders defaults to nil → no work done
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders на пустом списке не должен падать: %v", err)
+	}
+}
+
+func TestRecoverStuckOrders_ListError_Propagates(t *testing.T) {
+	f := newFixture(t)
+	sentinel := errors.New("db down")
+	f.orderRepo.listStuckErr = sentinel
+
+	err := f.uc.RecoverStuckOrders(context.Background())
+	if !errors.Is(err, sentinel) {
+		t.Errorf("ожидали ошибку ListStuckProcessing, получили %v", err)
+	}
+}
+
+func TestRecoverStuckOrders_WithAccount_RequeuesAndReleasesSlot(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 100)
+
+	// Инкрементируем слот вручную, как это делает воркер при захвате аккаунта.
+	f.accRepo.mu.Lock()
+	snap := f.accRepo.accounts[acc.ID()]
+	snap.ConcurrentTasks = 1
+	f.accRepo.accounts[acc.ID()] = snap
+	f.accRepo.mu.Unlock()
+
+	order := f.processingOrder(t, acc)
+
+	f.orderRepo.stuckOrders = []*domain.Order{order}
+
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders: %v", err)
+	}
+
+	// Заказ должен вернуться в queued.
+	saved, err := f.orderRepo.GetByID(context.Background(), order.ID())
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if saved.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("заказ должен быть queued, получили %q", saved.GenerationStatus())
+	}
+	if saved.AssignedAccountID() != nil {
+		t.Error("assignedAccountID должен быть сброшен после requeue")
+	}
+
+	// Слот аккаунта должен быть освобождён.
+	if got := f.accRepo.concurrentOf(acc.ID()); got != 0 {
+		t.Errorf("concurrent_tasks должен быть 0, получили %d", got)
+	}
+}
+
+func TestRecoverStuckOrders_WithoutAccount_RequeuesOrder(t *testing.T) {
+	f := newFixture(t)
+
+	// Создаём processing-заказ без привязанного аккаунта (не через StartProcessing).
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+	_ = f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000)
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	// Переводим напрямую в processing без аккаунта (симулируем edge case через raw snapshot).
+	snap := got.Snapshot()
+	snap.GenerationStatus = domain.GenerationStatusProcessing
+	snap.AssignedAccountID = nil
+	f.orderRepo.mu.Lock()
+	f.orderRepo.orders[snap.ID] = snap
+	f.orderRepo.mu.Unlock()
+	stuckOrder := domain.RestoreOrder(snap)
+
+	f.orderRepo.stuckOrders = []*domain.Order{stuckOrder}
+
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders: %v", err)
+	}
+
+	saved, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if saved.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("заказ без аккаунта должен вернуться в queued, получили %q", saved.GenerationStatus())
+	}
+}
+
+func TestRecoverStuckOrders_AccountGetByID_Error_StillSavesOrder(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 100)
+	order := f.processingOrder(t, acc)
+
+	// Удаляем аккаунт из репозитория, чтобы GetByID вернул ошибку.
+	f.accRepo.mu.Lock()
+	delete(f.accRepo.accounts, acc.ID())
+	f.accRepo.mu.Unlock()
+
+	f.orderRepo.stuckOrders = []*domain.Order{order}
+
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders не должен падать при ошибке GetByID аккаунта: %v", err)
+	}
+
+	// Заказ всё равно должен быть сохранён в queued.
+	saved, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if saved.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("даже при ошибке аккаунта заказ должен быть queued, получили %q", saved.GenerationStatus())
+	}
+}
+
+func TestRecoverStuckOrders_MultipleOrders_ProcessesAll(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 100)
+
+	f.accRepo.mu.Lock()
+	snap := f.accRepo.accounts[acc.ID()]
+	snap.ConcurrentTasks = 2
+	f.accRepo.accounts[acc.ID()] = snap
+	f.accRepo.mu.Unlock()
+
+	o1 := f.processingOrder(t, acc)
+	o2 := f.processingOrder(t, acc)
+	f.orderRepo.stuckOrders = []*domain.Order{o1, o2}
+
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders: %v", err)
+	}
+
+	for _, id := range []uuid.UUID{o1.ID(), o2.ID()} {
+		saved, _ := f.orderRepo.GetByID(context.Background(), id)
+		if saved.GenerationStatus() != domain.GenerationStatusQueued {
+			t.Errorf("заказ %s должен быть queued, получили %q", id, saved.GenerationStatus())
+		}
+	}
+}

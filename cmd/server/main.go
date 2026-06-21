@@ -125,7 +125,7 @@ func run(ctx context.Context) error {
 	promptUC := usecase.NewPromptUseCase(categoryRepo)
 	// ============================================
 
-	sunoClient := suno.NewClient(cfg.Suno.APIURL, cfg.Suno.APIKey)
+	sunoClient := suno.NewClientWithBreaker(cfg.Suno.APIURL, cfg.Suno.APIKey)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
 	llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
@@ -241,9 +241,10 @@ func run(ctx context.Context) error {
 	}
 
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
-		WithIdempotency(idempotency.NewStore(rdb))
+		WithIdempotency(idempotency.NewStore(rdb)).
+		WithRedis(rdb)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
-	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, rkClient, log), log)
+	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, robokassa.NewRefunderWithBreaker(rkClient), log), log)
 	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор METRICS_ALLOWED_IPS: %w", err)

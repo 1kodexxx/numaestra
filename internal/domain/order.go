@@ -203,6 +203,7 @@ func (o *Order) AssignedAccountID() *uuid.UUID      { return o.assignedAccountID
 func (o *Order) Tracks() []Track                    { return o.tracks }
 func (o *Order) FailureReason() string              { return o.failureReason }
 func (o *Order) AccessToken() string                { return o.accessToken }
+func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 
 // --- Стейт-машина оплаты ---

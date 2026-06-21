@@ -6,6 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 func okHandler() http.Handler {
@@ -219,5 +223,71 @@ func TestRateLimiter_SeparatePerIP(t *testing.T) {
 	// Другой IP не должен затрагиваться лимитом первого.
 	if code := do("2.2.2.2"); code != http.StatusOK {
 		t.Fatalf("второй IP должен иметь свой бакет, получили %d", code)
+	}
+}
+
+// --- DistributedRateLimiter ---
+
+func redisClient(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
+	t.Helper()
+	mini := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	return mini, rdb
+}
+
+func doRequest(h http.Handler, ip string) int {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = ip + ":1234"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func TestDistributedRateLimiter_AllowsWithinLimit(t *testing.T) {
+	_, rdb := redisClient(t)
+	h := DistributedRateLimiter(rdb, 3, time.Minute)(okHandler())
+
+	for i := 1; i <= 3; i++ {
+		if code := doRequest(h, "10.0.0.1"); code != http.StatusOK {
+			t.Errorf("запрос %d: ожидали 200, получили %d", i, code)
+		}
+	}
+}
+
+func TestDistributedRateLimiter_BlocksOverLimit(t *testing.T) {
+	_, rdb := redisClient(t)
+	h := DistributedRateLimiter(rdb, 2, time.Minute)(okHandler())
+
+	doRequest(h, "10.0.0.2") //nolint:errcheck
+	doRequest(h, "10.0.0.2") //nolint:errcheck
+
+	if code := doRequest(h, "10.0.0.2"); code != http.StatusTooManyRequests {
+		t.Errorf("третий запрос при лимите 2: ожидали 429, получили %d", code)
+	}
+}
+
+func TestDistributedRateLimiter_SeparateBucketsPerIP(t *testing.T) {
+	_, rdb := redisClient(t)
+	h := DistributedRateLimiter(rdb, 1, time.Minute)(okHandler())
+
+	if code := doRequest(h, "10.0.0.3"); code != http.StatusOK {
+		t.Fatalf("первый IP: ожидали 200, получили %d", code)
+	}
+	// Второй IP имеет свой бакет — должен пройти.
+	if code := doRequest(h, "10.0.0.4"); code != http.StatusOK {
+		t.Fatalf("второй IP должен иметь независимый бакет, получили %d", code)
+	}
+}
+
+func TestDistributedRateLimiter_FailOpen_WhenRedisDown(t *testing.T) {
+	mini, rdb := redisClient(t)
+	mini.Close() // Redis недоступен до первого запроса
+
+	h := DistributedRateLimiter(rdb, 1, time.Minute)(okHandler())
+
+	// Должен пройти (fail open).
+	if code := doRequest(h, "10.0.0.5"); code != http.StatusOK {
+		t.Errorf("при недоступном Redis ожидали fail-open (200), получили %d", code)
 	}
 }

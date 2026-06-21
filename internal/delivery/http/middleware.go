@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 )
 
@@ -250,4 +251,41 @@ func clientIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// DistributedRateLimiter возвращает middleware, ограничивающее число запросов
+// с одного IP через Redis (фиксированное окно). В отличие от RateLimiter,
+// работает корректно при нескольких репликах — лимит shared, не per-instance.
+// limit — максимум запросов за window. При недоступности Redis пропускает запрос.
+func DistributedRateLimiter(rdb *redis.Client, limit int, window time.Duration) func(http.Handler) http.Handler {
+	script := redis.NewScript(`
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local ttl   = tonumber(ARGV[2])
+local count = redis.call('INCR', key)
+if count == 1 then
+    redis.call('EXPIRE', key, ttl)
+end
+return count
+`)
+	windowSecs := int64(window.Seconds())
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			bucket := time.Now().Unix() / windowSecs
+			key := fmt.Sprintf("ratelimit:%s:%d", ip, bucket)
+			count, err := script.Run(r.Context(), rdb, []string{key}, limit, windowSecs).Int()
+			if err != nil {
+				// Redis недоступен — fail open, не блокируем трафик.
+				next.ServeHTTP(w, r)
+				return
+			}
+			if count > limit {
+				w.Header().Set("Retry-After", itoa(int(windowSecs)))
+				respondError(w, r, http.StatusTooManyRequests, "слишком много запросов")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

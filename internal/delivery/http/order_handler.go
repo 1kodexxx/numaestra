@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 	"github.com/numaestra/numaestra/pkg/idempotency"
@@ -27,6 +31,9 @@ type OrderHandler struct {
 	// Пустой список отключает IP-фильтрацию (остаётся только проверка подписи).
 	webhookAllowedNets []*net.IPNet
 	idempotency        idempotency.Storer
+	// rdb — опциональный Redis-клиент; при наличии включает распределённый rate
+	// limiter и защиту вебхука от replay-атак.
+	rdb *redis.Client
 }
 
 func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client, webhookAllowedNets []*net.IPNet) *OrderHandler {
@@ -45,6 +52,13 @@ func (h *OrderHandler) WithIdempotency(store idempotency.Storer) *OrderHandler {
 	return h
 }
 
+// WithRedis подключает Redis-клиент, включая распределённый rate limiter и
+// защиту вебхука Robokassa от replay-атак через Redis-нонс.
+func (h *OrderHandler) WithRedis(rdb *redis.Client) *OrderHandler {
+	h.rdb = rdb
+	return h
+}
+
 // ctxKey — приватный тип для ключей контекста, исключает коллизии с другими пакетами.
 type ctxKey string
 
@@ -53,8 +67,14 @@ const ctxKeyOrder ctxKey = "order"
 func (h *OrderHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	clientLimiter := RateLimiter(10, 20)
-	webhookLimiter := RateLimiter(20, 40)
+	var clientLimiter, webhookLimiter func(http.Handler) http.Handler
+	if h.rdb != nil {
+		clientLimiter = DistributedRateLimiter(h.rdb, 60, time.Minute)
+		webhookLimiter = DistributedRateLimiter(h.rdb, 120, time.Minute)
+	} else {
+		clientLimiter = RateLimiter(10, 20)
+		webhookLimiter = RateLimiter(20, 40)
+	}
 
 	r.Group(func(r chi.Router) {
 		r.Use(clientLimiter)
@@ -194,6 +214,18 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Защита от replay-атак: подпись валидна, но запрос уже обработан.
+	// Проверяем Redis-нонс ПОСЛЕ проверки подписи, чтобы не давать оракул для перебора.
+	if h.rdb != nil {
+		nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
+		exists, _ := h.rdb.Exists(r.Context(), nonceKey).Result()
+		if exists > 0 {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
+			return
+		}
+	}
+
 	invoiceID, err := strconv.ParseInt(invIdStr, 10, 64)
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "некорректный формат InvId")
@@ -213,9 +245,20 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 			respondError(w, r, http.StatusBadRequest, "сумма оплаты не совпадает с суммой заказа")
 			return
 		}
+		if errors.Is(err, usecase.ErrPaymentWindowExpired) {
+			h.log.Warn("отклонён вебхук: платёжное окно истекло", "invoice_id", invoiceID)
+			respondError(w, r, http.StatusBadRequest, "платёжное окно заказа истекло")
+			return
+		}
 		h.log.Error("ошибка обработки вебхука оплаты", "invoice_id", invoiceID, "err", err)
 		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
+	}
+
+	// Фиксируем нонс: повторный вебхук с тем же InvId будет отклонён быстро.
+	if h.rdb != nil {
+		nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
+		h.rdb.Set(r.Context(), nonceKey, 1, 73*time.Hour) //nolint:errcheck
 	}
 
 	// Robokassa требует строгий формат ответа при успехе.
