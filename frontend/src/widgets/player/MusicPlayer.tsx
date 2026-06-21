@@ -1,59 +1,87 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Track } from '@entities/order'
 
-interface MusicPlayerProps {
-  tracks: Track[]
-}
-
-const WAVE_HEIGHTS = Array.from({ length: 48 }, (_, i) =>
-  30 + Math.sin(i * 0.63) * 22 + Math.sin(i * 1.41) * 12 + Math.sin(i * 2.3) * 6
+/* ─── precomputed waveform heights ─── */
+const BARS = Array.from({ length: 52 }, (_, i) =>
+  28 + Math.sin(i * 0.61) * 22 + Math.sin(i * 1.37) * 13 + Math.sin(i * 2.7) * 6
 )
 
-function fmt(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+function fmt(s: number) {
+  const m = Math.floor(s / 60)
+  return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`
 }
 
-export function MusicPlayer({ tracks }: MusicPlayerProps) {
-  const [idx, setIdx] = useState(0)
+/* ─── icons ─── */
+const PlayIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M8 5v14l11-7z"/>
+  </svg>
+)
+const PauseIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+  </svg>
+)
+const PrevIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
+  </svg>
+)
+const NextIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1L8.5 12zM16 6h2v12h-2z"/>
+  </svg>
+)
+const VolIcon = ({ muted }: { muted: boolean }) => muted ? (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.4 }}>
+    <path d="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/>
+  </svg>
+) : (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ opacity: 0.4 }}>
+    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+  </svg>
+)
+
+/* ─── main component ─── */
+export function MusicPlayer({ tracks }: { tracks: Track[] }) {
+  const [idx, setIdx]         = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [volume, setVolume] = useState(0.85)
-  const [dragging] = useState(false)
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const barRef = useRef<HTMLDivElement>(null)
+  const [time, setTime]       = useState(0)
+  const [dur, setDur]         = useState(0)
+  const [vol, setVol]         = useState(0.85)
+  const [muted, setMuted]     = useState(false)
+  const audioRef  = useRef<HTMLAudioElement>(null)
+  const barRef    = useRef<HTMLDivElement>(null)
 
-  const track = tracks[idx]
-  const progress = duration > 0 ? currentTime / duration : 0
+  const track    = tracks[idx]
+  const progress = dur > 0 ? time / dur : 0
 
+  /* sync audio src */
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
-    el.volume = volume
     el.src = track.audio_url
+    el.volume = muted ? 0 : vol
+    setTime(0)
+    setDur(track.duration_sec)
 
-    const onTime = () => !dragging && setCurrentTime(el.currentTime)
-    const onMeta = () => setDuration(el.duration || track.duration_sec)
+    const onMeta = () => setDur(el.duration || track.duration_sec)
+    const onTime = () => setTime(el.currentTime)
     const onEnd  = () => {
-      if (idx < tracks.length - 1) { setIdx(idx + 1); setPlaying(true) }
+      if (idx < tracks.length - 1) { setIdx(i => i + 1); setPlaying(true) }
       else setPlaying(false)
     }
-
-    el.addEventListener('timeupdate', onTime)
     el.addEventListener('loadedmetadata', onMeta)
+    el.addEventListener('timeupdate', onTime)
     el.addEventListener('ended', onEnd)
-    setCurrentTime(0)
-    setDuration(track.duration_sec)
-
     return () => {
-      el.removeEventListener('timeupdate', onTime)
       el.removeEventListener('loadedmetadata', onMeta)
+      el.removeEventListener('timeupdate', onTime)
       el.removeEventListener('ended', onEnd)
     }
-  }, [idx, track, tracks.length, dragging])
+  }, [idx, track, tracks.length, muted, vol])
 
+  /* play/pause */
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
@@ -61,42 +89,71 @@ export function MusicPlayer({ tracks }: MusicPlayerProps) {
     else el.pause()
   }, [playing])
 
+  /* volume */
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume
-  }, [volume])
+    if (audioRef.current) audioRef.current.volume = muted ? 0 : vol
+  }, [vol, muted])
 
-  const seek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const el = audioRef.current
+  const seek = useCallback((e: React.MouseEvent) => {
+    const el  = audioRef.current
     const bar = barRef.current
-    if (!el || !bar || !duration) return
-    const rect = bar.getBoundingClientRect()
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    el.currentTime = ratio * duration
-    setCurrentTime(ratio * duration)
-  }, [duration])
+    if (!el || !bar || !dur) return
+    const r = bar.getBoundingClientRect()
+    const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+    el.currentTime = p * dur
+    setTime(p * dur)
+  }, [dur])
 
   function switchTrack(next: number) {
     setIdx(next)
-    setCurrentTime(0)
+    setTime(0)
     setPlaying(true)
   }
 
+  const pct = `${(progress * 100).toFixed(1)}%`
+
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: '#141414', border: '1px solid #252525' }}>
+    <div style={{
+      background: '#0f0f0f',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: '20px',
+      overflow: 'hidden',
+      position: 'relative',
+    }}>
       <audio ref={audioRef} preload="metadata" />
 
+      {/* Ambient glow when playing */}
+      {playing && (
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: '20px',
+          background: 'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(0,229,192,0.07) 0%, transparent 70%)',
+          transition: 'opacity 0.5s',
+        }} />
+      )}
+
       {/* Track tabs */}
-      <div className="flex border-b" style={{ borderColor: '#252525' }}>
+      <div style={{
+        display: 'flex',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        position: 'relative', zIndex: 1,
+      }}>
         {tracks.map((t, i) => (
           <button
             key={t.index}
             onClick={() => switchTrack(i)}
-            className="flex-1 py-3 text-sm font-semibold transition-all"
             style={{
-              background: i === idx ? '#00e5c0' : 'transparent',
-              color: i === idx ? '#0d0d0d' : '#777',
+              flex: 1,
+              padding: '14px 8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              fontFamily: 'inherit',
               border: 'none',
               cursor: 'pointer',
+              transition: 'all 0.18s',
+              background: i === idx ? 'rgba(0,229,192,0.1)' : 'transparent',
+              color: i === idx ? '#00e5c0' : 'rgba(255,255,255,0.3)',
+              borderBottom: i === idx ? '2px solid #00e5c0' : '2px solid transparent',
+              letterSpacing: '0.01em',
             }}
           >
             Вариант {t.index || i + 1}
@@ -104,30 +161,39 @@ export function MusicPlayer({ tracks }: MusicPlayerProps) {
         ))}
       </div>
 
-      <div className="p-6">
+      {/* Body */}
+      <div style={{ padding: '28px 32px 24px', position: 'relative', zIndex: 1 }}>
+
         {/* Waveform */}
         <div
-          className="flex items-end justify-center gap-0.5 mb-6 cursor-pointer select-none"
-          style={{ height: '56px' }}
           ref={barRef}
           onClick={seek}
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            height: '72px',
+            gap: '2px',
+            cursor: 'pointer',
+            marginBottom: '20px',
+          }}
         >
-          {WAVE_HEIGHTS.map((h, i) => {
-            const barProgress = i / WAVE_HEIGHTS.length
-            const active = barProgress <= progress
+          {BARS.map((h, i) => {
+            const active = i / BARS.length <= progress
             return (
               <div
                 key={i}
+                className={playing && active ? 'wave-animate' : ''}
                 style={{
                   width: '4px',
                   height: `${h}%`,
-                  background: active ? '#00e5c0' : '#2a2a2a',
-                  borderRadius: '2px',
+                  borderRadius: '3px',
                   transformOrigin: 'bottom',
-                  animationDelay: `${i * 0.035}s`,
-                  transition: 'background 0.1s',
+                  background: active ? '#00e5c0' : 'rgba(255,255,255,0.08)',
+                  boxShadow: active && playing ? '0 0 6px rgba(0,229,192,0.4)' : 'none',
+                  animationDelay: `${i * 0.032}s`,
+                  transition: 'background 0.08s',
                 }}
-                className={playing && active ? 'wave-animate' : ''}
               />
             )
           })}
@@ -135,91 +201,112 @@ export function MusicPlayer({ tracks }: MusicPlayerProps) {
 
         {/* Progress bar */}
         <div
-          className="rounded-full mb-2 cursor-pointer"
-          style={{ height: '4px', background: '#252525' }}
+          ref={barRef}
           onClick={seek}
+          style={{ height: '3px', background: 'rgba(255,255,255,0.08)', borderRadius: '2px', cursor: 'pointer', marginBottom: '8px' }}
         >
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${progress * 100}%`, background: '#00e5c0' }}
-          />
+          <div style={{
+            width: pct, height: '100%', borderRadius: '2px',
+            background: 'linear-gradient(90deg, #00bfa5, #00e5c0)',
+            position: 'relative',
+          }}>
+            <div style={{
+              position: 'absolute', right: '-5px', top: '50%', transform: 'translateY(-50%)',
+              width: '10px', height: '10px', borderRadius: '50%',
+              background: '#00e5c0', boxShadow: '0 0 0 3px rgba(0,229,192,0.2)',
+            }} />
+          </div>
         </div>
 
         {/* Time */}
-        <div className="flex justify-between text-xs mb-6" style={{ color: '#777' }}>
-          <span>{fmt(currentTime)}</span>
-          <span>{fmt(duration)}</span>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          fontSize: '12px', color: 'rgba(255,255,255,0.28)',
+          fontVariantNumeric: 'tabular-nums', marginBottom: '24px',
+          fontFamily: 'monospace',
+        }}>
+          <span>{fmt(time)}</span>
+          <span>{fmt(dur)}</span>
         </div>
 
         {/* Controls */}
-        <div className="flex items-center justify-center gap-6">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px', marginBottom: '24px' }}>
           <button
             onClick={() => idx > 0 && switchTrack(idx - 1)}
             disabled={idx === 0}
-            className="transition-opacity"
             style={{
-              background: 'none', border: 'none', cursor: idx > 0 ? 'pointer' : 'default',
-              opacity: idx > 0 ? 1 : 0.3, color: '#fff',
+              background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)',
+              cursor: idx > 0 ? 'pointer' : 'default', opacity: idx > 0 ? 1 : 0.25,
+              display: 'flex', alignItems: 'center', transition: 'color 0.15s',
+              padding: '8px',
             }}
+            onMouseEnter={(e) => { if (idx > 0) e.currentTarget.style.color = '#fff' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)' }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
-            </svg>
+            <PrevIcon />
           </button>
 
           <button
-            onClick={() => setPlaying(!playing)}
-            className="flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+            onClick={() => setPlaying(p => !p)}
             style={{
               width: '64px', height: '64px',
-              background: '#00e5c0',
+              borderRadius: '50%',
+              background: playing
+                ? 'linear-gradient(135deg, #00e5c0, #00bfa5)'
+                : 'linear-gradient(135deg, #00e5c0, #00bfa5)',
               border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#080808',
+              boxShadow: playing
+                ? '0 0 0 8px rgba(0,229,192,0.12), 0 8px 24px rgba(0,229,192,0.3)'
+                : '0 4px 16px rgba(0,229,192,0.2)',
+              transition: 'all 0.2s cubic-bezier(0.34,1.56,0.64,1)',
+              transform: 'scale(1)',
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.06)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
+            onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.95)' }}
+            onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1.06)' }}
           >
-            {playing ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="#0d0d0d">
-                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-              </svg>
-            ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="#0d0d0d">
-                <path d="M8 5v14l11-7z"/>
-              </svg>
-            )}
+            {playing ? <PauseIcon /> : <PlayIcon />}
           </button>
 
           <button
             onClick={() => idx < tracks.length - 1 && switchTrack(idx + 1)}
             disabled={idx === tracks.length - 1}
-            className="transition-opacity"
             style={{
-              background: 'none', border: 'none', cursor: idx < tracks.length - 1 ? 'pointer' : 'default',
-              opacity: idx < tracks.length - 1 ? 1 : 0.3, color: '#fff',
+              background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)',
+              cursor: idx < tracks.length - 1 ? 'pointer' : 'default',
+              opacity: idx < tracks.length - 1 ? 1 : 0.25,
+              display: 'flex', alignItems: 'center', transition: 'color 0.15s',
+              padding: '8px',
             }}
+            onMouseEnter={(e) => { if (idx < tracks.length - 1) e.currentTarget.style.color = '#fff' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.5)' }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1L8.5 12zM16 6h2v12h-2z"/>
-            </svg>
+            <NextIcon />
           </button>
         </div>
 
         {/* Volume */}
-        <div className="flex items-center gap-3 mt-6">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#777">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-          </svg>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', maxWidth: '240px', margin: '0 auto' }}>
+          <button
+            onClick={() => setMuted(m => !m)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 0 }}
+          >
+            <VolIcon muted={muted} />
+          </button>
           <input
             type="range" min="0" max="1" step="0.01"
-            value={volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
-            className="flex-1 h-1 rounded-full appearance-none cursor-pointer"
+            value={muted ? 0 : vol}
+            onChange={(e) => { setVol(Number(e.target.value)); setMuted(false) }}
             style={{
-              background: `linear-gradient(to right, #00e5c0 ${volume * 100}%, #252525 ${volume * 100}%)`,
+              flex: 1,
+              background: `linear-gradient(to right, #00e5c0 ${(muted ? 0 : vol) * 100}%, rgba(255,255,255,0.1) ${(muted ? 0 : vol) * 100}%)`,
             }}
           />
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="#777">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-          </svg>
         </div>
+
       </div>
     </div>
   )

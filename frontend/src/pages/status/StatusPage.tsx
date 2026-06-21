@@ -5,86 +5,76 @@ import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
 import type { OrderDetail } from '@entities/order'
 
-const CYAN = '#00e5c0'
-const DARK = '#0d0d0d'
-
-const inputStyle = {
-  background: '#1c1c1c', border: '1px solid #333',
-  borderRadius: '12px', padding: '12px 16px',
-  color: '#fff', fontSize: '14px', outline: 'none',
-  width: '100%',
-} as const
+const ACCENT = '#00e5c0'
+const DARK   = '#080808'
+const TEXT2  = 'rgba(255,255,255,0.5)'
+const TEXT3  = 'rgba(255,255,255,0.25)'
+const BORDER = 'rgba(255,255,255,0.07)'
 
 export function StatusPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  const urlOrderId = searchParams.get('order_id')
+  const urlId    = searchParams.get('order_id')
   const urlToken = searchParams.get('token')
 
   useEffect(() => {
-    if (urlOrderId && urlToken) orderStorage.saveOrder(urlOrderId, urlToken)
-  }, [urlOrderId, urlToken])
+    if (urlId && urlToken) orderStorage.saveOrder(urlId, urlToken)
+  }, [urlId, urlToken])
 
-  const initId = urlOrderId ?? orderStorage.getOrderId()
-  const [lookupId, setLookupId] = useState(initId ?? '')
-  const [activeId, setActiveId] = useState<string | null>(initId)
+  const initId   = urlId ?? orderStorage.getOrderId()
+  const [input,  setInput]  = useState(initId ?? '')
+  const [active, setActive] = useState<string | null>(initId)
 
-  const { order, loading, error } = usePollOrderStatus(activeId)
-
-  function handleLookup() {
-    const id = lookupId.trim()
-    if (id) setActiveId(id)
-  }
-
-  function handleClear() {
-    orderStorage.clear()
-    setActiveId(null)
-    setLookupId('')
-  }
+  const { order, loading, error } = usePollOrderStatus(active)
 
   if (loading && !order) {
     return (
-      <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}>
-        <div
-          className="w-10 h-10 rounded-full border-2 border-t-transparent spin-anim"
-          style={{ borderColor: `${CYAN} transparent transparent transparent` }}
-        />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)' }}>
+        <div className="spin-anim" style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.07)', borderTopColor: ACCENT }} />
       </div>
     )
   }
 
-  if (!activeId || error) {
+  if (!active || (error && !order)) {
     return (
-      <div className="max-w-lg mx-auto px-6 pt-16 pb-20">
-        <div
-          className="rounded-2xl p-8 text-center"
-          style={{ background: '#141414', border: '1px solid #252525' }}
-        >
-          <div className="text-5xl mb-4">🔍</div>
-          <div className="text-xl font-bold mb-2">Проверить статус заказа</div>
-          <div className="text-sm mb-6" style={{ color: '#777' }}>Введите ID вашего заказа</div>
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '64px 24px' }}>
+        <div style={{ background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '24px', padding: '40px 36px', textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
+          <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '8px' }}>Статус заказа</div>
+          <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '28px' }}>Введите ID вашего заказа</div>
 
           {error && (
-            <div className="text-sm mb-4 p-3 rounded-lg" style={{ background: '#2a1010', color: '#ef4444', border: '1px solid #4a2020' }}>
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444', marginBottom: '16px' }}>
               {error}
             </div>
           )}
 
-          <div className="flex gap-2.5">
+          <div style={{ display: 'flex', gap: '10px' }}>
             <input
-              style={inputStyle}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && setActive(input.trim())}
               placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              value={lookupId}
-              onChange={(e) => setLookupId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
-              onFocus={(e) => { e.target.style.borderColor = CYAN }}
-              onBlur={(e) => { e.target.style.borderColor = '#333' }}
+              style={{
+                flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '12px', padding: '13px 16px',
+                color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
+                transition: 'border-color 0.15s',
+              }}
+              onFocus={(e) => { e.target.style.borderColor = 'rgba(0,229,192,0.4)' }}
+              onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
             />
             <button
-              onClick={handleLookup}
-              className="px-5 rounded-xl text-sm font-semibold shrink-0"
-              style={{ background: CYAN, color: DARK, border: 'none', cursor: 'pointer' }}
+              onClick={() => setActive(input.trim())}
+              style={{
+                padding: '13px 20px', borderRadius: '12px',
+                background: ACCENT, border: 'none', color: DARK,
+                fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
+                cursor: 'pointer', whiteSpace: 'nowrap', transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88' }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
             >
               Найти
             </button>
@@ -97,106 +87,135 @@ export function StatusPage() {
   if (!order) return null
 
   return (
-    <div className="max-w-2xl mx-auto px-6 pt-10 pb-20">
-      <OrderStatusCard order={order} onClear={handleClear} onBack={() => navigate('/')} />
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: '40px 24px 60px' }}>
+      <OrderCard
+        order={order}
+        onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
+        onBack={() => navigate('/')}
+      />
     </div>
   )
 }
 
-function OrderStatusCard({
-  order, onClear, onBack,
-}: { order: OrderDetail; onClear: () => void; onBack: () => void }) {
+/* ── status steps ── */
+const STEPS   = ['Оплата', 'Очередь', 'Создание', 'Готово']
+const STEPKEYS = ['paid', 'queued', 'processing', 'completed'] as const
+
+function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
 
-  let statusIcon = '⏳'
-  let statusTitle = 'Обрабатываем заказ'
-  let statusSub = 'Это займёт несколько минут...'
+  let icon  = '⏳'
+  let title = 'Обрабатываем заказ'
+  let sub   = 'Пожалуйста, подождите...'
 
-  if (ps === 'pending')        { statusIcon = '💳'; statusTitle = 'Ожидается оплата';    statusSub = 'После оплаты начнём создавать песню' }
-  else if (gs === 'completed') { statusIcon = '🎉'; statusTitle = 'Ваша песня готова!';  statusSub = 'Все 4 версии доступны для прослушивания' }
-  else if (gs === 'failed')    { statusIcon = '😔'; statusTitle = 'Произошла ошибка';   statusSub = 'Обратитесь в поддержку с ID заказа' }
-  else if (gs === 'processing'){ statusIcon = '🎹'; statusTitle = 'Создаём вашу песню'; statusSub = 'AI-студия работает над вашим треком...' }
-  else if (gs === 'queued')    { statusIcon = '🎶'; statusTitle = 'Заказ в очереди';    statusSub = 'Скоро начнём генерацию' }
+  if (ps === 'pending')         { icon = '💳'; title = 'Ожидание оплаты';    sub = 'После оплаты начнём создавать песню' }
+  else if (gs === 'completed')  { icon = '🎵'; title = 'Ваша песня готова!'; sub = 'Все версии доступны для прослушивания' }
+  else if (gs === 'failed')     { icon = '💔'; title = 'Ошибка генерации';   sub = 'Свяжитесь с нами — мы поможем' }
+  else if (gs === 'processing') { icon = '🎹'; title = 'Создаём песню';      sub = 'AI-студия работает над вашим треком...' }
+  else if (gs === 'queued')     { icon = '⏱'; title = 'В очереди';          sub = 'Скоро начнём создание' }
 
-  const steps = ['Оплата', 'Очередь', 'Создание', 'Готово']
-  const stepKeys = ['paid', 'queued', 'processing', 'completed'] as const
-  const currentIdx = gs === 'failed' ? 2 : stepKeys.findIndex((k) => k === gs || (gs === 'new' && k === 'paid'))
+  const idx       = gs === 'failed' ? 2 : STEPKEYS.findIndex(k => k === gs || (gs === 'new' && k === 'paid'))
   const isTerminal = gs === 'completed' || gs === 'failed'
 
   return (
-    <div>
-      {/* Status header */}
-      <div
-        className="rounded-2xl p-8 text-center mb-6"
-        style={{ background: '#141414', border: '1px solid #252525' }}
-      >
-        <div className="text-5xl mb-4">{statusIcon}</div>
-        <div className="text-2xl font-bold mb-2">{statusTitle}</div>
-        <div className="text-sm mb-8" style={{ color: '#777' }}>{statusSub}</div>
+    <div className="fade-in">
+      {/* Header */}
+      <div style={{
+        background: '#0f0f0f', border: `1px solid ${BORDER}`,
+        borderRadius: '24px', padding: '36px 36px 28px', textAlign: 'center', marginBottom: '16px',
+        position: 'relative', overflow: 'hidden',
+      }}>
+        {gs === 'completed' && (
+          <div style={{
+            position: 'absolute', inset: 0, pointerEvents: 'none',
+            background: 'radial-gradient(ellipse 60% 50% at 50% 0%, rgba(0,229,192,0.08) 0%, transparent 70%)',
+          }} />
+        )}
 
-        {/* Progress steps */}
-        <div className="flex justify-center items-center">
-          {steps.map((label, i) => (
-            <div key={label} className="flex items-center">
-              <div className="flex flex-col items-center">
+        <div style={{ fontSize: '52px', marginBottom: '14px', lineHeight: 1 }}>{icon}</div>
+        <div style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '8px' }}>{title}</div>
+        <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '32px' }}>{sub}</div>
+
+        {/* Steps */}
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0 }}>
+          {STEPS.map((label, i) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <div
-                  className={`flex items-center justify-center rounded-full text-xs font-bold${i === currentIdx && !isTerminal ? ' progress-pulse' : ''}`}
+                  className={i === idx && !isTerminal ? 'progress-pulse' : ''}
                   style={{
-                    width: '32px', height: '32px',
-                    background: i <= currentIdx ? CYAN : '#252525',
-                    color: i <= currentIdx ? DARK : '#555',
+                    width: 32, height: 32, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '12px', fontWeight: 700,
+                    background: i <= idx ? ACCENT : 'rgba(255,255,255,0.07)',
+                    color: i <= idx ? DARK : 'rgba(255,255,255,0.2)',
+                    transition: 'all 0.3s',
                   }}
                 >
-                  {i < currentIdx ? '✓' : i + 1}
+                  {i < idx ? '✓' : i + 1}
                 </div>
-                <div className="text-xs mt-1.5" style={{ color: i <= currentIdx ? '#aaa' : '#444', width: '56px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', marginTop: '6px', color: i <= idx ? TEXT2 : TEXT3, width: 60, textAlign: 'center', fontWeight: 500 }}>
                   {label}
                 </div>
               </div>
-              {i < steps.length - 1 && (
-                <div
-                  className="mb-5"
-                  style={{
-                    width: '48px', height: '2px',
-                    background: i < currentIdx ? CYAN : '#252525',
-                  }}
-                />
+              {i < STEPS.length - 1 && (
+                <div style={{
+                  width: 52, height: 2, marginBottom: 22,
+                  background: i < idx ? ACCENT : 'rgba(255,255,255,0.07)',
+                  transition: 'background 0.3s',
+                }} />
               )}
             </div>
           ))}
         </div>
 
-        <p className="mt-6 text-xs" style={{ color: '#444' }}>
-          ID: <code style={{ color: CYAN, fontFamily: 'monospace' }}>{order.id}</code>
-        </p>
+        <div style={{ marginTop: '20px', fontSize: '12px', color: TEXT3 }}>
+          ID: <code style={{ color: 'rgba(0,229,192,0.6)', fontFamily: 'monospace' }}>{order.id}</code>
+        </div>
         {!isTerminal && (
-          <p className="text-xs mt-1" style={{ color: '#444' }}>Обновляется автоматически каждые 10 секунд</p>
+          <div style={{ fontSize: '12px', color: TEXT3, marginTop: '4px' }}>
+            Обновляется каждые 10 секунд
+          </div>
         )}
       </div>
 
-      {/* Music Player */}
+      {/* Player */}
       {gs === 'completed' && order.tracks.length > 0 && (
-        <div className="mb-6">
-          <div className="text-sm font-semibold mb-3" style={{ color: '#aaa' }}>Ваши треки</div>
+        <div style={{ marginBottom: '16px' }}>
           <MusicPlayer tracks={order.tracks} />
         </div>
       )}
 
       {/* Actions */}
       {isTerminal && (
-        <div className="flex gap-3">
+        <div style={{ display: 'flex', gap: '10px' }}>
           <button
             onClick={onClear}
-            className="flex-1 py-3 rounded-xl text-sm font-semibold"
-            style={{ background: 'transparent', border: `1px solid ${CYAN}`, color: CYAN, cursor: 'pointer' }}
+            style={{
+              flex: 1, padding: '14px',
+              background: 'transparent',
+              border: `1px solid rgba(0,229,192,0.3)`,
+              borderRadius: '14px', color: ACCENT,
+              fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,229,192,0.06)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
           >
             Новый заказ
           </button>
           <button
             onClick={onBack}
-            className="flex-1 py-3 rounded-xl text-sm font-semibold"
-            style={{ background: CYAN, color: DARK, border: 'none', cursor: 'pointer' }}
+            style={{
+              flex: 1, padding: '14px',
+              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
+              border: 'none', borderRadius: '14px', color: DARK,
+              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
+              cursor: 'pointer', transition: 'opacity 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88' }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
           >
             На главную
           </button>

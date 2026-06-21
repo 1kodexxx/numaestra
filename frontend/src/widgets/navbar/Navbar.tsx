@@ -1,39 +1,77 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
-function WaveIcon() {
+function WaveLogo() {
+  const bars = [10, 18, 24, 16, 10]
   return (
-    <svg width="28" height="20" viewBox="0 0 28 20" fill="none" style={{ flexShrink: 0 }}>
-      <rect x="0"  y="10" width="4" height="10" rx="2" fill="#00e5c0"/>
-      <rect x="6"  y="4"  width="4" height="16" rx="2" fill="#00e5c0"/>
-      <rect x="12" y="0"  width="4" height="20" rx="2" fill="#00e5c0"/>
-      <rect x="18" y="5"  width="4" height="15" rx="2" fill="#00e5c0"/>
-      <rect x="24" y="8"  width="4" height="12" rx="2" fill="#00e5c0"/>
+    <svg width="26" height="24" viewBox="0 0 26 24" fill="none" aria-hidden>
+      {bars.map((h, i) => (
+        <rect
+          key={i}
+          x={i * 6}
+          y={(24 - h) / 2}
+          width="4"
+          height={h}
+          rx="2"
+          fill="#00e5c0"
+        />
+      ))}
     </svg>
   )
 }
 
 export function Navbar() {
+  const { pathname } = useLocation()
+
   return (
     <nav
-      className="sticky top-0 z-50 flex items-center gap-3 px-6"
       style={{
-        height: '56px',
-        background: 'rgba(13,13,13,0.95)',
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid #252525',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+        height: '60px',
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 28px',
+        background: 'rgba(8,8,8,0.85)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
       }}
     >
-      <Link to="/" className="flex items-center gap-2.5 no-underline select-none">
-        <WaveIcon />
-        <span className="text-lg font-bold text-white tracking-tight">Numaestra</span>
+      <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <WaveLogo />
+        <span style={{ fontSize: '17px', fontWeight: 700, color: '#fff', letterSpacing: '-0.02em' }}>
+          Numaestra
+        </span>
       </Link>
-      <div className="flex-1" />
+
+      <div style={{ flex: 1 }} />
+
       <Link
         to="/status"
-        className="text-sm no-underline px-4 py-1.5 rounded-full transition-all"
-        style={{ color: '#777', border: '1px solid #252525' }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#444' }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = '#777'; e.currentTarget.style.borderColor = '#252525' }}
+        style={{
+          textDecoration: 'none',
+          fontSize: '13px',
+          fontWeight: 500,
+          color: pathname === '/status' ? '#00e5c0' : 'rgba(255,255,255,0.5)',
+          padding: '7px 16px',
+          borderRadius: '20px',
+          border: '1px solid',
+          borderColor: pathname === '/status' ? 'rgba(0,229,192,0.3)' : 'rgba(255,255,255,0.08)',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={(e) => {
+          if (pathname !== '/status') {
+            e.currentTarget.style.color = '#fff'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (pathname !== '/status') {
+            e.currentTarget.style.color = 'rgba(255,255,255,0.5)'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+          }
+        }}
       >
         Мой заказ
       </Link>

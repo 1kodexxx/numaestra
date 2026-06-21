@@ -2,14 +2,26 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { categoryApi } from '@entities/category'
 import { useCreateOrder } from '@features/create-order'
-import { Spinner } from '@shared/ui'
 import type { Question, WizardData } from '@entities/category'
 
-const inputCls = [
-  'w-full bg-bg3 border border-border rounded-lg px-4 py-3',
-  'text-txt text-[15px] outline-none transition-colors',
-  'focus:border-accent2 placeholder:text-muted font-[inherit] resize-y',
-].join(' ')
+const ACCENT  = '#00e5c0'
+const DARK    = '#080808'
+const SURFACE = '#111111'
+const BORDER  = 'rgba(255,255,255,0.07)'
+const TEXT2   = 'rgba(255,255,255,0.5)'
+const TEXT3   = 'rgba(255,255,255,0.25)'
+
+function inputStyle(focused: boolean): React.CSSProperties {
+  return {
+    width: '100%',
+    background: 'rgba(255,255,255,0.04)',
+    border: `1px solid ${focused ? 'rgba(0,229,192,0.4)' : BORDER}`,
+    borderRadius: '12px', padding: '13px 16px',
+    color: '#fff', fontSize: '14px', fontFamily: 'inherit',
+    outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
+    boxShadow: focused ? '0 0 0 3px rgba(0,229,192,0.07)' : 'none',
+  }
+}
 
 export function QuizPage() {
   const { categoryId = '' } = useParams<{ categoryId: string }>()
@@ -24,22 +36,29 @@ export function QuizPage() {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [stepError, setStepError] = useState<string | null>(null)
-
+  const [emailF, setEmailF] = useState(false)
+  const [phoneF, setPhoneF] = useState(false)
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
 
   useEffect(() => {
-    categoryApi
-      .wizard(categoryId)
+    categoryApi.wizard(categoryId)
       .then(setWizard)
       .catch((err: Error) => setLoadError(err.message))
   }, [categoryId])
 
   if (loadError) return (
-    <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm m-4">
-      {loadError}
+    <div style={{ maxWidth: 560, margin: '40px auto', padding: '0 24px' }}>
+      <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '12px', padding: '14px 18px', color: '#ef4444', fontSize: '14px' }}>
+        {loadError}
+      </div>
     </div>
   )
-  if (!wizard) return <div className="text-center py-10"><Spinner /></div>
+
+  if (!wizard) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)' }}>
+      <div className="spin-anim" style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.07)', borderTopColor: ACCENT }} />
+    </div>
+  )
 
   const questions: Question[] = wizard.questions
   const totalSteps = questions.length + 1
@@ -48,187 +67,232 @@ export function QuizPage() {
   function goNext() {
     if (!isContactStep) {
       const q = questions[step]
-      const val = answers[q.mapping_key] ?? ''
-      if (q.is_required && !val.trim()) {
+      if (q.is_required && !answers[q.mapping_key]?.trim()) {
         setStepError('Пожалуйста, заполните это поле')
         return
       }
     }
     setStepError(null)
-    setStep((s) => s + 1)
+    setStep(s => s + 1)
   }
 
   function goPrev() {
     setStepError(null)
-    setStep((s) => Math.max(0, s - 1))
-  }
-
-  function handleAnswer(key: string, value: string) {
-    setAnswers((prev) => ({ ...prev, [key]: value }))
-    setStepError(null)
+    setStep(s => Math.max(0, s - 1))
   }
 
   async function handleSubmit() {
     if (!email && !phone) { setStepError('Укажите email или телефон'); return }
     setStepError(null)
-    const brief =
-      questions
-        .map((q) => answers[q.mapping_key] ? `${q.question_text}: ${answers[q.mapping_key]}` : null)
-        .filter(Boolean)
-        .join('; ') || 'Персональная песня'
+    const brief = questions.map(q => answers[q.mapping_key] ? `${q.question_text}: ${answers[q.mapping_key]}` : null).filter(Boolean).join('; ') || `Персональная песня — ${categoryTitle}`
     await submit({ email, phone, brief, category_id: categoryId, answers })
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-6 pt-10 pb-20">
-      <div className="mb-8">
+    <div style={{ maxWidth: 600, margin: '0 auto', padding: '40px 24px 60px' }}>
+      {/* Header */}
+      <div style={{ marginBottom: '32px' }}>
         <button
-          className="text-muted bg-transparent border-none cursor-pointer text-sm inline-flex items-center gap-1.5 mb-4 hover:text-txt transition-colors"
-          onClick={() => navigate('/')}
+          onClick={() => navigate(-1)}
+          style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: 0, marginBottom: '16px', transition: 'color 0.15s' }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
         >
           ← Назад
         </button>
-        <div className="text-[28px] font-extrabold">{categoryTitle}</div>
-        <div className="text-muted mt-1.5">Ответьте на несколько вопросов</div>
+
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.2)', borderRadius: '20px', padding: '4px 12px 4px 8px', marginBottom: '12px' }}>
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: ACCENT }} />
+          <span style={{ fontSize: '12px', fontWeight: 600, color: ACCENT }}>{categoryTitle}</span>
+        </div>
+        <div style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.03em' }}>
+          {isContactStep ? 'Контактные данные' : 'Расскажите о песне'}
+        </div>
       </div>
 
-      <div className="flex items-center gap-1 mb-8">
+      {/* Progress */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '28px' }}>
         {Array.from({ length: totalSteps }, (_, i) => (
           <div
             key={i}
-            className={`w-2 h-2 rounded-full transition-colors ${
-              i < step ? 'bg-accent2' : i === step ? 'bg-accent' : 'bg-border'
-            }`}
+            style={{
+              height: '3px', flex: 1, borderRadius: '2px',
+              background: i < step ? ACCENT : i === step ? ACCENT : 'rgba(255,255,255,0.1)',
+              opacity: i === step ? 1 : i < step ? 0.8 : 0.4,
+              transition: 'all 0.3s',
+            }}
           />
         ))}
-        <span className="text-[13px] text-muted ml-2.5">{step + 1} / {totalSteps}</span>
+        <span style={{ fontSize: '12px', color: TEXT3, marginLeft: '8px', whiteSpace: 'nowrap' }}>
+          {step + 1} / {totalSteps}
+        </span>
       </div>
 
-      <div className="bg-bg2 border border-border rounded-xl p-7">
+      {/* Card */}
+      <div
+        className="fade-in"
+        key={step}
+        style={{
+          background: '#0f0f0f',
+          border: `1px solid ${BORDER}`,
+          borderRadius: '20px', padding: '32px 28px',
+          marginBottom: '16px',
+        }}
+      >
         {!isContactStep ? (
           <QuestionStep
             question={questions[step]}
             value={answers[questions[step].mapping_key] ?? ''}
-            onChange={(v) => handleAnswer(questions[step].mapping_key, v)}
+            onChange={v => { setAnswers(p => ({ ...p, [questions[step].mapping_key]: v })); setStepError(null) }}
           />
         ) : (
-          <ContactStep
-            email={email} phone={phone}
-            onEmail={setEmail} onPhone={setPhone}
-          />
-        )}
-
-        {(stepError ?? submitError) && (
-          <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm my-3">
-            {stepError ?? submitError}
+          <div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>Email</label>
+              <input type="email" placeholder="your@email.com" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle(emailF)} onFocus={() => setEmailF(true)} onBlur={() => setEmailF(false)} />
+            </div>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>
+                Телефон <span style={{ color: TEXT3 }}>(необязательно)</span>
+              </label>
+              <input type="tel" placeholder="+7 999 000 00 00" value={phone} onChange={e => setPhone(e.target.value)} style={inputStyle(phoneF)} onFocus={() => setPhoneF(true)} onBlur={() => setPhoneF(false)} />
+            </div>
+            <div style={{
+              background: 'rgba(0,229,192,0.06)', border: '1px solid rgba(0,229,192,0.15)',
+              borderRadius: '14px', padding: '18px 20px', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '6px' }}>4 уникальных версии</div>
+              <div style={{ fontSize: '32px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>2 000 ₽</div>
+              <div style={{ fontSize: '12px', color: TEXT3, marginTop: '4px' }}>Один платёж, без подписок</div>
+            </div>
           </div>
         )}
 
-        <div className="flex justify-between mt-7 gap-3">
+        {(stepError ?? submitError) && (
+          <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444', marginTop: '16px' }}>
+            {stepError ?? submitError}
+          </div>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+        <button
+          onClick={goPrev}
+          disabled={step === 0}
+          style={{
+            padding: '14px 24px', borderRadius: '14px',
+            background: 'transparent', border: `1px solid ${BORDER}`,
+            color: step === 0 ? TEXT3 : TEXT2,
+            fontSize: '14px', fontWeight: 600, fontFamily: 'inherit',
+            cursor: step === 0 ? 'default' : 'pointer',
+            transition: 'all 0.15s', opacity: step === 0 ? 0.4 : 1,
+          }}
+          onMouseEnter={(e) => { if (step > 0) { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' } }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2; e.currentTarget.style.borderColor = BORDER }}
+        >
+          ← Назад
+        </button>
+
+        {!isContactStep ? (
           <button
-            className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-transparent border border-accent2 text-accent cursor-pointer hover:bg-accent/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            onClick={goPrev}
-            disabled={step === 0}
+            onClick={goNext}
+            style={{
+              flex: 1, padding: '14px', borderRadius: '14px',
+              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
+              border: 'none', color: DARK,
+              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
+              cursor: 'pointer', transition: 'opacity 0.15s',
+              boxShadow: '0 4px 20px rgba(0,229,192,0.2)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88' }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
           >
-            ← Назад
+            Далее →
           </button>
-          {!isContactStep
-            ? (
-              <button
-                className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] transition-all"
-                onClick={goNext}
-              >
-                Далее →
-              </button>
-            ) : (
-              <button
-                className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] disabled:opacity-60 disabled:cursor-not-allowed transition-all"
-                onClick={handleSubmit}
-                disabled={submitting}
-              >
-                {submitting ? 'Создаём заказ...' : 'Оплатить →'}
-              </button>
-            )
-          }
-        </div>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            style={{
+              flex: 1, padding: '14px', borderRadius: '14px',
+              background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
+              border: 'none', color: DARK,
+              fontSize: '14px', fontWeight: 700, fontFamily: 'inherit',
+              cursor: submitting ? 'wait' : 'pointer',
+              opacity: submitting ? 0.7 : 1, transition: 'opacity 0.15s',
+              boxShadow: '0 4px 20px rgba(0,229,192,0.2)',
+            }}
+          >
+            {submitting ? 'Оформляем заказ...' : 'Перейти к оплате →'}
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
-function QuestionStep({
-  question, value, onChange,
-}: { question: Question; value: string; onChange: (v: string) => void }) {
+function QuestionStep({ question, value, onChange }: { question: Question; value: string; onChange: (v: string) => void }) {
+  const isChoice = question.ui_type === 'select' || question.ui_type === 'tags' || question.ui_type === 'radio'
+  const [focused, setFocused] = useState(false)
+
   return (
     <>
-      <div className="text-lg font-semibold mb-5">
+      <div style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: '20px', lineHeight: 1.3 }}>
         {question.question_text}
-        {question.is_required && <span className="text-error ml-1">*</span>}
+        {question.is_required && <span style={{ color: '#ef4444', marginLeft: '4px' }}>*</span>}
       </div>
-      {/* select/tags/radio — все три типа рендерятся как кнопки-варианты */}
-      {(question.ui_type === 'select' || question.ui_type === 'tags' || question.ui_type === 'radio') ? (
-        <div className={`flex gap-2.5 ${question.ui_type === 'radio' ? 'flex-col' : 'flex-wrap'}`}>
-          {question.options.map((opt) => (
-            <button
-              key={opt.value}
-              className={`border rounded-lg px-4 py-3 text-left text-txt cursor-pointer text-[15px] transition-all ${
-                question.ui_type === 'radio' ? 'w-full bg-bg3' : 'bg-bg3'
-              } ${
-                value === opt.value
-                  ? 'border-accent bg-accent/15 text-accent'
-                  : 'border-border hover:border-accent2 hover:bg-accent2/10'
-              }`}
-              onClick={() => onChange(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
+
+      {isChoice ? (
+        <div style={{ display: 'flex', flexWrap: question.ui_type === 'radio' ? undefined : 'wrap', flexDirection: question.ui_type === 'radio' ? 'column' : undefined, gap: '8px' }}>
+          {question.options.map(opt => {
+            const sel = value === opt.value
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onChange(opt.value)}
+                style={{
+                  padding: question.ui_type === 'radio' ? '14px 18px' : '9px 16px',
+                  borderRadius: question.ui_type === 'radio' ? '12px' : '20px',
+                  background: sel ? 'rgba(0,229,192,0.12)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${sel ? 'rgba(0,229,192,0.45)' : BORDER}`,
+                  color: sel ? ACCENT : 'rgba(255,255,255,0.6)',
+                  fontSize: '14px', fontWeight: sel ? 600 : 400, fontFamily: 'inherit',
+                  cursor: 'pointer', transition: 'all 0.15s',
+                  textAlign: 'left',
+                }}
+                onMouseEnter={(e) => { if (!sel) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = '#fff' } }}
+                onMouseLeave={(e) => { if (!sel) { e.currentTarget.style.borderColor = BORDER; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' } }}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
         </div>
       ) : question.ui_type === 'textarea' ? (
         <textarea
-          className={inputCls}
           rows={4}
           placeholder="Введите ваш ответ..."
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={e => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{
+            ...inputStyle(focused),
+            resize: 'vertical', lineHeight: 1.6,
+          }}
         />
       ) : (
         <input
-          className={inputCls}
           type="text"
           placeholder="Введите ваш ответ..."
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={e => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={inputStyle(focused)}
         />
       )}
-    </>
-  )
-}
-
-function ContactStep({
-  email, phone, onEmail, onPhone,
-}: {
-  email: string; phone: string
-  onEmail: (v: string) => void; onPhone: (v: string) => void
-}) {
-  return (
-    <>
-      <div className="text-lg font-semibold mb-5">Контактные данные</div>
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5 text-sm text-muted">
-          <label>Email <span className="text-error">*</span></label>
-          <input className={inputCls} type="email" placeholder="your@email.com" value={email} onChange={(e) => onEmail(e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5 text-sm text-muted">
-          <label>Телефон (необязательно)</label>
-          <input className={inputCls} type="tel" placeholder="+7 999 000 00 00" value={phone} onChange={(e) => onPhone(e.target.value)} />
-        </div>
-        <div className="rounded-[10px] p-4 text-center border-2 border-accent bg-accent/12">
-          <div className="font-bold text-base">4 версии песни</div>
-          <div className="text-gold text-[22px] font-extrabold my-1.5">2 000 ₽</div>
-          <div className="text-xs text-muted">Один платёж, без подписок и тарифов</div>
-        </div>
-      </div>
     </>
   )
 }

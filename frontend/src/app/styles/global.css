@@ -1,40 +1,84 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg:      #0d0d0d;
-  --color-bg2:     #141414;
-  --color-bg3:     #1c1c1c;
-  --color-accent:  #00e5c0;
-  --color-accent2: #00bfa5;
-  --color-gold:    #f59e0b;
-  --color-txt:     #ffffff;
-  --color-muted:   #777777;
-  --color-border:  #252525;
-  --color-success: #22c55e;
-  --color-error:   #ef4444;
-  --color-card:    #00e5c0;
+  --color-bg:       #080808;
+  --color-surface:  #111111;
+  --color-surface2: #1a1a1a;
+  --color-border:   rgba(255, 255, 255, 0.07);
+  --color-accent:   #00e5c0;
+  --color-accent2:  #00bfa5;
+  --color-gold:     #f59e0b;
+  --color-txt:      #ffffff;
+  --color-txt2:     rgba(255, 255, 255, 0.5);
+  --color-txt3:     rgba(255, 255, 255, 0.25);
+  --color-success:  #22c55e;
+  --color-error:    #ef4444;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 html, body, #root {
   height: 100%;
-  background: var(--color-bg);
-  color: var(--color-txt);
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  background: #080808;
+  color: #ffffff;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@keyframes progress-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 229, 192, 0.6); }
-  50%       { box-shadow: 0 0 0 8px rgba(0, 229, 192, 0); }
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Animations */
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,229,192,0.45); }
+  50%       { box-shadow: 0 0 0 8px rgba(0,229,192,0); }
 }
-@utility progress-pulse { animation: progress-pulse 1.5s infinite; }
+@utility progress-pulse { animation: pulse-ring 1.6s ease infinite; }
 
 @keyframes wave-bar {
-  0%, 100% { transform: scaleY(0.25); }
+  0%, 100% { transform: scaleY(0.2); }
   50%       { transform: scaleY(1); }
 }
-@utility wave-animate { animation: wave-bar 0.9s ease-in-out infinite; }
+@utility wave-animate { animation: wave-bar 0.85s ease-in-out infinite; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-@utility spin-anim { animation: spin 0.8s linear infinite; }
+@utility spin-anim { animation: spin 0.75s linear infinite; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@utility fade-in { animation: fade-in 0.25s ease forwards; }
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@utility scale-in { animation: scale-in 0.2s ease forwards; }
+
+/* Range input */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #00e5c0;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
