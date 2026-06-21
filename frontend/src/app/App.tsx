@@ -12,7 +12,7 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Navbar />
-      <div style={{ flex: 1, overflow: isFullscreen ? 'hidden' : 'auto' }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
         {children}
       </div>
       {!isFullscreen && (

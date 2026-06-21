@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCatalog } from '@features/load-catalog'
+import { useCreateOrder } from '@features/create-order'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
-import { Button, useRipple } from '@shared/ui'
+import { Button, TextField, useRipple } from '@shared/ui'
+import { ContactModal } from '@widgets/contact-modal'
 import type { Category } from '@entities/category'
 
 /* ─── tokens ─── */
@@ -41,6 +43,9 @@ const ICON_RULES: [string, string][] = [
   ['новорожден', '👶'], ['baby', '👶'],
   ['развод', '💔'], ['breakup', '💔'],
   ['мотивац', '🔥'], ['roast', '🔥'],
+  ['валентин', '💝'], ['valentine', '💝'],
+  ['8 март', '🌷'], ['march8', '🌷'], ['женск', '🌷'],
+  ['повышен', '📈'], ['promotion', '📈'], ['карьер', '📈'],
 ]
 
 const FALLBACK_ICONS = ['🎵','🎸','🎹','🎺','🥁','🎷','🎻','🪗','🎤','🪘','🎙️','🎚️']
@@ -156,10 +161,17 @@ function Hero({ compact }: { compact: boolean }) {
 }
 
 /* ─── search bar ─── */
-function SearchBar({ onClick }: { onClick: () => void }) {
+function SearchBar({ onOpen }: { onOpen: () => void }) {
   return (
     <button
-      onClick={onClick}
+      onClick={onOpen}
+      onMouseEnter={(e) => {
+        onOpen()
+        e.currentTarget.style.borderColor = 'rgba(0,229,192,0.35)'
+        e.currentTarget.style.background = 'rgba(255,255,255,0.045)'
+        e.currentTarget.style.boxShadow = '0 0 0 4px rgba(0,229,192,0.05)'
+      }}
+      onFocus={onOpen}
       style={{
         display: 'flex', alignItems: 'center', gap: '12px',
         width: '100%', maxWidth: '580px',
@@ -168,25 +180,130 @@ function SearchBar({ onClick }: { onClick: () => void }) {
         borderRadius: '14px', padding: '15px 20px',
         cursor: 'text', transition: 'all 0.2s', textAlign: 'left',
       }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'rgba(0,229,192,0.35)'
-        e.currentTarget.style.background = 'rgba(255,255,255,0.045)'
-        e.currentTarget.style.boxShadow = '0 0 0 4px rgba(0,229,192,0.05)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
-        e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
-        e.currentTarget.style.boxShadow = 'none'
-      }}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
         stroke="rgba(255,255,255,0.25)" strokeWidth="2.5" strokeLinecap="round">
         <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
       </svg>
       <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.25)', fontWeight: 400, letterSpacing: '0.01em' }}>
-        Опишите вашу песню или выберите категорию...
+        Опишите вашу песню к Suno или выберите категорию...
       </span>
     </button>
+  )
+}
+
+/* ─── chip (single-select) ─── */
+function Chip({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '9px 16px', borderRadius: '20px',
+        background: selected ? 'rgba(0,229,192,0.14)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${selected ? 'rgba(0,229,192,0.5)' : 'rgba(255,255,255,0.1)'}`,
+        color: selected ? ACCENT : 'rgba(255,255,255,0.6)',
+        fontSize: '13px', fontWeight: selected ? 600 : 400,
+        cursor: 'pointer', transition: 'all 0.15s',
+      }}
+      onMouseEnter={(e) => { if (!selected) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff' } }}
+      onMouseLeave={(e) => { if (!selected) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' } }}
+    >
+      {label}
+    </button>
+  )
+}
+
+const MOODS = ['Романтика', 'Радость', 'Энергия', 'Ностальгия', 'Юмор', 'Торжественность']
+const GENRES = ['Поп', 'Баллада', 'Рок', 'Рэп', 'Джаз', 'Электроника', 'Шансон', 'Акустика']
+
+function composeBrief(occasion: string, mood: string, genre: string, details: string): string {
+  const parts: string[] = []
+  if (occasion.trim()) parts.push(occasion.trim())
+  if (mood || genre) parts.push(`Настроение и стиль: ${[mood, genre].filter(Boolean).join(', ')}`)
+  if (details.trim()) parts.push(details.trim())
+  return parts.join('. ') || 'Персональная песня на заказ'
+}
+
+/* ─── prompt constructor ─── */
+function PromptBuilder({
+  occasion, setOccasion, mood, setMood, genre, setGenre, details, setDetails, onBack, onSubmit, canSubmit,
+}: {
+  occasion: string; setOccasion: (v: string) => void
+  mood: string; setMood: (v: string) => void
+  genre: string; setGenre: (v: string) => void
+  details: string; setDetails: (v: string) => void
+  onBack: () => void
+  onSubmit: () => void
+  canSubmit: boolean
+}) {
+  return (
+    <div style={{ width: '100%', maxWidth: '640px' }} className="fade-in">
+      <button
+        onClick={onBack}
+        style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', marginBottom: '18px', padding: 0 }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
+      >
+        ← К категориям
+      </button>
+
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginBottom: '12px' }}>
+        <span style={{ fontSize: '12px' }}>🎛️</span>
+        <span style={{ fontSize: '11px', fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Конструктор промпта для Suno
+        </span>
+      </div>
+      <div style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '4px', textAlign: 'left' }}>
+        Соберите свою песню
+      </div>
+      <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '24px', textAlign: 'left' }}>
+        Никаких готовых категорий — только ваш повод, настроение и детали
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', textAlign: 'left' }}>
+        <TextField
+          label="Для кого и по какому поводу"
+          value={occasion}
+          onChange={setOccasion}
+          placeholder="Например: жене на годовщину свадьбы"
+          surfaceColor="#080808"
+        />
+
+        <div>
+          <div style={{ fontSize: '12px', color: TEXT2, marginBottom: '10px', fontWeight: 500 }}>Настроение</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {MOODS.map(m => (
+              <Chip key={m} label={m} selected={mood === m} onClick={() => setMood(mood === m ? '' : m)} />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: '12px', color: TEXT2, marginBottom: '10px', fontWeight: 500 }}>Жанр</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {GENRES.map(g => (
+              <Chip key={g} label={g} selected={genre === g} onClick={() => setGenre(genre === g ? '' : g)} />
+            ))}
+          </div>
+        </div>
+
+        <TextField
+          label="Детали (необязательно)"
+          value={details}
+          onChange={setDetails}
+          multiline
+          rows={4}
+          placeholder="Имена, общие воспоминания, шутки, особые слова..."
+          surfaceColor="#080808"
+        />
+      </div>
+
+      <div style={{ marginTop: '24px' }}>
+        <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
+          Продолжить — 2 000 ₽ →
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -194,7 +311,7 @@ function SearchBar({ onClick }: { onClick: () => void }) {
 function CategoryCard({ cat, index, onClick }: { cat: Category; index: number; onClick: () => void }) {
   const [h, setH] = useState(false)
   const icon = getIcon(cat, index)
-  const { onPointerDown, rippleEl } = useRipple('rgba(0,0,0,0.35)')
+  const { onPointerDown, rippleEl } = useRipple('rgba(0,229,192,0.5)')
 
   return (
     <button
@@ -211,44 +328,34 @@ function CategoryCard({ cat, index, onClick }: { cat: Category; index: number; o
         justifyContent: 'center',
         gap: '12px',
         padding: '18px 14px',
-        background: h
-          ? 'linear-gradient(145deg, #05f0cb 0%, #00cdb0 100%)'
-          : 'linear-gradient(145deg, #00e5c0 0%, #00c4a7 100%)',
-        border: 'none',
+        background: h ? 'rgba(0,229,192,0.06)' : 'rgba(255,255,255,0.02)',
+        border: `1.5px solid ${h ? 'rgba(0,229,192,0.5)' : 'rgba(255,255,255,0.1)'}`,
         borderRadius: '22px',
         cursor: 'pointer',
-        transform: h ? 'translateY(-4px) scale(1.02)' : 'translateY(0) scale(1)',
-        boxShadow: h
-          ? '0 18px 44px rgba(0,229,192,0.3), 0 4px 12px rgba(0,0,0,0.3)'
-          : '0 2px 12px rgba(0,0,0,0.35)',
+        transform: h ? 'translateY(-4px)' : 'translateY(0)',
+        boxShadow: h ? '0 16px 36px rgba(0,229,192,0.12)' : 'none',
         transition: 'all 0.24s cubic-bezier(0.34, 1.4, 0.64, 1)',
         overflow: 'hidden',
         position: 'relative',
       }}
     >
-      {/* inner highlight */}
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: '55%',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.2) 0%, transparent 100%)',
-        borderRadius: '22px 22px 0 0', pointerEvents: 'none',
-      }} />
-
       {/* icon badge */}
       <div style={{
         width: '52px', height: '52px', borderRadius: '50%',
-        background: h ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.22)',
-        border: '1px solid rgba(255,255,255,0.3)',
+        background: h ? 'rgba(0,229,192,0.14)' : 'rgba(255,255,255,0.05)',
+        border: `1px solid ${h ? 'rgba(0,229,192,0.4)' : 'rgba(255,255,255,0.12)'}`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         transition: 'all 0.24s', position: 'relative',
         transform: h ? 'scale(1.08)' : 'scale(1)',
       }}>
-        <span style={{ fontSize: '26px', lineHeight: 1 }}>{icon}</span>
+        <span style={{ fontSize: '26px', lineHeight: 1, filter: h ? 'none' : 'grayscale(0.15)' }}>{icon}</span>
       </div>
 
       <span style={{
-        fontSize: '13px', fontWeight: 700, color: '#072420',
+        fontSize: '13px', fontWeight: 700,
+        color: h ? '#00e5c0' : 'rgba(255,255,255,0.85)',
         lineHeight: 1.25, letterSpacing: '-0.01em', textAlign: 'center',
-        position: 'relative',
+        position: 'relative', transition: 'color 0.2s',
       }}>
         {cat.title}
       </span>
@@ -298,168 +405,222 @@ export function CatalogPage() {
   const navigate = useNavigate()
   const { isMobile, isTablet, isDesktop } = useBreakpoint()
   const [briefOpen, setBriefOpen] = useState(false)
-  const [brief, setBrief] = useState('')
+  const [occasion, setOccasion] = useState('')
+  const [mood, setMood] = useState('')
+  const [genre, setGenre] = useState('')
+  const [details, setDetails] = useState('')
+  const [showContact, setShowContact] = useState(false)
+
+  // Когда конструктор закрывается, строка поиска возвращается на то же место
+  // экрана, где уже стоит курсор. Браузер пересчитывает hover под неподвижным
+  // указателем и мгновенно шлёт mouseenter новому элементу — конструктор тут же
+  // открывался бы обратно. Блокируем повторное открытие по hover, пока
+  // пользователь не подвинет мышь по-настоящему.
+  const suppressHoverRef = useRef(false)
+
+  function openBuilder() {
+    if (suppressHoverRef.current) return
+    setBriefOpen(true)
+  }
+
+  function closeBuilder() {
+    setBriefOpen(false)
+    suppressHoverRef.current = true
+    const clear = () => {
+      suppressHoverRef.current = false
+      document.removeEventListener('mousemove', clear)
+    }
+    document.addEventListener('mousemove', clear)
+  }
+  const { loading: submitting, error: submitError, submit } = useCreateOrder()
+
+  async function handleCustomOrder(email: string, phone: string) {
+    const brief = composeBrief(occasion, mood, genre, details)
+    await submit({ email, phone, brief, category_id: '', answers: {} })
+  }
 
   const PANEL_W = 210
-  const gridCols = isMobile ? 'repeat(2, 1fr)' : isTablet ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)'
+  // auto-fill держит карточки компактными (~180px) и заполняет ширину колонками,
+  // вместо 4 гигантских карточек на ультрашироком экране.
+  const gridCols = isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))'
   const gridPad = isMobile ? '4px 16px 32px' : isTablet ? '4px 28px 40px' : '4px 40px 40px'
   const heroPad = isMobile ? '24px 16px 8px' : isTablet ? '32px 28px 10px' : '40px 40px 12px'
   const searchPad = isMobile ? '16px 16px 12px' : '20px 40px 18px'
 
-  return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
+  const centerInner = (
+    <>
+      {/* Hero */}
+      <div style={{ padding: heroPad }}>
+        <Hero compact={isMobile} />
+      </div>
 
-      {/* ── Left panel: desktop only ── */}
-      {isDesktop && (
-        <aside style={{
-          width: PANEL_W, flexShrink: 0,
-          borderRight: `1px solid ${BORDER}`,
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '18px 10px 10px' }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, color: TEXT3, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px 10px' }}>
+      {/* Category chips (mobile/tablet) */}
+      {!isDesktop && !loading && (
+        <div style={{ paddingBottom: '4px' }}>
+          <div style={{ padding: `0 ${isMobile ? 16 : 28}px 8px` }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              Категории
+            </span>
+          </div>
+          <MobileCategoryRow cats={categories.slice(0, 10)} />
+        </div>
+      )}
+
+      {/* Search bar (opens the constructor on hover/focus) */}
+      <div style={{ padding: searchPad, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+        <SearchBar onOpen={openBuilder} />
+        <p style={{ fontSize: '12px', color: TEXT3, fontWeight: 500 }}>
+          или выберите категорию ниже
+        </p>
+      </div>
+
+      {/* Category grid */}
+      <div style={{ padding: gridPad }}>
+        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: isMobile ? '10px' : '14px', maxWidth: 1280, margin: '0 auto' }}>
+          {loading
+            ? Array.from({ length: 8 }, (_, i) => <SkeletonCard key={i} />)
+            : categories.map((cat, i) => (
+                <CategoryCard
+                  key={cat.id}
+                  cat={cat}
+                  index={i}
+                  onClick={() => navigate(`/category/${cat.id}`)}
+                />
+              ))}
+        </div>
+      </div>
+
+      {/* Examples list (mobile) */}
+      {isMobile && !loading && (
+        <div style={{ padding: '0 16px 40px' }}>
+          <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: '24px', marginTop: '8px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '12px' }}>
               Послушать примеры
             </div>
-            {EXAMPLE_SONGS.map(ex => (
-              <SideItem key={ex.id} title={ex.title} sub={ex.category} onClick={() => navigate(`/examples/${ex.id}`)} />
-            ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+              {EXAMPLE_SONGS.map(ex => (
+                <button
+                  key={ex.id}
+                  onClick={() => navigate(`/examples/${ex.id}`)}
+                  style={{
+                    padding: '12px 14px', background: 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${BORDER}`, borderRadius: '12px',
+                    textAlign: 'left', cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: TEXT2, lineHeight: 1.3, marginBottom: '2px' }}>
+                    {ex.title}
+                  </div>
+                  <div style={{ fontSize: '11px', color: TEXT3 }}>{ex.category}</div>
+                </button>
+              ))}
+            </div>
           </div>
-        </aside>
+        </div>
       )}
+    </>
+  )
 
-      {/* ── Center ── */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', minWidth: 0 }}>
+  // Конструктор промпта — НЕПРОЗРАЧНЫЙ полноэкранный оверлей. Полностью
+  // перекрывает каталог (на любом размере экрана), поэтому карточкам не нужны
+  // хрупкие collapse-анимации, завязанные на flex/maxHeight.
+  const constructorOverlay = briefOpen && (
+    <div
+      className="fade-in"
+      style={{
+        position: 'fixed', top: 60, left: 0, right: 0, bottom: 0, zIndex: 40,
+        background: '#080808',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+        overflowY: 'auto',
+        padding: isMobile ? '20px 16px 40px' : '32px 24px',
+      }}
+    >
+      <div style={{ width: '100%', maxWidth: 640, margin: 'auto' }}>
+        <PromptBuilder
+          occasion={occasion} setOccasion={setOccasion}
+          mood={mood} setMood={setMood}
+          genre={genre} setGenre={setGenre}
+          details={details} setDetails={setDetails}
+          onBack={closeBuilder}
+          onSubmit={() => setShowContact(true)}
+          canSubmit={occasion.trim().length > 0}
+        />
+      </div>
+    </div>
+  )
 
-        {/* Hero */}
-        <div style={{ padding: heroPad }}>
-          <Hero compact={isMobile} />
+  const modals = (
+    <>
+      {showContact && (
+        <ContactModal
+          loading={submitting}
+          error={submitError}
+          onClose={() => setShowContact(false)}
+          onSubmit={handleCustomOrder}
+        />
+      )}
+      {constructorOverlay}
+    </>
+  )
+
+  /* ── Mobile / tablet: один простой скролл-контейнер (без вложенного flex) ── */
+  if (!isDesktop) {
+    return (
+      <>
+        {modals}
+        <div style={{ height: 'calc(100dvh - 60px)', overflowY: 'auto', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+          {centerInner}
         </div>
+      </>
+    )
+  }
 
-        {/* Mobile category chips */}
-        {!isDesktop && !loading && (
-          <div style={{ paddingBottom: '4px' }}>
-            <div style={{ padding: `0 ${isMobile ? 16 : 28}px 8px` }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-                Категории
-              </span>
-            </div>
-            <MobileCategoryRow cats={categories.slice(0, 10)} />
+  /* ── Desktop: 3-колоночный shell с независимыми скроллами ── */
+  return (
+    <div style={{ display: 'flex', height: 'calc(100dvh - 60px)', overflow: 'hidden' }}>
+      {modals}
+
+      {/* Left panel: examples */}
+      <aside style={{
+        width: PANEL_W, flexShrink: 0,
+        borderRight: `1px solid ${BORDER}`,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 10px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: TEXT3, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px 10px' }}>
+            Послушать примеры
           </div>
-        )}
-
-        {/* Search */}
-        <div style={{ padding: searchPad, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-          {briefOpen ? (
-            <div style={{ width: '100%', maxWidth: '580px' }} className="fade-in">
-              <button
-                onClick={() => setBriefOpen(false)}
-                style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', marginBottom: '10px', padding: 0 }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
-              >
-                ← К категориям
-              </button>
-              <textarea
-                autoFocus
-                placeholder="Расскажите: кому, по какому поводу, какое настроение, жанр..."
-                value={brief}
-                onChange={(e) => setBrief(e.target.value)}
-                rows={5}
-                style={{
-                  width: '100%',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(0,229,192,0.4)',
-                  borderRadius: '14px', padding: '18px 20px',
-                  color: '#fff', fontSize: '14px', resize: 'none', outline: 'none',
-                  lineHeight: 1.65, fontFamily: 'inherit',
-                  boxShadow: '0 0 0 4px rgba(0,229,192,0.06)',
-                }}
-              />
-              <div style={{ marginTop: '12px' }}>
-                <Button size="lg" fullWidth disabled={!categories.length} onClick={() => navigate('/category/' + (categories[0]?.id ?? ''))}>
-                  Продолжить →
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <SearchBar onClick={() => setBriefOpen(true)} />
-          )}
-          {!briefOpen && (
-            <p style={{ fontSize: '12px', color: TEXT3, fontWeight: 500 }}>
-              или выберите категорию ниже
-            </p>
-          )}
+          {EXAMPLE_SONGS.map(ex => (
+            <SideItem key={ex.id} title={ex.title} sub={ex.category} onClick={() => navigate(`/examples/${ex.id}`)} />
+          ))}
         </div>
+      </aside>
 
-        {/* Grid */}
-        <div style={{ padding: gridPad }}>
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: isMobile ? '10px' : '14px' }}>
-            {loading
-              ? Array.from({ length: 8 }, (_, i) => <SkeletonCard key={i} />)
-              : categories.map((cat, i) => (
-                  <CategoryCard
-                    key={cat.id}
-                    cat={cat}
-                    index={i}
-                    onClick={() => navigate(`/category/${cat.id}`)}
-                  />
-                ))}
-          </div>
-        </div>
-
-        {/* Mobile examples list */}
-        {isMobile && !loading && (
-          <div style={{ padding: '0 16px 40px' }}>
-            <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: '24px', marginTop: '8px' }}>
-              <div style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '12px' }}>
-                Послушать примеры
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-                {EXAMPLE_SONGS.map(ex => (
-                  <button
-                    key={ex.id}
-                    onClick={() => navigate(`/examples/${ex.id}`)}
-                    style={{
-                      padding: '12px 14px', background: 'rgba(255,255,255,0.03)',
-                      border: `1px solid ${BORDER}`, borderRadius: '12px',
-                      textAlign: 'left', cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: TEXT2, lineHeight: 1.3, marginBottom: '2px' }}>
-                      {ex.title}
-                    </div>
-                    <div style={{ fontSize: '11px', color: TEXT3 }}>{ex.category}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+      {/* Center */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', minWidth: 0, minHeight: 0 }}>
+        {centerInner}
       </main>
 
-      {/* ── Right panel: desktop only ── */}
-      {isDesktop && (
-        <aside style={{
-          width: PANEL_W, flexShrink: 0,
-          borderLeft: `1px solid ${BORDER}`,
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '18px 10px 10px' }}>
-            <div style={{ fontSize: '10px', fontWeight: 700, color: TEXT3, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px 10px' }}>
-              Популярные категории
-            </div>
-            {(loading ? [] : categories.slice(0, 8)).map((cat, i) => (
-              <SideItem
-                key={cat.id}
-                title={cat.title}
-                sub={`# ${i + 1}`}
-                onClick={() => navigate(`/category/${cat.id}`)}
-              />
-            ))}
+      {/* Right panel: top categories */}
+      <aside style={{
+        width: PANEL_W, flexShrink: 0,
+        borderLeft: `1px solid ${BORDER}`,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 10px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: TEXT3, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px 10px' }}>
+            Популярные категории
           </div>
-        </aside>
-      )}
-
+          {categories.slice(0, 8).map((cat, i) => (
+            <SideItem
+              key={cat.id}
+              title={cat.title}
+              sub={`# ${i + 1}`}
+              onClick={() => navigate(`/category/${cat.id}`)}
+            />
+          ))}
+        </div>
+      </aside>
     </div>
   )
 }

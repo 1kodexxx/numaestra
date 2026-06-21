@@ -53,15 +53,26 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
   const [muted, setMuted]     = useState(false)
   const audioRef  = useRef<HTMLAudioElement>(null)
 
-  const track    = tracks[idx]
+  // Клампим idx: если tracks стал короче (например, сменился заказ),
+  // не выходим за границы массива.
+  useEffect(() => {
+    if (idx > tracks.length - 1) setIdx(0)
+  }, [tracks.length, idx])
+
+  const track    = tracks[idx] ?? tracks[0]
   const progress = dur > 0 ? time / dur : 0
 
-  /* sync audio src */
+  /* sync audio src.
+   * Зависим от ПРИМИТИВОВ (audio_url / duration_sec), а не от объекта track:
+   * StatusPage опрашивает заказ каждые 10 с и передаёт новый массив tracks с
+   * новыми идентичностями объектов. Если зависеть от track, эффект бы
+   * перезапускался каждые 10 с, сбрасывая el.src и воспроизведение на 0.
+   * Громкость намеренно НЕ в зависимостях — ей занимается отдельный эффект ниже,
+   * иначе перетаскивание ползунка громкости перезагружало бы трек. */
   useEffect(() => {
     const el = audioRef.current
-    if (!el) return
+    if (!el || !track) return
     el.src = track.audio_url
-    el.volume = muted ? 0 : vol
     setTime(0)
     setDur(track.duration_sec)
 
@@ -79,15 +90,18 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
       el.removeEventListener('timeupdate', onTime)
       el.removeEventListener('ended', onEnd)
     }
-  }, [idx, track, tracks.length, muted, vol])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, track?.audio_url, track?.duration_sec, tracks.length])
 
-  /* play/pause */
+  /* play/pause. Зависит и от idx: при переключении трека во время
+   * воспроизведения src меняется, и play() нужно вызвать заново для нового src
+   * (иначе новый трек загрузится, но не зазвучит). */
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
     if (playing) el.play().catch(() => setPlaying(false))
     else el.pause()
-  }, [playing])
+  }, [playing, idx])
 
   /* volume */
   useEffect(() => {
