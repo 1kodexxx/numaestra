@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/pkg/adminsession"
 )
 
 // adminTestRouter монтирует маршруты AdminHandler без auth-middleware.
@@ -32,7 +33,7 @@ func newTestAdminHandler(t *testing.T) (*AdminHandler, *adminOrderRepo, *adminAc
 	orders := newAdminOrderRepo()
 	accounts := newAdminAccRepo()
 	rk := &noopRefunder{}
-	uc := usecase.NewAdminUseCase(orders, accounts, nil, rk, nil, discardAdminLogger())
+	uc := usecase.NewAdminUseCase(orders, accounts, nil, rk, nil, nil, discardAdminLogger())
 	return NewAdminHandler(uc, discardAdminLogger()), orders, accounts
 }
 
@@ -94,6 +95,19 @@ func (r *adminOrderRepo) GetByInvoiceID(_ context.Context, inv int64) (*domain.O
 		return nil, domain.ErrOrderNotFound
 	}
 	return domain.RestoreOrder(r.orders[id]), nil
+}
+
+func (r *adminOrderRepo) SetAdminFeedback(_ context.Context, id uuid.UUID, feedback string, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	s.AdminFeedback = feedback
+	s.AdminFeedbackAt = &at
+	r.orders[id] = s
+	return nil
 }
 
 func (r *adminOrderRepo) Update(_ context.Context, o *domain.Order) error {
@@ -428,12 +442,13 @@ func TestAdminHandler_RefundOrder_NotPaid(t *testing.T) {
 
 func TestAdminAuth_RequiresValidToken(t *testing.T) {
 	const token = "secret"
+	sessionSecret := []byte("01234567890123456789012345678901")
 	h, _, _ := newTestAdminHandler(t)
 
 	// Оборачиваем маршруты в AdminAuth (как в production).
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
-		r.Use(AdminAuth(token))
+		r.Use(AdminAuth(token, sessionSecret))
 		r.Mount("/admin", h.Routes())
 	})
 
@@ -459,6 +474,46 @@ func TestAdminAuth_RequiresValidToken(t *testing.T) {
 				t.Errorf("ожидали %d, получили %d", tc.wantCode, w.Code)
 			}
 		})
+	}
+}
+
+func TestAdminAuth_AcceptsValidSessionCookie(t *testing.T) {
+	sessionSecret := []byte("01234567890123456789012345678901")
+	h, _, _ := newTestAdminHandler(t)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(AdminAuth("secret", sessionSecret))
+		r.Mount("/admin", h.Routes())
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/accounts", nil)
+	req.AddCookie(&http.Cookie{Name: AdminSessionCookieName, Value: adminsession.Issue(sessionSecret, "owner", time.Hour)})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("ожидали 200 с валидной cookie-сессией, получили %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminAuth_RejectsExpiredSessionCookie(t *testing.T) {
+	sessionSecret := []byte("01234567890123456789012345678901")
+	h, _, _ := newTestAdminHandler(t)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(AdminAuth("secret", sessionSecret))
+		r.Mount("/admin", h.Routes())
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/accounts", nil)
+	req.AddCookie(&http.Cookie{Name: AdminSessionCookieName, Value: adminsession.Issue(sessionSecret, "owner", -time.Hour)})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("ожидали 401 для истёкшей cookie-сессии, получили %d", w.Code)
 	}
 }
 
@@ -632,7 +687,7 @@ func TestAdminAuth_EmptyTokenBlocksAll(t *testing.T) {
 	h, _, _ := newTestAdminHandler(t)
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
-		r.Use(AdminAuth("")) // пустой токен
+		r.Use(AdminAuth("", []byte("01234567890123456789012345678901"))) // пустой токен
 		r.Mount("/admin", h.Routes())
 	})
 

@@ -56,6 +56,9 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	t.Setenv("S3_ACCESS_KEY", "s3-access")
 	t.Setenv("S3_SECRET_KEY", "s3-secret")
 	t.Setenv("ADMIN_TOKEN", "test-admin-token")
+	t.Setenv("ADMIN_LOGIN", "owner")
+	t.Setenv("ADMIN_PASSWORD", "test-admin-password")
+	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 
 	cfg, err := Load()
 	if err != nil {
@@ -113,6 +116,9 @@ func TestLoad_AdminTokenRequired_NonDev(t *testing.T) {
 func TestLoad_SunoKeyRequired_NonDev(t *testing.T) {
 	t.Setenv("APP_ENV", "staging")
 	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("ADMIN_LOGIN", "owner")
+	t.Setenv("ADMIN_PASSWORD", "pass")
+	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 	t.Setenv("SUNO_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "openai-key")
 	t.Setenv("S3_ACCESS_KEY", "s3-access")
@@ -126,6 +132,9 @@ func TestLoad_SunoKeyRequired_NonDev(t *testing.T) {
 func TestLoad_OpenAIKeyRequired_NonDev(t *testing.T) {
 	t.Setenv("APP_ENV", "staging")
 	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("ADMIN_LOGIN", "owner")
+	t.Setenv("ADMIN_PASSWORD", "pass")
+	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 	t.Setenv("SUNO_API_KEY", "suno-key")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("S3_ACCESS_KEY", "s3-access")
@@ -139,6 +148,9 @@ func TestLoad_OpenAIKeyRequired_NonDev(t *testing.T) {
 func TestLoad_S3KeysRequired_NonDev(t *testing.T) {
 	t.Setenv("APP_ENV", "staging")
 	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("ADMIN_LOGIN", "owner")
+	t.Setenv("ADMIN_PASSWORD", "pass")
+	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 	t.Setenv("SUNO_API_KEY", "suno-key")
 	t.Setenv("OPENAI_API_KEY", "openai-key")
 	t.Setenv("S3_ACCESS_KEY", "")
@@ -146,6 +158,29 @@ func TestLoad_S3KeysRequired_NonDev(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("ожидали ошибку: S3-ключи обязательны в staging")
+	}
+}
+
+func TestLoad_AdminLoginPasswordRequired_NonDev(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("ADMIN_LOGIN", "")
+	t.Setenv("ADMIN_PASSWORD", "")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку: ADMIN_LOGIN/ADMIN_PASSWORD обязательны в staging")
+	}
+}
+
+func TestLoad_AdminSessionSecretRequired_NonDev(t *testing.T) {
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("ADMIN_LOGIN", "owner")
+	t.Setenv("ADMIN_PASSWORD", "pass")
+	t.Setenv("ADMIN_SESSION_SECRET", "")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку: ADMIN_SESSION_SECRET обязателен в staging")
 	}
 }
 

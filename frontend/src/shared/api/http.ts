@@ -28,6 +28,9 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...rest,
+    // Нужно для cookie-сессии админки (/admin/login) — без этого браузер не
+    // отправит и не примет Set-Cookie для запросов через fetch.
+    credentials: 'include',
     headers: { ...headers, ...(rest.headers as Record<string, string>) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })

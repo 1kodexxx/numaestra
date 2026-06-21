@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
@@ -32,6 +33,7 @@ type AdminUseCase struct {
 	categoryRepo  domain.CategoryRepository
 	rk            Refunder
 	categoryCache categoryCacheInvalidator
+	notifier      notify.Notifier
 	log           *slog.Logger
 }
 
@@ -42,6 +44,7 @@ func NewAdminUseCase(
 	categoryRepo domain.CategoryRepository,
 	rk Refunder,
 	categoryCache categoryCacheInvalidator,
+	notifier notify.Notifier,
 	log *slog.Logger,
 ) *AdminUseCase {
 	return &AdminUseCase{
@@ -50,6 +53,7 @@ func NewAdminUseCase(
 		categoryRepo:  categoryRepo,
 		rk:            rk,
 		categoryCache: categoryCache,
+		notifier:      notifier,
 		log:           log,
 	}
 }
@@ -166,9 +170,61 @@ func (uc *AdminUseCase) RefundOrder(ctx context.Context, orderID uuid.UUID) erro
 	return nil
 }
 
+// SendOrderFeedback фиксирует сообщение администратора по заказу и отправляет
+// его клиенту на email. Сохраняется в БД даже если письмо не дошло (например,
+// SMTP временно недоступен) — переписку всё равно нужно видеть в админке;
+// ошибка отправки письма возвращается отдельно, чтобы админ узнал о сбое.
+func (uc *AdminUseCase) SendOrderFeedback(ctx context.Context, orderID uuid.UUID, message string) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("получение заказа: %w", err)
+	}
+
+	if err := order.SetAdminFeedback(message); err != nil {
+		return fmt.Errorf("валидация сообщения: %w", err)
+	}
+
+	if err := uc.orderRepo.SetAdminFeedback(ctx, orderID, order.AdminFeedback(), *order.AdminFeedbackAt()); err != nil {
+		return fmt.Errorf("сохранение обратной связи: %w", err)
+	}
+
+	if err := uc.notifier.NotifyAdminFeedback(ctx, notify.AdminFeedbackNotification{
+		OrderID: orderID.String(),
+		Email:   order.CustomerEmail(),
+		Message: message,
+	}); err != nil {
+		uc.log.Error("не удалось отправить письмо с обратной связью клиенту",
+			"order_id", orderID, "err", err)
+		return fmt.Errorf("отправка письма клиенту: %w", err)
+	}
+
+	uc.log.Info("обратная связь по заказу отправлена клиенту", "order_id", orderID)
+	return nil
+}
+
 // ==========================================
 // Категории и вопросы квиза (server-driven UI)
 // ==========================================
+
+// ListCategories возвращает все категории (без вопросов) для списка в админке.
+// В отличие от PromptUseCase.GetAllCategories — без кеша и с base_prompt_template,
+// который скрыт в публичном MarshalJSON, но нужен администратору для редактирования.
+func (uc *AdminUseCase) ListCategories(ctx context.Context) ([]*domain.Category, error) {
+	categories, err := uc.categoryRepo.GetAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("получение списка категорий: %w", err)
+	}
+	return categories, nil
+}
+
+// GetCategory возвращает категорию со всеми вопросами для формы редактирования в админке.
+func (uc *AdminUseCase) GetCategory(ctx context.Context, id string) (*domain.Category, error) {
+	category, err := uc.categoryRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, domain.ErrCategoryNotFound
+	}
+	return category, nil
+}
 
 // CreateCategory создаёт новую категорию каталога (например, новый повод для
 // песни или "general"/"freeform" — категорию-заглушку для свободного сценария

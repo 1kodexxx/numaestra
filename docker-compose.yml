@@ -23,6 +23,11 @@ x-app-env: &app-env
   # В prod обязателен: openssl rand -hex 32
   SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
   ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+  # Вход в /admin на фронтенде (POST /admin/login) + секрет подписи cookie-сессии.
+  # В dev с пустым ADMIN_SESSION_SECRET используется небезопасный дев-ключ.
+  ADMIN_LOGIN: ${ADMIN_LOGIN:-}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+  ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-}
   # 172.16.0.0/12 — дефолтный диапазон docker-сетей, нужен чтобы Prometheus
   # (profile monitoring) мог скрейпить /metrics из соседнего контейнера.
   METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-127.0.0.1/8,::1/128,172.16.0.0/12}

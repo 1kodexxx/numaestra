@@ -88,6 +88,12 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("инициализация шифра сессий: %w", err)
 	}
 
+	// 3b. Секрет подписи cookie-сессий админки (/admin на фронтенде).
+	adminSessionSecret, err := buildAdminSessionSecret(cfg.AdminSessionSecret, cfg.Env, log)
+	if err != nil {
+		return fmt.Errorf("инициализация секрета сессий админки: %w", err)
+	}
+
 	// 3. Инфраструктурные зависимости.
 	pgPool, err := pgxpool.New(ctx, cfg.Postgres.DSN)
 	if err != nil {
@@ -242,14 +248,18 @@ func run(ctx context.Context) error {
 	log.Info("соединение с redis установлено")
 
 	if cfg.AdminToken == "" {
-		log.Warn("ADMIN_TOKEN не задан — административный API будет отклонять все запросы")
+		log.Warn("ADMIN_TOKEN не задан — административный API (Bearer-доступ для скриптов) будет отклонять все запросы")
+	}
+	if cfg.AdminLogin == "" || cfg.AdminPassword == "" {
+		log.Warn("ADMIN_LOGIN/ADMIN_PASSWORD не заданы — вход в /admin на фронтенде будет отклонять все запросы")
 	}
 
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
 		WithIdempotency(idempotency.NewStore(rdb)).
 		WithRedis(rdb)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
-	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, log), log)
+	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log), log)
+	adminAuthHandler := apphttp.NewAdminAuthHandler(cfg.AdminLogin, cfg.AdminPassword, adminSessionSecret, cfg.Env != "dev", log).WithRedis(rdb)
 	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор METRICS_ALLOWED_IPS: %w", err)
@@ -265,7 +275,7 @@ func run(ctx context.Context) error {
 	}
 
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg, metricsNets, spaFS, imagesFS)
+	router := newRouter(log, orderHandler, categoryHandler, adminHandler, adminAuthHandler, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -311,8 +321,10 @@ func newRouter(
 	orderHandler *apphttp.OrderHandler,
 	categoryHandler *apphttp.CategoryHandler,
 	adminHandler *apphttp.AdminHandler,
+	adminAuthHandler *apphttp.AdminAuthHandler,
 	checker *health.Checker,
 	cfg *config.Config,
+	adminSessionSecret []byte,
 	metricsNets []*net.IPNet,
 	spaFS fs.FS,
 	imagesFS fs.FS,
@@ -336,9 +348,16 @@ func newRouter(
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
 
-	r.Group(func(r chi.Router) {
-		r.Use(apphttp.AdminAuth(cfg.AdminToken))
-		r.Mount("/api/v1/admin", adminHandler.Routes())
+	r.Route("/api/v1/admin", func(r chi.Router) {
+		// /login и /logout — публичные (иначе зайти было бы нечем).
+		// /login защищён жёстким rate-limit внутри adminAuthHandler.Routes().
+		r.Mount("/", adminAuthHandler.Routes())
+
+		r.Group(func(r chi.Router) {
+			r.Use(apphttp.AdminAuth(cfg.AdminToken, adminSessionSecret))
+			r.Get("/me", adminAuthHandler.Me)
+			r.Mount("/", adminHandler.Routes())
+		})
 	})
 
 	// Статичные обложки категорий (SVG-заглушки, встроенные через go:embed).
@@ -355,28 +374,46 @@ func newRouter(
 // В dev-окружении с пустым ключом использует небезопасный дев-ключ с предупреждением.
 // В не-dev окружениях пустой ключ — фатальная ошибка запуска.
 func buildSessionCipher(hexKey, env string, log *slog.Logger) (encryption.Cipher, error) {
-	var keyBytes []byte
-	if hexKey == "" {
-		if env != "dev" {
-			return nil, errors.New("SESSION_ENCRYPTION_KEY обязателен в не-dev окружении (64 hex-символа = 32 байта)")
-		}
-		log.Warn("SESSION_ENCRYPTION_KEY не задан — используется небезопасный дев-ключ. Никогда не используйте в production!")
-		// Детерминированный 32-байтный дев-ключ: 0x00..0x1f
-		keyBytes = make([]byte, 32)
-		for i := range keyBytes {
-			keyBytes[i] = byte(i)
-		}
-	} else {
-		var err error
-		keyBytes, err = hex.DecodeString(hexKey)
-		if err != nil {
-			return nil, fmt.Errorf("SESSION_ENCRYPTION_KEY должен быть hex-строкой: %w", err)
-		}
-		if len(keyBytes) != 32 {
-			return nil, fmt.Errorf("SESSION_ENCRYPTION_KEY должен быть 64 hex-символа (32 байта), получено %d байт", len(keyBytes))
-		}
+	keyBytes, err := decodeHexKeyWithDevFallback(hexKey, env, "SESSION_ENCRYPTION_KEY", 0x00, log)
+	if err != nil {
+		return nil, err
 	}
 	return encryption.New(keyBytes)
+}
+
+// buildAdminSessionSecret парсит ADMIN_SESSION_SECRET — ключ, которым подписываются
+// cookie-сессии админки (см. pkg/adminsession). Та же схема дев-фоллбэка, что и у
+// buildSessionCipher, но с другим дев-ключом (XOR-соль), чтобы в dev секреты разных
+// подсистем не совпадали даже при одновременно пустых переменных окружения.
+func buildAdminSessionSecret(hexKey, env string, log *slog.Logger) ([]byte, error) {
+	return decodeHexKeyWithDevFallback(hexKey, env, "ADMIN_SESSION_SECRET", 0xff, log)
+}
+
+// decodeHexKeyWithDevFallback декодирует 64-символьный hex-ключ (32 байта).
+// В dev-окружении с пустым ключом возвращает детерминированный небезопасный
+// ключ (0^salt, 1^salt, 2^salt, ...) с предупреждением в логе.
+// В не-dev окружениях пустой или некорректный ключ — фатальная ошибка запуска.
+func decodeHexKeyWithDevFallback(hexKey, env, envVarName string, devSalt byte, log *slog.Logger) ([]byte, error) {
+	if hexKey == "" {
+		if env != "dev" {
+			return nil, fmt.Errorf("%s обязателен в не-dev окружении (64 hex-символа = 32 байта)", envVarName)
+		}
+		log.Warn(envVarName+" не задан — используется небезопасный дев-ключ. Никогда не используйте в production!",
+			"env_var", envVarName)
+		keyBytes := make([]byte, 32)
+		for i := range keyBytes {
+			keyBytes[i] = byte(i) ^ devSalt
+		}
+		return keyBytes, nil
+	}
+	keyBytes, err := hex.DecodeString(hexKey)
+	if err != nil {
+		return nil, fmt.Errorf("%s должен быть hex-строкой: %w", envVarName, err)
+	}
+	if len(keyBytes) != 32 {
+		return nil, fmt.Errorf("%s должен быть 64 hex-символа (32 байта), получено %d байт", envVarName, len(keyBytes))
+	}
+	return keyBytes, nil
 }
 
 // pingRedisWithRetry пытается достучаться до Redis с экспоненциальной выдержкой.

@@ -78,20 +78,27 @@ type CORSOptions struct {
 	MaxAge         int // секунды кеширования preflight-ответа
 }
 
-// DefaultCORSOptions возвращает безопасные значения по умолчанию для API заказов.
+// DefaultCORSOptions возвращает безопасные значения по умолчанию для API.
+// В штатном деплое фронтенд встроен в тот же Go-бинарник (см. web.FS) и
+// раздаётся с того же origin, что и API — для этого сценария CORS не нужен
+// вовсе. Эти настройки актуальны, если фронтенд когда-нибудь будет хоститься
+// отдельно (другой домен/порт) и обращаться к API из браузера.
 func DefaultCORSOptions(origins []string) CORSOptions {
 	if len(origins) == 0 {
 		origins = []string{"*"}
 	}
 	return CORSOptions{
 		AllowedOrigins: origins,
-		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodOptions},
-		AllowedHeaders: []string{"Content-Type", "X-Access-Token"},
+		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
+		AllowedHeaders: []string{"Content-Type", "X-Access-Token", "Authorization"},
 		MaxAge:         300,
 	}
 }
 
 // CORS возвращает middleware, выставляющее заголовки CORS и обрабатывающее preflight (OPTIONS).
+// Access-Control-Allow-Credentials выставляется только при явном списке origin
+// (не для "*") — иначе браузер по спецификации Fetch проигнорирует cookie у
+// cross-origin запроса, а сочетание "*" + credentials запрещено стандартом.
 func CORS(opts CORSOptions) func(http.Handler) http.Handler {
 	allowMethods := strings.Join(opts.AllowedMethods, ", ")
 	allowHeaders := strings.Join(opts.AllowedHeaders, ", ")
@@ -115,6 +122,7 @@ func CORS(opts CORSOptions) func(http.Handler) http.Handler {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					// Origin влияет на ответ — помечаем для корректного кеширования.
 					w.Header().Add("Vary", "Origin")
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
 				}
 				w.Header().Set("Access-Control-Allow-Methods", allowMethods)
 				w.Header().Set("Access-Control-Allow-Headers", allowHeaders)

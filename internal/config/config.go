@@ -25,7 +25,15 @@ type Config struct {
 	OpenAI    OpenAIConfig
 	Pricing   PricingConfig
 	Notify    NotifyConfig
-	AdminToken string // ADMIN_TOKEN — Bearer-токен для /api/v1/admin/* маршрутов
+	AdminToken string // ADMIN_TOKEN — Bearer-токен для /api/v1/admin/* маршрутов (скрипты/CI)
+	// AdminLogin/AdminPassword — учётные данные для входа в /admin на фронтенде
+	// (POST /api/v1/admin/login). Сравниваются с константным временем.
+	AdminLogin    string
+	AdminPassword string
+	// AdminSessionSecret — hex-строка из 64 символов (32 байта), которой подписываются
+	// cookie-сессии админки (HMAC-SHA256). Обязателен вне dev, иначе сессии можно
+	// подделать. В dev при пустом значении используется небезопасный дев-ключ.
+	AdminSessionSecret string
 	// SessionEncryptionKey — hex-строка из 64 символов (32 байта, AES-256).
 	// Обязателен во всех окружениях, кроме dev (там используется небезопасный дев-ключ).
 	SessionEncryptionKey string
@@ -158,6 +166,9 @@ func Load() (*Config, error) {
 			FromName:     getEnv("SMTP_FROM_NAME", "Numaestra"),
 		},
 		AdminToken:           getEnv("ADMIN_TOKEN", ""),
+		AdminLogin:           getEnv("ADMIN_LOGIN", ""),
+		AdminPassword:        getEnv("ADMIN_PASSWORD", ""),
+		AdminSessionSecret:   getEnv("ADMIN_SESSION_SECRET", ""),
 		SessionEncryptionKey: getEnv("SESSION_ENCRYPTION_KEY", ""),
 	}
 
@@ -168,6 +179,12 @@ func Load() (*Config, error) {
 	if cfg.Env != "dev" {
 		if cfg.AdminToken == "" {
 			return nil, fmt.Errorf("ADMIN_TOKEN обязателен в окружении %q (сгенерировать: openssl rand -hex 32)", cfg.Env)
+		}
+		if cfg.AdminLogin == "" || cfg.AdminPassword == "" {
+			return nil, fmt.Errorf("ADMIN_LOGIN и ADMIN_PASSWORD обязательны в окружении %q (вход в /admin на фронтенде)", cfg.Env)
+		}
+		if cfg.AdminSessionSecret == "" {
+			return nil, fmt.Errorf("ADMIN_SESSION_SECRET обязателен в окружении %q (сгенерировать: openssl rand -hex 32)", cfg.Env)
 		}
 		if cfg.Suno.APIKey == "" {
 			return nil, fmt.Errorf("SUNO_API_KEY обязателен в окружении %q", cfg.Env)

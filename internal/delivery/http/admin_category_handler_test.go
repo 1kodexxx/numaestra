@@ -2,6 +2,7 @@ package apphttp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -128,8 +129,65 @@ var _ domain.CategoryRepository = (*adminCategoryRepo)(nil)
 func newTestAdminHandlerWithCategories(t *testing.T) (*AdminHandler, *adminCategoryRepo) {
 	t.Helper()
 	categories := newAdminCategoryRepo()
-	uc := usecase.NewAdminUseCase(newAdminOrderRepo(), newAdminAccRepo(), categories, &noopRefunder{}, nil, discardAdminLogger())
+	uc := usecase.NewAdminUseCase(newAdminOrderRepo(), newAdminAccRepo(), categories, &noopRefunder{}, nil, nil, discardAdminLogger())
 	return NewAdminHandler(uc, discardAdminLogger()), categories
+}
+
+// --- ListCategories / GetCategory ---
+
+func TestAdminHandler_ListCategories_Success(t *testing.T) {
+	h, _ := newTestAdminHandlerWithCategories(t)
+	router := adminTestRouter(h)
+
+	createBody := `{"id":"wedding","title":"Свадьба","base_prompt_template":"шаблон"}`
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/admin/categories/", strings.NewReader(createBody)))
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/categories/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", w.Code, w.Body.String())
+	}
+	var resp []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("не удалось разобрать ответ: %v", err)
+	}
+	if len(resp) != 1 || resp[0]["id"] != "wedding" {
+		t.Errorf("ожидали 1 категорию wedding, получили %+v", resp)
+	}
+	if resp[0]["base_prompt_template"] != "шаблон" {
+		t.Error("admin-ответ должен включать base_prompt_template (в отличие от публичного API)")
+	}
+}
+
+func TestAdminHandler_GetCategory_Success(t *testing.T) {
+	h, _ := newTestAdminHandlerWithCategories(t)
+	router := adminTestRouter(h)
+
+	createBody := `{"id":"wedding","title":"Свадьба","base_prompt_template":"шаблон"}`
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/admin/categories/", strings.NewReader(createBody)))
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/categories/wedding", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminHandler_GetCategory_NotFound(t *testing.T) {
+	h, _ := newTestAdminHandlerWithCategories(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodGet, "/admin/categories/несуществующая", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404, получили %d", w.Code)
+	}
 }
 
 // --- CreateCategory ---

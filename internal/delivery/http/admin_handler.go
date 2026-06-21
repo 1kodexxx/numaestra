@@ -38,9 +38,12 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Post("/{id}/refund", h.RefundOrder)
+		r.Post("/{id}/feedback", h.SendOrderFeedback)
 	})
 
 	r.Route("/categories", func(r chi.Router) {
+		r.Get("/", h.ListCategories)
+		r.Get("/{id}", h.GetCategory)
 		r.Post("/", h.CreateCategory)
 		r.Put("/{id}", h.UpdateCategory)
 		r.Delete("/{id}", h.DeleteCategory)
@@ -96,6 +99,8 @@ type adminOrderResponse struct {
 	PaymentStatus    string          `json:"payment_status"`
 	GenerationStatus string          `json:"generation_status"`
 	Tracks           []adminTrackDTO `json:"tracks"`
+	AdminFeedback    string          `json:"admin_feedback,omitempty"`
+	AdminFeedbackAt  string          `json:"admin_feedback_at,omitempty"`
 	CreatedAt        string          `json:"created_at"`
 }
 
@@ -110,7 +115,7 @@ func orderToAdminResponse(o *domain.Order) adminOrderResponse {
 	for _, t := range snap.Tracks {
 		tracks = append(tracks, adminTrackDTO{Index: t.Index, AudioURL: t.AudioURL})
 	}
-	return adminOrderResponse{
+	resp := adminOrderResponse{
 		ID:               snap.ID.String(),
 		InvoiceID:        snap.InvoiceID,
 		Email:            snap.CustomerEmail,
@@ -120,8 +125,13 @@ func orderToAdminResponse(o *domain.Order) adminOrderResponse {
 		PaymentStatus:    string(snap.PaymentStatus),
 		GenerationStatus: string(snap.GenerationStatus),
 		Tracks:           tracks,
+		AdminFeedback:    snap.AdminFeedback,
 		CreatedAt:        snap.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
+	if snap.AdminFeedbackAt != nil {
+		resp.AdminFeedbackAt = snap.AdminFeedbackAt.Format("2006-01-02T15:04:05Z")
+	}
+	return resp
 }
 
 // --- Handlers ---
@@ -251,6 +261,39 @@ func (h *AdminHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type orderFeedbackRequest struct {
+	Message string `json:"message"`
+}
+
+// SendOrderFeedback фиксирует сообщение администратора по заказу и отправляет
+// его клиенту на email.
+// POST /api/v1/admin/orders/{id}/feedback
+func (h *AdminHandler) SendOrderFeedback(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID заказа")
+		return
+	}
+
+	var req orderFeedbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+
+	if err := h.uc.SendOrderFeedback(r.Context(), id, req.Message); err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		h.log.Error("admin: ошибка отправки обратной связи", "order_id", id, "error", err)
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ==========================================
 // Категории и вопросы квиза (server-driven UI)
 // ==========================================
@@ -336,6 +379,39 @@ func categoryToAdminResponse(c *domain.Category) categoryAdminResponse {
 		BasePromptTemplate: c.BasePromptTemplate(),
 		Questions:          questions,
 	}
+}
+
+// ListCategories возвращает все категории (без вопросов) для списка в админке.
+// GET /api/v1/admin/categories
+func (h *AdminHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
+	categories, err := h.uc.ListCategories(r.Context())
+	if err != nil {
+		h.log.Error("admin: ошибка получения категорий", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить список категорий")
+		return
+	}
+	resp := make([]categoryAdminResponse, 0, len(categories))
+	for _, c := range categories {
+		resp = append(resp, categoryToAdminResponse(c))
+	}
+	respondJSON(w, http.StatusOK, resp)
+}
+
+// GetCategory возвращает категорию со всеми вопросами для формы редактирования.
+// GET /api/v1/admin/categories/{id}
+func (h *AdminHandler) GetCategory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	category, err := h.uc.GetCategory(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, domain.ErrCategoryNotFound) {
+			respondError(w, r, http.StatusNotFound, "категория не найдена")
+			return
+		}
+		h.log.Error("admin: ошибка получения категории", "category_id", id, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить категорию")
+		return
+	}
+	respondJSON(w, http.StatusOK, categoryToAdminResponse(category))
 }
 
 // CreateCategory создаёт новую категорию каталога (включая, например, категорию

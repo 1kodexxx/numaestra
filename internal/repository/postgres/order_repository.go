@@ -60,7 +60,7 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE id = $1
 	`
 	var snap domain.OrderSnapshot
@@ -68,7 +68,7 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Or
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.CategoryID, &snap.SunoPrompt,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 		&snap.PaidAt, &snap.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -89,7 +89,7 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Or
 
 func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE invoice_id = $1
 	`
 	var snap domain.OrderSnapshot
@@ -97,7 +97,7 @@ func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.CategoryID, &snap.SunoPrompt,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 		&snap.PaidAt, &snap.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -165,7 +165,7 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, error) {
 	// 1. Загружаем заказы клиента одним запросом с пагинацией.
 	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
 	rows, err := r.conn(ctx).Query(ctx, orderQuery, email, limit, offset)
@@ -182,7 +182,7 @@ func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string,
 			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 			&snap.PaidAt, &snap.CompletedAt,
 		)
 		if err != nil {
@@ -245,7 +245,7 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 
 func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*domain.Order, error) {
 	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`
 	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone, limit, offset)
@@ -262,7 +262,7 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string,
 			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 			&snap.PaidAt, &snap.CompletedAt,
 		)
 		if err != nil {
@@ -294,7 +294,7 @@ func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string,
 // GetByAccessToken находит заказ по токену доступа клиента.
 func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, assigned_account_id, failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders WHERE access_token = $1
 	`
 	var snap domain.OrderSnapshot
@@ -302,7 +302,7 @@ func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*
 		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 		&snap.CategoryID, &snap.SunoPrompt,
 		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 		&snap.PaidAt, &snap.CompletedAt,
 	)
 	if err != nil {
@@ -318,6 +318,20 @@ func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*
 	}
 	snap.Tracks = tracks
 	return domain.RestoreOrder(snap), nil
+}
+
+// SetAdminFeedback сохраняет сообщение администратора по заказу.
+func (r *OrderRepository) SetAdminFeedback(ctx context.Context, id uuid.UUID, feedback string, at time.Time) error {
+	cmd, err := r.conn(ctx).Exec(ctx, `
+		UPDATE orders SET admin_feedback = $1, admin_feedback_at = $2, updated_at = $2 WHERE id = $3
+	`, feedback, at, id)
+	if err != nil {
+		return fmt.Errorf("set admin feedback: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrOrderNotFound
+	}
+	return nil
 }
 
 // NextInvoiceID возвращает следующий уникальный InvId из PostgreSQL sequence.
@@ -351,9 +365,9 @@ func (r *OrderRepository) saveTracks(ctx context.Context, db dbConn, orderID uui
 // ListAll возвращает страницу всех заказов для Admin API (без фильтрации по клиенту).
 func (r *OrderRepository) ListAll(ctx context.Context, limit, offset int) ([]*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt,
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt,
 		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
-		       failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		       failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -371,7 +385,7 @@ func (r *OrderRepository) ListAll(ctx context.Context, limit, offset int) ([]*do
 			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 			&snap.PaidAt, &snap.CompletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan order row: %w", err)
@@ -414,9 +428,9 @@ func (r *OrderRepository) CountAll(ctx context.Context) (int, error) {
 // заказов, брошенных после краша пода/воркера.
 func (r *OrderRepository) ListStuckProcessing(ctx context.Context, olderThan time.Time) ([]*domain.Order, error) {
 	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt,
+		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt,
 		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
-		       failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		       failure_reason, access_token, admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders
 		WHERE generation_status = 'processing' AND updated_at < $1
 		ORDER BY updated_at ASC
@@ -434,7 +448,7 @@ func (r *OrderRepository) ListStuckProcessing(ctx context.Context, olderThan tim
 			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
 			&snap.CategoryID, &snap.SunoPrompt,
 			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
 			&snap.PaidAt, &snap.CompletedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan stuck order row: %w", err)

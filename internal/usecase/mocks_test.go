@@ -79,6 +79,19 @@ func (r *inMemOrderRepo) GetByInvoiceID(_ context.Context, invoiceID int64) (*do
 	return domain.RestoreOrder(r.orders[id]), nil
 }
 
+func (r *inMemOrderRepo) SetAdminFeedback(_ context.Context, id uuid.UUID, feedback string, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	snap.AdminFeedback = feedback
+	snap.AdminFeedbackAt = &at
+	r.orders[id] = snap
+	return nil
+}
+
 func (r *inMemOrderRepo) Update(_ context.Context, order *domain.Order) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -392,9 +405,11 @@ var _ domain.TrackStorage = (*mockStorage)(nil)
 // --- mock Notifier ---
 
 type mockNotifier struct {
-	mu    sync.Mutex
-	calls []notify.OrderCompleteNotification
-	err   error
+	mu            sync.Mutex
+	calls         []notify.OrderCompleteNotification
+	err           error
+	feedbackCalls []notify.AdminFeedbackNotification
+	feedbackErr   error
 }
 
 func (m *mockNotifier) NotifyOrderComplete(_ context.Context, n notify.OrderCompleteNotification) error {
@@ -402,6 +417,13 @@ func (m *mockNotifier) NotifyOrderComplete(_ context.Context, n notify.OrderComp
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, n)
 	return m.err
+}
+
+func (m *mockNotifier) NotifyAdminFeedback(_ context.Context, n notify.AdminFeedbackNotification) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.feedbackCalls = append(m.feedbackCalls, n)
+	return m.feedbackErr
 }
 
 var _ notify.Notifier = (*mockNotifier)(nil)

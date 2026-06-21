@@ -4,21 +4,38 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+
+	"github.com/numaestra/numaestra/pkg/adminsession"
 )
 
-// AdminAuth возвращает middleware, проверяющий Bearer-токен в заголовке Authorization.
-// Все маршруты под этим middleware доступны только при совпадении токена с token.
-// Сравнение выполняется за константное время через subtle.ConstantTimeCompare
-// для защиты от timing-атак.
-func AdminAuth(token string) func(http.Handler) http.Handler {
+// AdminSessionCookieName — имя cookie сессии админки, выдаваемой LoginHandler.
+const AdminSessionCookieName = "admin_session"
+
+// AdminAuth возвращает middleware, защищающий /api/v1/admin/*. Принимает один
+// из двух способов аутентификации:
+//  1. Bearer-токен в заголовке Authorization (ADMIN_TOKEN) — для скриптов/CI/curl;
+//  2. подписанная cookie-сессия (см. AdminSessionCookieName), выданная
+//     POST /api/v1/admin/login по логину/паролю — для фронтенда /admin.
+//
+// Bearer-токен сравнивается за константное время (subtle.ConstantTimeCompare),
+// cookie-сессия проверяется через adminsession.Verify (HMAC, тоже константное время).
+func AdminAuth(token string, sessionSecret []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-				respondError(w, r, http.StatusUnauthorized, "unauthorized")
+			if bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); bearer != "" && token != "" &&
+				subtle.ConstantTimeCompare([]byte(bearer), []byte(token)) == 1 {
+				next.ServeHTTP(w, r)
 				return
 			}
-			next.ServeHTTP(w, r)
+
+			if cookie, err := r.Cookie(AdminSessionCookieName); err == nil {
+				if _, ok := adminsession.Verify(sessionSecret, cookie.Value); ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			respondError(w, r, http.StatusUnauthorized, "unauthorized")
 		})
 	}
 }

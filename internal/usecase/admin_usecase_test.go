@@ -25,7 +25,7 @@ func newAdminUC(t *testing.T) (*AdminUseCase, *inMemOrderRepo, *inMemAccountRepo
 	t.Helper()
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()
-	uc := NewAdminUseCase(orders, accounts, nil, &mockRefunder{}, nil, testLogger())
+	uc := NewAdminUseCase(orders, accounts, nil, &mockRefunder{}, nil, nil, testLogger())
 	return uc, orders, accounts
 }
 
@@ -174,7 +174,7 @@ func TestAdminUseCase_RefundOrder_Success(t *testing.T) {
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()
 	rk := &mockRefunder{}
-	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, testLogger())
+	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, nil, testLogger())
 
 	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
 	_ = o.MarkPaid()
@@ -290,7 +290,7 @@ func TestAdminUseCase_RefundOrder_RobokassaFailure(t *testing.T) {
 	orders := newInMemOrderRepo()
 	accounts := newInMemAccountRepo()
 	rk := &mockRefunder{err: errors.New("Robokassa 500")}
-	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, testLogger())
+	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, nil, testLogger())
 
 	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
 	_ = o.MarkPaid()

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -94,6 +95,12 @@ type Order struct {
 	// Предъявляется в заголовке X-Access-Token для доступа к данным заказа.
 	accessToken string
 
+	// adminFeedback — последнее сообщение администратора клиенту по этому заказу
+	// (отправляется на email и хранится для истории). Пустая строка — обратной
+	// связи не было.
+	adminFeedback   string
+	adminFeedbackAt *time.Time
+
 	createdAt   time.Time
 	updatedAt   time.Time
 	paidAt      *time.Time
@@ -166,6 +173,8 @@ type OrderSnapshot struct {
 	Tracks            []Track
 	FailureReason     string
 	AccessToken       string
+	AdminFeedback     string
+	AdminFeedbackAt   *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	PaidAt            *time.Time
@@ -181,8 +190,10 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		amountKopecks: s.AmountKopecks, currency: s.Currency,
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
-		accessToken: s.AccessToken,
-		createdAt:   s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
+		accessToken:     s.AccessToken,
+		adminFeedback:   s.AdminFeedback,
+		adminFeedbackAt: s.AdminFeedbackAt,
+		createdAt:       s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 	}
 }
 
@@ -203,6 +214,8 @@ func (o *Order) AssignedAccountID() *uuid.UUID      { return o.assignedAccountID
 func (o *Order) Tracks() []Track                    { return o.tracks }
 func (o *Order) FailureReason() string              { return o.failureReason }
 func (o *Order) AccessToken() string                { return o.accessToken }
+func (o *Order) AdminFeedback() string              { return o.adminFeedback }
+func (o *Order) AdminFeedbackAt() *time.Time        { return o.adminFeedbackAt }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 
@@ -239,6 +252,20 @@ func (o *Order) MarkRefunded() error {
 		return ErrInvalidPaymentTransition
 	}
 	o.paymentStatus = PaymentStatusRefunded
+	o.touch()
+	return nil
+}
+
+// SetAdminFeedback фиксирует сообщение администратора клиенту по заказу.
+// Не часть стейт-машины оплаты/генерации — это просто аннотация для истории
+// переписки, доступная в любом статусе заказа.
+func (o *Order) SetAdminFeedback(message string) error {
+	if strings.TrimSpace(message) == "" {
+		return errors.New("сообщение обратной связи не может быть пустым")
+	}
+	now := time.Now().UTC()
+	o.adminFeedback = message
+	o.adminFeedbackAt = &now
 	o.touch()
 	return nil
 }
@@ -340,6 +367,8 @@ func (o *Order) Snapshot() OrderSnapshot {
 		Tracks:            o.tracks,
 		FailureReason:     o.failureReason,
 		AccessToken:       o.accessToken,
+		AdminFeedback:     o.adminFeedback,
+		AdminFeedbackAt:   o.adminFeedbackAt,
 		CreatedAt:         o.createdAt,
 		UpdatedAt:         o.updatedAt,
 		PaidAt:            o.paidAt,
@@ -370,6 +399,11 @@ type OrderRepository interface {
 	// GetByAccessToken находит заказ по токену доступа клиента.
 	// Используется middleware аутентификации для проверки X-Access-Token.
 	GetByAccessToken(ctx context.Context, token string) (*Order, error)
+
+	// SetAdminFeedback сохраняет сообщение администратора клиенту по заказу
+	// (история переписки — заказ может получить несколько сообщений со временем,
+	// здесь хранится последнее; письмо отправляется отдельно через notify.Notifier).
+	SetAdminFeedback(ctx context.Context, id uuid.UUID, feedback string, at time.Time) error
 
 	// ListAll возвращает страницу всех заказов (Admin API), отсортированных по дате убыванием.
 	ListAll(ctx context.Context, limit, offset int) ([]*Order, error)

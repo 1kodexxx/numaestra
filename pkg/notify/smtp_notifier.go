@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"html"
 	"net/smtp"
 	"strings"
 	"time"
@@ -45,18 +46,31 @@ func (n *SmtpNotifier) NotifyOrderComplete(_ context.Context, notif OrderComplet
 
 	subject := "Ваша песня готова 🎵"
 	body := n.buildBody(notif)
-	msg := buildMIMEMessage(n.from, n.fromName, notif.Email, subject, body)
+	return n.send(notif.Email, subject, body)
+}
+
+func (n *SmtpNotifier) NotifyAdminFeedback(_ context.Context, notif AdminFeedbackNotification) error {
+	if notif.Email == "" {
+		return nil // email необязателен — молча пропускаем
+	}
+
+	subject := "Сообщение по вашему заказу — Numaestra"
+	body := n.buildFeedbackBody(notif)
+	return n.send(notif.Email, subject, body)
+}
+
+// send отправляет письмо с заданной темой и HTML-телом, выбирая STARTTLS (587)
+// либо implicit TLS (любой другой порт).
+func (n *SmtpNotifier) send(to, subject, htmlBody string) error {
+	msg := buildMIMEMessage(n.from, n.fromName, to, subject, htmlBody)
 
 	addr := fmt.Sprintf("%s:%d", n.host, n.port)
 	auth := smtp.PlainAuth("", n.user, n.password, n.host)
 
-	var sendErr error
 	if n.port == 587 {
-		sendErr = n.sendSTARTTLS(addr, auth, notif.Email, msg)
-	} else {
-		sendErr = n.sendImplicitTLS(addr, auth, notif.Email, msg)
+		return n.sendSTARTTLS(addr, auth, to, msg)
 	}
-	return sendErr
+	return n.sendImplicitTLS(addr, auth, to, msg)
 }
 
 // sendSTARTTLS устанавливает соединение по STARTTLS (порт 587).
@@ -183,6 +197,52 @@ func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
 		tracks.String(),
 		orderStatusURL(notif.OrderID, notif.AccessToken),
 		time.Now().Format("02.01.2006"),
+		time.Now().Year(),
+	)
+}
+
+// buildFeedbackBody формирует HTML-тело письма с обратной связью администратора.
+// Сообщение администратора экранируется (html.EscapeString) перед вставкой в
+// HTML — это произвольный текст, введённый человеком через админку, и без
+// экранирования он мог бы исполниться как HTML/JS в почтовом клиенте получателя.
+func (n *SmtpNotifier) buildFeedbackBody(notif AdminFeedbackNotification) string {
+	escaped := strings.ReplaceAll(html.EscapeString(notif.Message), "\n", "<br>")
+
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>Сообщение по вашему заказу</title></head>
+<body style="background:#0f0f1a;color:#e2e8f0;font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:0">
+  <table width="100%%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:40px 16px">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#1a1a2e;border-radius:16px;overflow:hidden;max-width:600px">
+        <tr>
+          <td style="background:linear-gradient(135deg,#7c3aed,#a855f7);padding:32px;text-align:center">
+            <div style="font-size:40px">💬</div>
+            <h1 style="margin:12px 0 0;color:#fff;font-size:22px;font-weight:700">Сообщение по заказу</h1>
+            <p style="margin:8px 0 0;color:#e9d5ff;font-size:14px">Заказ #%s</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px">
+            <p style="font-size:16px;line-height:1.6;color:#cbd5e1;margin:0">
+              %s
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#111827;padding:20px;text-align:center">
+            <p style="margin:0;font-size:13px;color:#475569">
+              © %d Numaestra. Персональные песни на заказ.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+		notif.OrderID,
+		escaped,
 		time.Now().Year(),
 	)
 }

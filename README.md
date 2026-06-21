@@ -125,6 +125,28 @@ curl -X POST http://localhost:8080/api/v1/orders/ \
 
 Публичные маршруты защищены rate-limiting по IP, для всех ответов выставляются CORS-заголовки.
 
+## Админка (`/admin`)
+
+Раздел `/admin` на фронтенде — управление категориями квиза, заказами (просмотр,
+возврат оплаты, обратная связь клиенту) и пулом Suno-аккаунтов. Открой
+`http://localhost:8080/admin/login` после `go run ./cmd/server` (или `make frontend-dev`
+для разработки с hot-reload — Vite проксирует `/api` на бэкенд).
+
+**Вход** — логин/пароль из `ADMIN_LOGIN`/`ADMIN_PASSWORD` (см. `.env.example`).
+После входа выставляется httpOnly+Secure+SameSite=Strict cookie с подписанным
+(HMAC-SHA256, `ADMIN_SESSION_SECRET`) токеном без сервера состояний — токен не
+читается из JS (защита от кражи через XSS) и не требует Redis/БД для сессии.
+`/admin/login` жёстко ограничен по частоте запросов (защита от перебора пароля).
+
+Для скриптов/CI вместо логина можно использовать `ADMIN_TOKEN` как `Authorization: Bearer` —
+оба способа аутентификации работают параллельно на одних и тех же маршрутах `/api/v1/admin/*`.
+
+| Раздел | Маршруты API | Назначение |
+|--------|--------------|------------|
+| Категории | `GET/POST /admin/categories/`, `GET/PUT/DELETE /admin/categories/{id}`, `.../questions/...` | Карточки квиза (картинка, заголовок, описание, тэги) + вопросы и варианты ответов |
+| Заказы | `GET /admin/orders/`, `GET /admin/orders/{id}`, `POST .../refund`, `POST .../feedback` | Просмотр, возврат оплаты через Robokassa, письмо клиенту с сохранением в БД |
+| Suno-аккаунты | `GET/POST /admin/accounts/`, `PATCH /admin/accounts/{id}` | Пул аккаунтов, к которым подключается воркер генерации |
+
 ## Разработка
 
 ```bash
@@ -217,6 +239,7 @@ docker compose --profile monitoring up -d
 ### Чек-лист обязательных переменных для prod (`APP_ENV != dev`)
 
 Без них `config.Load()` вернёт фатальную ошибку при старте: `ADMIN_TOKEN`,
+`ADMIN_LOGIN`/`ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`,
 `SUNO_API_KEY`, `OPENAI_API_KEY`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`,
 `SESSION_ENCRYPTION_KEY`. Дополнительно рекомендуется задать `SMTP_HOST` —
 без него уведомления клиентам уходят только в лог (заглушка), без реальной отправки.

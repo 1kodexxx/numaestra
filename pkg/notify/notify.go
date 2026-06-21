@@ -16,6 +16,11 @@ type Notifier interface {
 	// NotifyOrderComplete отправляет клиенту уведомление о готовности треков.
 	// email и phone могут быть пустыми — реализация сама выбирает канал.
 	NotifyOrderComplete(ctx context.Context, n OrderCompleteNotification) error
+
+	// NotifyAdminFeedback отправляет клиенту сообщение администратора по заказу
+	// (ответ на вопрос, уточнение деталей и т.п.). Email может быть пустым,
+	// если у заказа указан только телефон — реализация молча пропускает отправку.
+	NotifyAdminFeedback(ctx context.Context, n AdminFeedbackNotification) error
 }
 
 // OrderCompleteNotification содержит данные для уведомления о завершении заказа.
@@ -26,6 +31,13 @@ type OrderCompleteNotification struct {
 	Phone       string
 	TrackURLs   []string // постоянные ссылки на треки в S3
 	TracksCount int
+}
+
+// AdminFeedbackNotification содержит данные письма с обратной связью администратора.
+type AdminFeedbackNotification struct {
+	OrderID string
+	Email   string
+	Message string
 }
 
 // LogNotifier — заглушка: логирует уведомление вместо реальной отправки.
@@ -45,6 +57,15 @@ func (n *LogNotifier) NotifyOrderComplete(_ context.Context, notification OrderC
 		"email", notification.Email,
 		"phone", notification.Phone,
 		"tracks_count", notification.TracksCount,
+	)
+	return nil
+}
+
+func (n *LogNotifier) NotifyAdminFeedback(_ context.Context, notification AdminFeedbackNotification) error {
+	n.log.Info("обратная связь администратора по заказу (stub — реальная отправка не настроена)",
+		"order_id", notification.OrderID,
+		"email", notification.Email,
+		"message", notification.Message,
 	)
 	return nil
 }

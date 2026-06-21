@@ -72,6 +72,32 @@ func TestCORS_SpecificOrigin_Reflected(t *testing.T) {
 	}
 }
 
+func TestCORS_SpecificOrigin_SetsCredentials(t *testing.T) {
+	h := CORS(DefaultCORSOptions([]string{"https://app.numaestra.com"}))(okHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://app.numaestra.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("ожидали Allow-Credentials=true для разрешённого origin, получили %q", got)
+	}
+}
+
+func TestCORS_AllowAll_NoCredentials(t *testing.T) {
+	h := CORS(DefaultCORSOptions(nil))(okHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+		t.Errorf("Allow-Credentials не должен выставляться вместе с '*' (запрещено спецификацией), получили %q", got)
+	}
+}
+
 func TestRateLimiter_BlocksAfterBurst(t *testing.T) {
 	// rps=1, burst=2 — первые 2 запроса проходят, третий блокируется.
 	h := RateLimiter(1, 2)(okHandler())

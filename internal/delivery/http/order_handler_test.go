@@ -606,6 +606,19 @@ func (r *hOrderRepo) GetByInvoiceID(_ context.Context, invoiceID int64) (*domain
 	return domain.RestoreOrder(r.orders[id]), nil
 }
 
+func (r *hOrderRepo) SetAdminFeedback(_ context.Context, id uuid.UUID, feedback string, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	snap.AdminFeedback = feedback
+	snap.AdminFeedbackAt = &at
+	r.orders[id] = snap
+	return nil
+}
+
 func (r *hOrderRepo) Update(_ context.Context, o *domain.Order) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

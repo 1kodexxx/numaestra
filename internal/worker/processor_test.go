@@ -263,6 +263,18 @@ func (r *wOrderRepo) GetByInvoiceID(_ context.Context, inv int64) (*domain.Order
 	}
 	return domain.RestoreOrder(r.orders[id]), nil
 }
+func (r *wOrderRepo) SetAdminFeedback(_ context.Context, id uuid.UUID, feedback string, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	s.AdminFeedback = feedback
+	s.AdminFeedbackAt = &at
+	r.orders[id] = s
+	return nil
+}
 func (r *wOrderRepo) Update(_ context.Context, o *domain.Order) error { r.put(o); return nil }
 func (r *wOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bool, error) {
 	r.mu.Lock()
@@ -390,6 +402,10 @@ var _ domain.TrackStorage = (*wStorage)(nil)
 type wNotifier struct{}
 
 func (n *wNotifier) NotifyOrderComplete(_ context.Context, _ notify.OrderCompleteNotification) error {
+	return nil
+}
+
+func (n *wNotifier) NotifyAdminFeedback(_ context.Context, _ notify.AdminFeedbackNotification) error {
 	return nil
 }
 

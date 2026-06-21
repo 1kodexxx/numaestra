@@ -20,8 +20,29 @@ func newAdminUCWithCategories(t *testing.T) (*AdminUseCase, *inMemCategoryRepo, 
 	t.Helper()
 	categories := newInMemCategoryRepo()
 	cache := &fakeCategoryCache{}
-	uc := NewAdminUseCase(newInMemOrderRepo(), newInMemAccountRepo(), categories, &mockRefunder{}, cache, testLogger())
+	uc := NewAdminUseCase(newInMemOrderRepo(), newInMemAccountRepo(), categories, &mockRefunder{}, cache, nil, testLogger())
 	return uc, categories, cache
+}
+
+func TestAdminUseCase_ListCategories_ReturnsAll(t *testing.T) {
+	uc, _, _ := newAdminUCWithCategories(t)
+	_, _ = uc.CreateCategory(context.Background(), "wedding", "Свадьба", "", "", nil, "шаблон")
+
+	categories, err := uc.ListCategories(context.Background())
+	if err != nil {
+		t.Fatalf("ListCategories упал: %v", err)
+	}
+	if len(categories) != 1 || categories[0].ID() != "wedding" {
+		t.Errorf("ожидали 1 категорию wedding, получили %+v", categories)
+	}
+}
+
+func TestAdminUseCase_GetCategory_NotFound(t *testing.T) {
+	uc, _, _ := newAdminUCWithCategories(t)
+	_, err := uc.GetCategory(context.Background(), "несуществующая")
+	if !errors.Is(err, domain.ErrCategoryNotFound) {
+		t.Fatalf("ожидали ErrCategoryNotFound, получили %v", err)
+	}
 }
 
 func TestAdminUseCase_CreateCategory_Success(t *testing.T) {

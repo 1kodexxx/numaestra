@@ -13,6 +13,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -162,6 +163,73 @@ func TestIntegration_OrderRoundTrip(t *testing.T) {
 	}
 	if got.AmountKopecks() != 150000 {
 		t.Errorf("ожидали сумму 150000, получили %d", got.AmountKopecks())
+	}
+}
+
+// TestIntegration_OrderWithoutCategory_NullableColumnsScanCleanly — регрессионный
+// тест: mustOrder создаёт заказ со свободным сценарием (без категории), поэтому
+// category_id и suno_prompt физически NULL в БД (nullableString("") -> nil при
+// INSERT). pgx v5 по умолчанию падает с "cannot scan NULL into *string" при чтении
+// such NULL-колонки в Go string без COALESCE на стороне SQL — проверяем, что
+// репозиторий оборачивает эти колонки в COALESCE и GetByID/GetByInvoiceID/
+// GetByAccessToken не падают для самого частого сценария заказа (без категории).
+func TestIntegration_OrderWithoutCategory_NullableColumnsScanCleanly(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	order := mustOrder(t, pool)
+
+	byID, err := repo.GetByID(ctx, order.ID())
+	if err != nil {
+		t.Fatalf("GetByID не должен падать на NULL category_id/suno_prompt: %v", err)
+	}
+	if byID.CategoryID() != "" || byID.SunoPrompt() != "" {
+		t.Errorf("ожидали пустые CategoryID/SunoPrompt, получили %q/%q", byID.CategoryID(), byID.SunoPrompt())
+	}
+	if byID.AdminFeedback() != "" || byID.AdminFeedbackAt() != nil {
+		t.Errorf("новый заказ не должен иметь обратной связи, получили %q/%v", byID.AdminFeedback(), byID.AdminFeedbackAt())
+	}
+
+	if _, err := repo.GetByInvoiceID(ctx, order.InvoiceID()); err != nil {
+		t.Fatalf("GetByInvoiceID не должен падать на NULL category_id/suno_prompt: %v", err)
+	}
+	if _, err := repo.GetByAccessToken(ctx, order.AccessToken()); err != nil {
+		t.Fatalf("GetByAccessToken не должен падать на NULL category_id/suno_prompt: %v", err)
+	}
+}
+
+func TestIntegration_SetAdminFeedback(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+	ctx := context.Background()
+
+	order := mustOrder(t, pool)
+	at := time.Now().UTC().Truncate(time.Second)
+
+	if err := repo.SetAdminFeedback(ctx, order.ID(), "Уточните дату праздника", at); err != nil {
+		t.Fatalf("SetAdminFeedback: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, order.ID())
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.AdminFeedback() != "Уточните дату праздника" {
+		t.Errorf("ожидали сохранённую обратную связь, получили %q", got.AdminFeedback())
+	}
+	if got.AdminFeedbackAt() == nil || !got.AdminFeedbackAt().Equal(at) {
+		t.Errorf("ожидали метку времени %v, получили %v", at, got.AdminFeedbackAt())
+	}
+}
+
+func TestIntegration_SetAdminFeedback_OrderNotFound(t *testing.T) {
+	pool := setup(t)
+	repo := NewOrderRepository(pool)
+
+	err := repo.SetAdminFeedback(context.Background(), uuid.New(), "сообщение", time.Now())
+	if !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Fatalf("ожидали ErrOrderNotFound, получили %v", err)
 	}
 }
 
