@@ -141,14 +141,12 @@ function OrderStatusCard({
             <div key={label} className="flex items-center">
               <div className="flex flex-col items-center">
                 <div
-                  className="flex items-center justify-center rounded-full text-xs font-bold"
+                  className={`flex items-center justify-center rounded-full text-xs font-bold${i === currentIdx && !isTerminal ? ' progress-pulse' : ''}`}
                   style={{
                     width: '32px', height: '32px',
-                    background: i < currentIdx ? CYAN : i === currentIdx ? CYAN : '#252525',
-                    color: (i <= currentIdx) ? DARK : '#555',
-                    boxShadow: i === currentIdx && !isTerminal ? `0 0 0 0 rgba(0,229,192,0.6)` : 'none',
+                    background: i <= currentIdx ? CYAN : '#252525',
+                    color: i <= currentIdx ? DARK : '#555',
                   }}
-                  className={i === currentIdx && !isTerminal ? 'progress-pulse' : ''}
                 >
                   {i < currentIdx ? '✓' : i + 1}
                 </div>

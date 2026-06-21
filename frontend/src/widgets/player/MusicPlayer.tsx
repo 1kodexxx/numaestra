@@ -21,7 +21,7 @@ export function MusicPlayer({ tracks }: MusicPlayerProps) {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(0.85)
-  const [dragging, setDragging] = useState(false)
+  const [dragging] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
 
@@ -107,7 +107,7 @@ export function MusicPlayer({ tracks }: MusicPlayerProps) {
       <div className="p-6">
         {/* Waveform */}
         <div
-          className="flex items-end justify-center gap-[2px] mb-6 cursor-pointer select-none"
+          className="flex items-end justify-center gap-0.5 mb-6 cursor-pointer select-none"
           style={{ height: '56px' }}
           ref={barRef}
           onClick={seek}
