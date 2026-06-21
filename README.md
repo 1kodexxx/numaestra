@@ -1,255 +1,223 @@
-# Numaestra
+<div align="center">
 
-Бэкенд-сервис генерации персональных песен на заказ. Полный цикл:
+# 🎵 Numaestra
 
-1. Клиент отправляет бриф (ТЗ на песню) через HTTP API.
-2. Оплачивает заказ через **Robokassa**.
-3. По вебхуку оплаты заказ ставится в очередь (**Asynq/Redis**).
-4. Фоновый воркер захватывает свободный **Suno-аккаунт** из пула, генерирует текст
-   через **LLM** (OpenRouter/GPT) и отправляет запрос в **Suno API**.
-5. Опрашивает статус генерации, перезаливает готовые треки в **S3** и уведомляет клиента.
-6. Клиент забирает треки через защищённый токеном API.
+**AI-студия персональных песен на заказ.**
+Опишите повод — получите 4 готовые версии трека.
 
-Архитектура — чистая/гексагональная: `domain` → `usecase` → `delivery`/`repository`/`worker`,
-внешние интеграции вынесены в `pkg/`.
+Go 1.25 · React 18 · PostgreSQL 16 · Redis 7 · Suno · Robokassa · Docker
 
-## 1. Предустановки
+</div>
 
-- **Go 1.24+** — https://go.dev/dl/ (на Windows запусти установщик `.msi`)
-- **Docker Desktop** (для Postgres и Redis) — https://www.docker.com/products/docker-desktop/
+---
 
-```powershell
-go version
-docker --version
-```
+Numaestra — full-stack сервис, который превращает бриф клиента в готовую песню:
+LLM пишет текст, **Suno** генерирует музыку, **Robokassa** принимает оплату, а
+фоновые воркеры оркеструют весь конвейер. Фронтенд — премиальный тёмный SPA с
+конструктором промптов, онлайн-плеером и каталогом из 30 категорий «на все случаи
+жизни».
 
-## 2. Поднять инфраструктуру
+## ✨ Возможности
 
-Из корня проекта:
+**Для клиента**
+- 🎛️ **Конструктор промптов для Suno** — соберите песню с нуля: повод, жанр и
+  настроение (мульти-выбор), темп, вокал, детали и свой текст — с живым
+  предпросмотром готового промпта.
+- 🗂️ **30 категорий** на все случаи (свадьба, день рождения, 8 марта, корпоратив,
+  роуст, признание в любви, детская песня…) — каждая со своим квизом.
+- 🎧 **Онлайн-плеер** — 4 версии трека, waveform, перемотка, переключение вариантов.
+- 📦 Заказ → оплата → отслеживание статуса генерации в реальном времени → скачивание.
+- 📱 Адаптивно: 3-колоночный app-shell на десктопе, чистый скролл на мобильных.
 
-```powershell
-docker compose up -d
-docker compose ps
-```
+**Для администратора (`/admin`)**
+- Управление категориями квиза (вопросы, варианты ответов, обложки).
+- Заказы: просмотр, возврат оплаты через Robokassa, письмо клиенту.
+- Пул Suno-аккаунтов с балансировкой нагрузки.
 
-Контейнеры `numaestra-postgres` и `numaestra-redis` должны стать `healthy` за несколько секунд.
+**Под капотом**
+- Идемпотентные платёжные вебхуки, защита от гонки двойной оплаты.
+- Пул Suno-аккаунтов с `FOR UPDATE SKIP LOCKED` (без коллизий между воркерами).
+- Авто-`failed` при исчерпании ретраев + освобождение аккаунта.
+- Cookie-сессия админки на подписанном HMAC-токене (без серверного состояния).
+- Rate-limiting, CORS, graceful shutdown, health-checks, Prometheus-метрики.
 
-## 3. Зависимости Go
-
-```powershell
-go mod tidy
-```
-
-Если корпоративный firewall режет `proxy.golang.org`:
-
-```powershell
-$env:GOPROXY = "https://goproxy.io,direct"
-go mod tidy
-```
-
-## 4. Переменные окружения
-
-Дефолты в `internal/config/config.go` совпадают с docker-compose, поэтому для локального
-старта `.env` не обязателен. Для переопределения скопируй `.env.example` → `.env`.
-Полный список переменных — в `.env.example` (Postgres, Redis, Robokassa, Suno, S3, LLM).
-
-## 5. Запуск сервера
-
-```powershell
-go run ./cmd/server
-```
-
-Появится неоновый ASCII-баннер и логи о подключении к Postgres, применении миграций
-и старте HTTP-сервера на `:8080`.
-
-## 6. Проверка работоспособности
-
-```powershell
-curl.exe http://localhost:8080/healthz
-```
-
-Ответ — JSON вида:
-
-```json
-{"status":"ok","checks":{"postgres":"ok","redis":"ok"}}
-```
-
-`HTTP 200` — все зависимости живы; `HTTP 503` — хотя бы одна недоступна.
-
-## 7. Graceful shutdown
-
-`Ctrl+C` в окне сервера → в логах:
+## 🔄 Как это работает
 
 ```
-получен сигнал завершения, начинаем graceful shutdown
-сервис Numaestra остановлен корректно
+Клиент → бриф/конструктор ─▶ POST /orders ─▶ payment_url (Robokassa)
+                                                   │
+                              webhook оплаты ◀──────┘
+                                     │
+                          Asynq/Redis очередь
+                                     │
+   воркер: захват Suno-аккаунта → LLM пишет текст → Suno генерирует →
+   опрос статуса → треки в S3 → уведомление клиента
+                                     │
+   Клиент ◀── GET /orders/{id} (X-Access-Token) ── статус + треки
 ```
 
-## 8. Остановить инфраструктуру
+Архитектура — гексагональная: `domain` → `usecase` → `delivery`/`repository`/`worker`,
+внешние интеграции изолированы в `pkg/`.
 
-```powershell
-docker compose down      # с -v снесёт и данные Postgres
+## 🧱 Технологии
+
+| Слой | Стек |
+|------|------|
+| **Backend** | Go 1.25, chi/v5, Asynq (Redis), pgx, hexagonal architecture |
+| **Frontend** | React 18, TypeScript, Vite 5, Tailwind CSS v4, Feature-Sliced Design |
+| **Данные** | PostgreSQL 16, Redis 7 |
+| **Интеграции** | Suno API, OpenRouter/OpenAI (LLM), Robokassa, S3, SMTP |
+| **Инфра** | Docker Compose, Caddy (авто-TLS), Prometheus + Alertmanager |
+
+UI собран на собственных Material-примитивах (`Button`, `TextField`, `Card`,
+`IconButton`, ripple, elevation) поверх кастомной тёмной cyan-темы.
+
+## 🚀 Быстрый старт (всё в Docker)
+
+Образ `app` многоступенчатый: Node собирает SPA → SPA встраивается в Go-бинарник,
+который раздаёт и API, и фронтенд на одном порту.
+
+```bash
+docker compose up -d --build
 ```
 
-## HTTP API
+Открой **http://localhost:8080** — главная страница.
+Админка: **http://localhost:8080/admin/login**.
 
-Базовый префикс — `/api/v1/orders`.
+Миграции (включая сидинг 30 категорий) применяются автоматически при старте.
+Здоровье сервиса:
+
+```bash
+curl http://localhost:8080/healthz
+# {"status":"ok","checks":{"postgres":"ok","redis":"ok"}}
+```
+
+Остановить: `docker compose down` (с `-v` — снесёт и данные Postgres).
+
+## 🛠️ Локальная разработка
+
+Понадобятся **Go 1.25+**, **Node 20+** и **Docker**.
+
+```bash
+# 1. Инфраструктура (Postgres + Redis)
+docker compose up -d postgres redis
+
+# 2. Бэкенд + фронтенд одновременно (требует GNU make + bash)
+make dev
+```
+
+Либо запустить по отдельности:
+
+```bash
+go run ./cmd/server   # бэкенд: HTTP :8080 + воркер, ASCII-баннер, авто-миграции
+make frontend-dev     # фронтенд: Vite :3000 с hot-reload, проксирует /api → :8080
+```
+
+Полезные команды (`make help` — полный список):
+
+```bash
+make test            # тесты Go
+make test-race       # с детектором гонок
+make lint            # golangci-lint
+make frontend-build  # сборка SPA в web/out/ (встраивается в бинарник)
+make frontend-test   # vitest + Testing Library
+```
+
+## ⚙️ Конфигурация
+
+Дефолты в `internal/config/config.go` совпадают с docker-compose, поэтому для dev
+`.env` не обязателен. Для переопределения: `cp .env.example .env`.
+
+**Обязательны для прода** (`APP_ENV != dev`, иначе фатальная ошибка при старте):
+`ADMIN_TOKEN`, `ADMIN_LOGIN`/`ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`,
+`SUNO_API_KEY`, `OPENAI_API_KEY`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`,
+`SESSION_ENCRYPTION_KEY`. Рекомендуется `SMTP_HOST` (без него письма уходят только в лог).
+
+> 💰 **Цена фиксированная и определяется сервером** (`PRICE_KOPECKS`, по умолчанию
+> 200000 = 2000 ₽) — клиент не может занизить сумму через тело запроса.
+
+## 🌐 HTTP API
+
+Публичные заказы — префикс `/api/v1/orders`:
 
 | Метод | Маршрут | Доступ | Назначение |
 |-------|---------|--------|------------|
-| `POST` | `/` | публичный | Создать заказ, получить `payment_url` и `access_token` |
-| `POST` | `/webhook/robokassa` | подпись Robokassa | Подтверждение оплаты |
+| `POST` | `/` | публичный | Создать заказ → `payment_url` + `access_token` |
+| `POST` | `/webhook/robokassa` | подпись Robokassa | Подтверждение оплаты (идемпотентно) |
 | `GET` | `/` | `X-Access-Token` | Список заказов клиента |
 | `GET` | `/{id}` | `X-Access-Token` | Детали заказа и треки |
 
-Создание заказа:
+Каталог — `/api/v1/categories`:
+
+| Метод | Маршрут | Назначение |
+|-------|---------|------------|
+| `GET` | `/` | Список активных категорий |
+| `GET` | `/{id}/wizard` | Вопросы квиза категории с вариантами ответов |
 
 ```bash
+# Кастомный заказ без категории (из конструктора промптов)
 curl -X POST http://localhost:8080/api/v1/orders/ \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","brief":"Песня на юбилей"}'
+  -d '{"email":"user@example.com","brief":"Повод: жене на юбилей. Жанр: Поп..."}'
 ```
 
-**Цена фиксированная и определяется сервером** — без тарифов и подписок: один платёж
-за 4 версии песни. Сумма НЕ принимается из тела запроса, иначе её можно было бы занизить
-и пройти сверку в вебхуке оплаты. Цена задаётся переменной `PRICE_KOPECKS` (см.
-`.env.example`, по умолчанию 200000 = 2000 ₽). Ответ содержит итоговую `amount_kopecks`
-и `access_token` — токен нужно сохранить и передавать в заголовке `X-Access-Token`
-для доступа к заказу.
+`access_token` из ответа сохраняйте и передавайте в `X-Access-Token`.
+Публичные маршруты защищены rate-limiting по IP и CORS-заголовками.
 
-Вебхук Robokassa идемпотентен (повторные доставки уже оплаченного заказа возвращают
-`OK{InvId}`), а постановка задачи генерации защищена от гонки двойной оплаты
-(условный апдейт `WHERE payment_status='pending'` + дедупликация задачи по `TaskID`).
-При исчерпании ретраев фоновой задачи заказ автоматически переводится в `failed`,
-а занятый Suno-аккаунт освобождается.
+## 🔐 Админка
 
-Публичные маршруты защищены rate-limiting по IP, для всех ответов выставляются CORS-заголовки.
+`/admin` — категории, заказы (возврат оплаты, обратная связь), пул Suno-аккаунтов.
+Вход по `ADMIN_LOGIN`/`ADMIN_PASSWORD` → httpOnly + Secure + SameSite=Strict cookie
+с подписанным (HMAC-SHA256) токеном: не читается из JS, не требует Redis/БД для сессии.
+`/admin/login` жёстко ограничен по частоте (защита от перебора). Для CI/скриптов —
+`ADMIN_TOKEN` как `Authorization: Bearer` на тех же `/api/v1/admin/*`.
 
-## Админка (`/admin`)
-
-Раздел `/admin` на фронтенде — управление категориями квиза, заказами (просмотр,
-возврат оплаты, обратная связь клиенту) и пулом Suno-аккаунтов. Открой
-`http://localhost:8080/admin/login` после `go run ./cmd/server` (или `make frontend-dev`
-для разработки с hot-reload — Vite проксирует `/api` на бэкенд).
-
-**Вход** — логин/пароль из `ADMIN_LOGIN`/`ADMIN_PASSWORD` (см. `.env.example`).
-После входа выставляется httpOnly+Secure+SameSite=Strict cookie с подписанным
-(HMAC-SHA256, `ADMIN_SESSION_SECRET`) токеном без сервера состояний — токен не
-читается из JS (защита от кражи через XSS) и не требует Redis/БД для сессии.
-`/admin/login` жёстко ограничен по частоте запросов (защита от перебора пароля).
-
-Для скриптов/CI вместо логина можно использовать `ADMIN_TOKEN` как `Authorization: Bearer` —
-оба способа аутентификации работают параллельно на одних и тех же маршрутах `/api/v1/admin/*`.
-
-| Раздел | Маршруты API | Назначение |
-|--------|--------------|------------|
-| Категории | `GET/POST /admin/categories/`, `GET/PUT/DELETE /admin/categories/{id}`, `.../questions/...` | Карточки квиза (картинка, заголовок, описание, тэги) + вопросы и варианты ответов |
-| Заказы | `GET /admin/orders/`, `GET /admin/orders/{id}`, `POST .../refund`, `POST .../feedback` | Просмотр, возврат оплаты через Robokassa, письмо клиенту с сохранением в БД |
-| Suno-аккаунты | `GET/POST /admin/accounts/`, `PATCH /admin/accounts/{id}` | Пул аккаунтов, к которым подключается воркер генерации |
-
-## Разработка
-
-```bash
-make help        # список команд
-make test        # все тесты
-make test-race   # тесты с детектором гонок
-make cover       # покрытие
-make lint        # golangci-lint
-make vet         # go vet
-```
-
-CI (`.github/workflows/ci.yml`) на каждый push/PR прогоняет build, vet, тесты с `-race`
-и golangci-lint.
-
-## Структура
+## 📂 Структура
 
 ```
-cmd/server          — точка входа, DI, HTTP + Asynq worker, graceful shutdown
+cmd/server          точка входа, DI, HTTP + Asynq worker, graceful shutdown
 internal/
-  config            — конфигурация из переменных окружения
-  domain            — агрегаты Order, SunoAccount; порты репозиториев и провайдеров
-  usecase           — оркестрация бизнес-сценариев
-  delivery/http     — REST-хендлеры, middleware (CORS, rate limit), Robokassa webhook
+  config            конфигурация из переменных окружения
+  domain            агрегаты Order, SunoAccount; порты репозиториев/провайдеров
+  usecase           оркестрация бизнес-сценариев
+  delivery/http     REST-хендлеры, middleware (CORS, rate limit), SPA, webhook
   repository/
-    postgres        — репозитории заказов и аккаунтов (pgx, FOR UPDATE SKIP LOCKED)
-    queue           — публикатор задач поверх Asynq
-    suno            — адаптер MusicProvider поверх pkg/suno
-  worker            — обработчики фоновых задач Asynq
-migrations          — embedded SQL-миграции
-pkg/
-  banner, health, logger, migrate, notify, openai, robokassa, s3, suno
+    postgres        заказы и аккаунты (pgx, FOR UPDATE SKIP LOCKED)
+    queue           публикатор задач поверх Asynq
+    suno            адаптер MusicProvider поверх pkg/suno
+  worker            обработчики фоновых задач Asynq
+migrations          embedded SQL-миграции (схема + сидинг категорий)
+pkg/                banner, health, logger, migrate, notify, openai, robokassa, s3, suno
+frontend/src/       React SPA (Feature-Sliced Design)
+  app               роутер, провайдеры, глобальные стили/токены
+  pages             catalog, category, examples, quiz, status, admin
+  widgets           navbar, player, contact-modal, side-panel, admin-layout
+  features          load-catalog, create-order, poll-order-status, admin-session
+  entities          category, order, admin-* (типы + API-клиенты)
+  shared            ui-кит, http-клиент, конфиг, утилиты
 ```
 
-## Продакшен-деплой (VPS / Docker Compose)
+## 🚢 Продакшен (VPS / Docker Compose)
 
-Базовый `docker compose up -d` поднимает только `postgres`, `redis` и `app` — этого
-достаточно для dev. Для прода на VPS добавлены три опциональных профиля
-(`deploy/`), каждый включается отдельно:
-
-### TLS / reverse-proxy (`profile proxy`)
-
-`app` сам по себе слушает голый HTTP на `:8080`. На VPS перед ним должен стоять
-TLS-терминатор. Используется Caddy с автоматическим Let's Encrypt:
-
-```powershell
-# В .env: DOMAIN=numaestra.example.com, ACME_EMAIL=you@example.com
-docker compose --profile proxy up -d
-```
-
-Caddy слушает `:80`/`:443` на хосте и проксирует на `app:8080` внутри docker-сети.
-Конфиг — `deploy/Caddyfile`. Порт `8080` самого `app` в `docker-compose.yml` стоит
-либо не публиковать на хост вовсе, либо забиндить только на `127.0.0.1`, если
-порт пробрасывается напрямую для отладки.
-
-### Бэкапы Postgres (`profile backup`)
-
-```powershell
-docker compose --profile backup up -d
-```
-
-Сервис `backup` каждые `BACKUP_INTERVAL_SECONDS` (по умолчанию раз в сутки) снимает
-`pg_dump` через `deploy/backup-postgres.sh`, кладёт сжатый дамп в `./backups/` на
-хосте и удаляет дампы старше `BACKUP_RETENTION_DAYS` (по умолчанию 7 дней).
-`./backups/` — это обычная директория хоста, её нужно включить в свой бэкап
-VPS/диска (snapshot, rsync на другой сервер и т.п.) — сам контейнер не отправляет
-дампы за пределы хоста.
-
-Восстановление:
+Базовый `docker compose up -d` поднимает `postgres`, `redis`, `app`. Для прода —
+три опциональных профиля:
 
 ```bash
-POSTGRES_DSN=postgres://numaestra:numaestra@localhost:5432/numaestra \
-  ./deploy/restore-postgres.sh ./backups/numaestra-20260621T120000Z.sql.gz
+docker compose --profile proxy up -d        # Caddy + авто Let's Encrypt (TLS на :443)
+docker compose --profile backup up -d       # ежедневный pg_dump в ./backups/
+docker compose --profile monitoring up -d   # Prometheus (:9090) + Alertmanager (:9093)
 ```
 
-### Мониторинг и алерты (`profile monitoring`)
+- **proxy** — `DOMAIN` и `ACME_EMAIL` в `.env`; конфиг `deploy/Caddyfile`.
+- **backup** — ротация по `BACKUP_RETENTION_DAYS`; восстановление — `deploy/restore-postgres.sh`.
+- **monitoring** — алерты в `deploy/alerts.yml`; не забудьте прописать receiver в
+  `deploy/alertmanager.yml` (email/Telegram/Slack).
 
-```powershell
-docker compose --profile monitoring up -d
-```
+## ✅ Тестирование
 
-Поднимает Prometheus (`:9090`) со скрейпом `app:8080/metrics` и Alertmanager
-(`:9093`). Правила алертов — `deploy/alerts.yml` (даунтайм сервиса, доля 5xx,
-латентность p95, массовые `failed`-заказы, ошибки Suno API).
-
-**Перед продом обязательно** заполни реальный receiver в `deploy/alertmanager.yml`
-(email/Telegram/Slack) — Alertmanager не подставляет переменные окружения в
-конфиг, плейсхолдеры там нужно заменить руками, иначе алерты будут просто копиться
-в UI и никто их не увидит.
-
-### Чек-лист обязательных переменных для prod (`APP_ENV != dev`)
-
-Без них `config.Load()` вернёт фатальную ошибку при старте: `ADMIN_TOKEN`,
-`ADMIN_LOGIN`/`ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`,
-`SUNO_API_KEY`, `OPENAI_API_KEY`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`,
-`SESSION_ENCRYPTION_KEY`. Дополнительно рекомендуется задать `SMTP_HOST` —
-без него уведомления клиентам уходят только в лог (заглушка), без реальной отправки.
-
-## Тестирование
-
-Юнит-тесты покрывают доменные стейт-машины, use-case (с in-memory моками репозиториев),
-HTTP-хендлеры, middleware, адаптер Suno, воркер, а также клиентов `robokassa`, `openai`,
-`s3`, `suno` (через `httptest`). Репозитории на Postgres требуют живой БД и в юнит-наборе
-не покрыты — для них есть интеграционные тесты (`make test-integration`, testcontainers).
-
-Фронтенд: `make frontend-test` (vitest + Testing Library). CI прогоняет typecheck,
-тесты и build фронта отдельным job'ом (`.github/workflows/ci.yml`).
+- **Go**: доменные стейт-машины, use-case (in-memory моки), HTTP-хендлеры, middleware,
+  адаптеры (`robokassa`, `openai`, `s3`, `suno` через `httptest`), воркер.
+  Postgres-репозитории — интеграционные тесты (`make test-integration`, testcontainers).
+- **Frontend**: `make frontend-test` (vitest + Testing Library).
+- **CI** (`.github/workflows/ci.yml`): на каждый push/PR — build, vet, `-race`-тесты,
+  golangci-lint и отдельный job для typecheck/тестов/сборки фронтенда.
