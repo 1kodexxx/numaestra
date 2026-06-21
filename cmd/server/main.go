@@ -262,9 +262,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("SPA filesystem: %w", err)
 	}
+	imagesFS, err := fs.Sub(web.FS, "images")
+	if err != nil {
+		return fmt.Errorf("images filesystem: %w", err)
+	}
 
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg, metricsNets, spaFS)
+	router := newRouter(log, orderHandler, categoryHandler, adminHandler, healthChecker, cfg, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -314,6 +318,7 @@ func newRouter(
 	cfg *config.Config,
 	metricsNets []*net.IPNet,
 	spaFS fs.FS,
+	imagesFS fs.FS,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -338,6 +343,9 @@ func newRouter(
 		r.Use(apphttp.AdminAuth(cfg.AdminToken))
 		r.Mount("/api/v1/admin", adminHandler.Routes())
 	})
+
+	// Статичные обложки категорий (SVG-заглушки, встроенные через go:embed).
+	r.Mount("/images/", http.StripPrefix("/images/", http.FileServer(http.FS(imagesFS))))
 
 	// React SPA — catch-all, должен быть последним.
 	// API-маршруты выше имеют приоритет по специфичности.

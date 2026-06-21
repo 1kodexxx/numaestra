@@ -181,14 +181,20 @@ func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
 </html>`,
 		notif.OrderID,
 		tracks.String(),
-		orderStatusURL(notif.OrderID),
+		orderStatusURL(notif.OrderID, notif.AccessToken),
 		time.Now().Format("02.01.2006"),
 		time.Now().Year(),
 	)
 }
 
-func orderStatusURL(orderID string) string {
-	return fmt.Sprintf("/orders/%s", orderID)
+// orderStatusURL формирует ссылку на страницу статуса заказа.
+// Если передан accessToken — включаем его как query-параметр, чтобы
+// страница могла автоматически подставить токен без ввода вручную.
+func orderStatusURL(orderID, accessToken string) string {
+	if accessToken != "" {
+		return fmt.Sprintf("/status?order_id=%s&token=%s", orderID, accessToken)
+	}
+	return fmt.Sprintf("/status?order_id=%s", orderID)
 }
 
 // buildMIMEMessage формирует MIME-сообщение с заголовками RFC 5322.

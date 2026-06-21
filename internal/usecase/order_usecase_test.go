@@ -95,6 +95,28 @@ func TestCreateOrder_InvalidEmail(t *testing.T) {
 	}
 }
 
+func TestCreateOrder_InvalidPhone(t *testing.T) {
+	f := newFixture(t)
+
+	// Явно некорректный телефон.
+	_, err := f.uc.CreateOrder(context.Background(), "", "abc", "Бриф", "standard", "", nil)
+	if !errors.Is(err, ErrInvalidPhone) {
+		t.Fatalf("ожидали ErrInvalidPhone для 'abc', получили %v", err)
+	}
+
+	// Пустой телефон допустим (необязательное поле).
+	_, err = f.uc.CreateOrder(context.Background(), "u@example.com", "", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("пустой телефон должен быть допустим: %v", err)
+	}
+
+	// Корректный российский номер.
+	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("корректный телефон должен проходить: %v", err)
+	}
+}
+
 func TestCreateOrder_ValidationError(t *testing.T) {
 	f := newFixture(t)
 	_, err := f.uc.CreateOrder(context.Background(), "", "", "", "standard", "", nil)
@@ -575,10 +597,10 @@ func TestListOrdersByPhone_ReturnsMatching(t *testing.T) {
 	f := newFixture(t)
 
 	for i := int64(1); i <= 3; i++ {
-		o, _ := domain.NewOrder(i, "p@q.com", "+79991234567", "бриф", "", "", 100)
+		o, _ := domain.NewOrder(i, "p@q.com", "+79991234567", "бриф", "standard", "", "", 100)
 		_ = f.orderRepo.Create(context.Background(), o)
 	}
-	o, _ := domain.NewOrder(4, "x@y.com", "+70000000000", "бриф", "", "", 100)
+	o, _ := domain.NewOrder(4, "x@y.com", "+70000000000", "бриф", "standard", "", "", 100)
 	_ = f.orderRepo.Create(context.Background(), o)
 
 	list, err := f.uc.ListOrdersByPhone(context.Background(), "+79991234567", 20, 0)

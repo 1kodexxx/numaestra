@@ -63,7 +63,7 @@ func TestHandleStatusCheckTask_NotReady_PassesThrough(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "standard", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	_ = order.StartProcessing(account.ID())
@@ -91,7 +91,7 @@ func TestHandleGenerateTask_Success(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "standard", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	repo.put(order)
@@ -122,7 +122,7 @@ func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "standard", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	_ = order.StartProcessing(account.ID())
@@ -174,7 +174,7 @@ func TestHandleGenerateTask_UseCaseError_ReturnsError(t *testing.T) {
 	repo := newWOrderRepo()
 	// Нет аккаунтов — FetchAndLockAvailable вернёт ErrNoAvailableAccount →
 	// ProcessGenerationTask вернёт ошибку → HandleGenerateTask пробросит её.
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "standard", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	repo.put(order)
@@ -200,7 +200,7 @@ func TestHandleStatusCheckTask_CriticalError_Propagates(t *testing.T) {
 	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
 	_ = acc.Create(context.Background(), account)
 
-	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "standard", "", "", 100)
 	_ = order.MarkPaid()
 	_ = order.Enqueue()
 	_ = order.StartProcessing(account.ID())

@@ -80,6 +80,7 @@ type Order struct {
 	// воркер использует brief напрямую.
 	sunoPrompt string
 
+	plan          string // тариф клиента: "standard" | "premium"
 	amountKopecks int64 // сумма в копейках - без float, для точности расчётов
 	currency      string
 
@@ -101,7 +102,7 @@ type Order struct {
 }
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
-func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, sunoPrompt string, amountKopecks int64) (*Order, error) {
+func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, plan, categoryID, sunoPrompt string, amountKopecks int64) (*Order, error) {
 	if customerEmail == "" && customerPhone == "" {
 		return nil, errors.New("должен быть указан хотя бы один контакт клиента")
 	}
@@ -128,6 +129,7 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, 
 		customerEmail:    customerEmail,
 		customerPhone:    customerPhone,
 		brief:            brief,
+		plan:             plan,
 		categoryID:       categoryID,
 		sunoPrompt:       sunoPrompt,
 		amountKopecks:    amountKopecks,
@@ -156,6 +158,7 @@ type OrderSnapshot struct {
 	CustomerEmail     string
 	CustomerPhone     string
 	Brief             string
+	Plan              string
 	CategoryID        string
 	SunoPrompt        string
 	AmountKopecks     int64
@@ -177,7 +180,7 @@ func RestoreOrder(s OrderSnapshot) *Order {
 	return &Order{
 		id: s.ID, invoiceID: s.InvoiceID,
 		customerEmail: s.CustomerEmail, customerPhone: s.CustomerPhone, brief: s.Brief,
-		categoryID: s.CategoryID, sunoPrompt: s.SunoPrompt,
+		plan: s.Plan, categoryID: s.CategoryID, sunoPrompt: s.SunoPrompt,
 		amountKopecks: s.AmountKopecks, currency: s.Currency,
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
@@ -195,6 +198,7 @@ func (o *Order) CustomerPhone() string              { return o.customerPhone }
 func (o *Order) Brief() string                      { return o.brief }
 func (o *Order) CategoryID() string                 { return o.categoryID }
 func (o *Order) SunoPrompt() string                 { return o.sunoPrompt }
+func (o *Order) Plan() string                       { return o.plan }
 func (o *Order) AmountKopecks() int64               { return o.amountKopecks }
 func (o *Order) Currency() string                   { return o.currency }
 func (o *Order) PaymentStatus() PaymentStatus       { return o.paymentStatus }
@@ -330,6 +334,7 @@ func (o *Order) Snapshot() OrderSnapshot {
 		CustomerEmail:     o.customerEmail,
 		CustomerPhone:     o.customerPhone,
 		Brief:             o.brief,
+		Plan:              o.plan,
 		CategoryID:        o.categoryID,
 		SunoPrompt:        o.sunoPrompt,
 		AmountKopecks:     o.amountKopecks,

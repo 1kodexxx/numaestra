@@ -9,7 +9,7 @@ INSERT INTO categories (id, title, description, cover_image_url, seo_tags, base_
     'wedding', 
     'Песня на свадьбу', 
     'Создайте идеальный саундтрек для вашего главного дня. Трогательно, нежно или с драйвом!', 
-    '/images/covers/wedding.jpg', 
+    '/images/covers/wedding.svg', 
     '{"свадьба", "подарок", "романтика", "первый танец"}', 
     'Create a [MOOD] [GENRE] song with [VOCAL]. The lyrics must be in Russian language. The song is about: Жениха зовут [GROOM], невесту [BRIDE]. Они познакомились: [MEET_STORY]. Главное обещание друг другу: [PROMISE].'
 ),
@@ -17,7 +17,7 @@ INSERT INTO categories (id, title, description, cover_image_url, seo_tags, base_
     'corporate', 
     'Гимн компании / Корпоратив', 
     'Мощный трек, который сплотит команду и подчеркнет статус вашего бизнеса.', 
-    '/images/covers/corporate.jpg', 
+    '/images/covers/corporate.svg', 
     '{"бизнес", "корпоратив", "гимн", "команда"}', 
     'Create a [MOOD] [GENRE] corporate anthem with [VOCAL]. The lyrics must be in Russian language. The song is about a company named [COMPANY_NAME]. Industry: [INDUSTRY]. Core values: [VALUES]. Special shoutouts to: [SHOUTOUTS].'
 ),
@@ -25,7 +25,7 @@ INSERT INTO categories (id, title, description, cover_image_url, seo_tags, base_
     'boss', 
     'Подарок начальнику', 
     'Песня-поздравление или рэп-прожарка для вашего любимого руководителя.', 
-    '/images/covers/boss.jpg', 
+    '/images/covers/boss.svg', 
     '{"начальник", "босс", "юбилей", "коллеги"}', 
     'Create a [MOOD] [GENRE] song with [VOCAL]. Lyrics in Russian. The song is a gift for a boss named [BOSS_NAME]. Their domain/department: [ROLE]. Funny habit or catchphrase: [HABIT]. The team wishes them: [WISHES].'
 ),
@@ -33,7 +33,7 @@ INSERT INTO categories (id, title, description, cover_image_url, seo_tags, base_
     'birthday', 
     'С Днем Рождения', 
     'Персональный хит для именинника, который он запомнит навсегда.', 
-    '/images/covers/birthday.jpg', 
+    '/images/covers/birthday.svg', 
     '{"день рождения", "подарок", "праздник", "юбилей"}', 
     'Create a [MOOD] [GENRE] birthday song with [VOCAL]. Lyrics in Russian. Birthday person is [NAME]. Age (optional): [AGE]. Hobbies and funny facts: [HOBBIES]. This gift is from: [FROM_WHO].'
 );

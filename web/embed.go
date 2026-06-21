@@ -5,7 +5,8 @@ package web
 import "embed"
 
 // FS — встроенная файловая система со статическими ресурсами React SPA.
-// Корень — директория out/, которую Vite записывает при сборке.
+// out/ — директория, которую Vite записывает при сборке.
+// images/ — SVG-заглушки обложек категорий, раздаваемые по /images/*.
 //
-//go:embed out
+//go:embed out images
 var FS embed.FS

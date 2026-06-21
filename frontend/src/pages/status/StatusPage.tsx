@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
 import { Spinner } from '@shared/ui'
@@ -9,10 +9,23 @@ const inputCls = 'flex-1 bg-bg3 border border-border rounded-lg px-3.5 py-2.5 te
 const btnOutlineCls = 'px-5 py-2.5 rounded-lg text-sm font-semibold bg-transparent border border-accent2 text-accent cursor-pointer hover:bg-accent/10 transition-all'
 
 export function StatusPage() {
-  const savedId = orderStorage.getOrderId()
-  const [lookupId, setLookupId] = useState(savedId ?? '')
-  const [activeId, setActiveId] = useState<string | null>(savedId)
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+
+  // Инициализируем из URL-параметров (magic-link из email) или из localStorage.
+  const urlOrderId = searchParams.get('order_id')
+  const urlToken = searchParams.get('token')
+
+  // При наличии URL-параметров — сохраняем в localStorage и сразу показываем заказ.
+  useEffect(() => {
+    if (urlOrderId && urlToken) {
+      orderStorage.saveOrder(urlOrderId, urlToken)
+    }
+  }, [urlOrderId, urlToken])
+
+  const initId = urlOrderId ?? orderStorage.getOrderId()
+  const [lookupId, setLookupId] = useState(initId ?? '')
+  const [activeId, setActiveId] = useState<string | null>(initId)
 
   const { order, loading, error } = usePollOrderStatus(activeId)
 

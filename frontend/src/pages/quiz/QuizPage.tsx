@@ -166,12 +166,15 @@ function QuestionStep({
         {question.question_text}
         {question.is_required && <span className="text-error ml-1">*</span>}
       </div>
-      {question.ui_type === 'select' ? (
-        <div className="flex flex-col gap-2.5">
+      {/* select/tags/radio — все три типа рендерятся как кнопки-варианты */}
+      {(question.ui_type === 'select' || question.ui_type === 'tags' || question.ui_type === 'radio') ? (
+        <div className={`flex gap-2.5 ${question.ui_type === 'radio' ? 'flex-col' : 'flex-wrap'}`}>
           {question.options.map((opt) => (
             <button
               key={opt.value}
-              className={`bg-bg3 border rounded-lg px-4 py-3 text-left text-txt cursor-pointer text-[15px] transition-all ${
+              className={`border rounded-lg px-4 py-3 text-left text-txt cursor-pointer text-[15px] transition-all ${
+                question.ui_type === 'radio' ? 'w-full bg-bg3' : 'bg-bg3'
+              } ${
                 value === opt.value
                   ? 'border-accent bg-accent/15 text-accent'
                   : 'border-border hover:border-accent2 hover:bg-accent2/10'

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/mail"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,6 +111,14 @@ func (uc *OrderUseCase) saveOrderAndAccount(ctx context.Context, order *domain.O
 // ErrInvalidEmail возвращается, если email передан, но имеет некорректный формат.
 var ErrInvalidEmail = errors.New("некорректный формат email")
 
+// ErrInvalidPhone возвращается, если телефон передан, но имеет некорректный формат.
+var ErrInvalidPhone = errors.New("некорректный формат телефона")
+
+// phoneRe принимает российские и международные номера в форматах:
+// +7XXXXXXXXXX, 8XXXXXXXXXX, +380XXXXXXXXX и т.п.
+// Минимум 7 цифр, максимум 15 (E.164), допускаются пробелы, дефисы, скобки.
+var phoneRe = regexp.MustCompile(`^\+?[\d\s\-\(\)]{7,20}$`)
+
 func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, plan, categoryID string, answers map[string]string) (*domain.Order, error) {
 	// Проверяем формат email, если он передан. Поле необязательное (можно оставить пустым),
 	// но если передано — должно соответствовать RFC 5322 (net/mail).
@@ -117,6 +126,10 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		if _, err := mail.ParseAddress(email); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrInvalidEmail, err)
 		}
+	}
+	// Проверяем формат телефона, если он передан.
+	if phone != "" && !phoneRe.MatchString(phone) {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidPhone, phone)
 	}
 
 	// Цену определяет сервер по выбранному тарифу, а НЕ клиент. Иначе сумму заказа
@@ -148,7 +161,7 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, pl
 		}
 	}
 
-	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, amountKopecks)
+	order, err := domain.NewOrder(invoiceID, email, phone, brief, plan, categoryID, sunoPrompt, amountKopecks)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка валидации заказа: %w", err)
 	}
@@ -293,11 +306,16 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		uc.log.Info("текст успешно сгенерирован")
 	}
 
-	// 4. Отправка структурированного запроса в Suno API
+	// 4. Отправка структурированного запроса в Suno API.
+	// Для тарифа "premium" генерируем 8 вариантов, для остальных — 4.
+	trackCount := 4
+	if order.Plan() == "premium" {
+		trackCount = 8
+	}
 	req := domain.MusicGenerationRequest{
 		Brief:        lyrics,
 		Instrumental: false,
-		TrackCount:   4,
+		TrackCount:   trackCount,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 
@@ -435,6 +453,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		}
 		if notifyErr := uc.notifier.NotifyOrderComplete(ctx, notify.OrderCompleteNotification{
 			OrderID:     order.ID().String(),
+			AccessToken: order.AccessToken(),
 			Email:       order.CustomerEmail(),
 			Phone:       order.CustomerPhone(),
 			TrackURLs:   trackURLs,

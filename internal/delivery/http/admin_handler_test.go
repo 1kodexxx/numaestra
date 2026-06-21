@@ -339,7 +339,7 @@ func TestAdminHandler_ListOrders_ReturnsPaginatedResult(t *testing.T) {
 	router := adminTestRouter(h)
 
 	for i := int64(1); i <= 3; i++ {
-		o, _ := domain.NewOrder(i, "u@a.com", "", "бриф", "", "", 100)
+		o, _ := domain.NewOrder(i, "u@a.com", "", "бриф", "standard", "", "", 100)
 		_ = orders.Create(context.Background(), o)
 	}
 
@@ -361,7 +361,7 @@ func TestAdminHandler_GetOrder_Found(t *testing.T) {
 	h, orders, _ := newTestAdminHandler(t)
 	router := adminTestRouter(h)
 
-	o, _ := domain.NewOrder(1, "x@y.com", "", "бриф", "", "", 200)
+	o, _ := domain.NewOrder(1, "x@y.com", "", "бриф", "standard", "", "", 200)
 	_ = orders.Create(context.Background(), o)
 
 	r := httptest.NewRequest(http.MethodGet, "/admin/orders/"+o.ID().String(), nil)
@@ -395,7 +395,7 @@ func TestAdminHandler_RefundOrder_Success(t *testing.T) {
 	h, orders, _ := newTestAdminHandler(t)
 	router := adminTestRouter(h)
 
-	o, _ := domain.NewOrder(1, "p@q.com", "", "бриф", "", "", 5000)
+	o, _ := domain.NewOrder(1, "p@q.com", "", "бриф", "standard", "", "", 5000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 
@@ -413,7 +413,7 @@ func TestAdminHandler_RefundOrder_NotPaid(t *testing.T) {
 	h, orders, _ := newTestAdminHandler(t)
 	router := adminTestRouter(h)
 
-	o, _ := domain.NewOrder(2, "p@q.com", "", "бриф", "", "", 5000)
+	o, _ := domain.NewOrder(2, "p@q.com", "", "бриф", "standard", "", "", 5000)
 	_ = orders.Create(context.Background(), o)
 
 	r := httptest.NewRequest(http.MethodPost, "/admin/orders/"+o.ID().String()+"/refund",
@@ -613,7 +613,7 @@ func TestAdminHandler_RefundOrder_UpdateError(t *testing.T) {
 	h, orders, _ := newTestAdminHandler(t)
 	router := adminTestRouter(h)
 
-	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "", "", 5000)
+	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "standard", "", "", 5000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 	orders.updateErr = errors.New("db down")
