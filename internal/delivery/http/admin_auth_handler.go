@@ -53,7 +53,13 @@ func (h *AdminAuthHandler) WithRedis(rdb *redis.Client) *AdminAuthHandler {
 // зайти было бы нечем). /login защищён жёстким rate-limit от перебора пароля.
 func (h *AdminAuthHandler) Routes() chi.Router {
 	r := chi.NewRouter()
+	h.Register(r)
+	return r
+}
 
+// Register регистрирует публичные маршруты входа/выхода непосредственно на
+// переданном роутере — используется когда нельзя делать Mount("/", ...) дважды.
+func (h *AdminAuthHandler) Register(r chi.Router) {
 	var loginLimiter func(http.Handler) http.Handler
 	if h.rdb != nil {
 		loginLimiter = DistributedRateLimiter(h.rdb, 5, time.Minute)
@@ -63,7 +69,6 @@ func (h *AdminAuthHandler) Routes() chi.Router {
 
 	r.With(loginLimiter).Post("/login", h.Login)
 	r.Post("/logout", h.Logout)
-	return r
 }
 
 type adminLoginRequest struct {

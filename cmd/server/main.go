@@ -349,9 +349,9 @@ func newRouter(
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
 
 	r.Route("/api/v1/admin", func(r chi.Router) {
-		// /login и /logout — публичные (иначе зайти было бы нечем).
-		// /login защищён жёстким rate-limit внутри adminAuthHandler.Routes().
-		r.Mount("/", adminAuthHandler.Routes())
+		// /login и /logout — публичные, регистрируем напрямую чтобы избежать
+		// двойного Mount("/", ...) на одном mux (chi запрещает).
+		adminAuthHandler.Register(r)
 
 		r.Group(func(r chi.Router) {
 			r.Use(apphttp.AdminAuth(cfg.AdminToken, adminSessionSecret))
