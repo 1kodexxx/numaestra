@@ -6,13 +6,14 @@ import { useCreateOrder } from '@features/create-order'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
 import { Button } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
+import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
 import type { Category, Question, WizardData } from '@entities/category'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.07)'
 const TEXT2 = 'rgba(255,255,255,0.48)'
 const TEXT3 = 'rgba(255,255,255,0.22)'
-const PANEL_W = 210
+const PANEL_W = 240
 
 /* ─── breakpoint hook ─── */
 function useBreakpoint() {
@@ -23,29 +24,6 @@ function useBreakpoint() {
     return () => { window.removeEventListener('resize', fn) }
   }, [])
   return { isMobile: w < 640, isTablet: w >= 640 && w < 1200, isDesktop: w >= 1200 }
-}
-
-/* ── side list item ── */
-function SideItem({ title, sub, onClick }: { title: string; sub?: string; onClick: () => void }) {
-  const [h, setH] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setH(true)}
-      onMouseLeave={() => setH(false)}
-      style={{
-        width: '100%', display: 'block', textAlign: 'left',
-        background: h ? '#161616' : 'transparent',
-        border: 'none', borderRadius: '10px',
-        padding: '11px 14px', marginBottom: '2px',
-        cursor: 'pointer', transition: 'background 0.15s', position: 'relative',
-      }}
-    >
-      {h && <span style={{ position: 'absolute', left: 0, top: '20%', height: '60%', width: '2px', borderRadius: '1px', background: ACCENT }} />}
-      <div style={{ fontSize: '13px', fontWeight: 600, color: h ? '#fff' : TEXT2, transition: 'color 0.15s', lineHeight: 1.3 }}>{title}</div>
-      {sub && <div style={{ fontSize: '11px', color: TEXT3, marginTop: '2px' }}>{sub}</div>}
-    </button>
-  )
 }
 
 /* ── question widget ── */
@@ -258,13 +236,21 @@ export function CategoryPage() {
 
       {/* Left: examples */}
       <aside style={{ width: PANEL_W, borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 12px 12px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
+          <PanelHeader icon="🎧" title="Примеры" sub="Послушайте, как звучит" />
           {EXAMPLE_SONGS.map(ex => (
-            <SideItem key={ex.id} title={ex.title} sub={ex.category} onClick={() => navigate(`/examples/${ex.id}`)} />
+            <SideItem
+              key={ex.id}
+              title={ex.title}
+              sub={ex.category}
+              onClick={() => navigate(`/examples/${ex.id}`)}
+              leading={(hovered) => (
+                <Thumb src={stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
+                  <PlayOverlay active={hovered} />
+                </Thumb>
+              )}
+            />
           ))}
-        </div>
-        <div style={{ padding: '12px 16px 16px', borderTop: `1px solid ${BORDER}` }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: TEXT3, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Примеры работ</span>
         </div>
       </aside>
 
@@ -346,13 +332,20 @@ export function CategoryPage() {
 
       {/* Right: top categories */}
       <aside style={{ width: PANEL_W, borderLeft: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 12px 12px' }}>
-          {topCats.map(cat => (
-            <SideItem key={cat.id} title={cat.title} onClick={() => navigate(`/category/${cat.id}`)} />
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
+          <PanelHeader icon="🔥" title="Популярное" sub="Выбор пользователей" />
+          {topCats.map((cat, i) => (
+            <SideItem
+              key={cat.id}
+              title={cat.title}
+              onClick={() => navigate(`/category/${cat.id}`)}
+              leading={(hovered) => (
+                <Thumb src={stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
+                  <RankCorner n={i + 1} />
+                </Thumb>
+              )}
+            />
           ))}
-        </div>
-        <div style={{ padding: '12px 16px 16px', borderTop: `1px solid ${BORDER}` }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: TEXT3, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Категории</span>
         </div>
       </aside>
     </div>

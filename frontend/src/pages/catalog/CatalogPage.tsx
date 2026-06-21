@@ -5,6 +5,7 @@ import { useCreateOrder } from '@features/create-order'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
 import { Button, TextField, useRipple } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
+import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
 import type { Category } from '@entities/category'
 
 /* ─── tokens ─── */
@@ -56,49 +57,6 @@ function getIcon(cat: Category, idx: number): string {
     if (haystack.includes(key)) return icon
   }
   return FALLBACK_ICONS[idx % FALLBACK_ICONS.length]
-}
-
-/* ─── side panel item ─── */
-function SideItem({ title, sub, onClick }: { title: string; sub?: string; onClick: () => void }) {
-  const [h, setH] = useState(false)
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setH(true)}
-      onMouseLeave={() => setH(false)}
-      style={{
-        width: '100%', display: 'block', textAlign: 'left',
-        background: h ? 'rgba(255,255,255,0.04)' : 'transparent',
-        border: 'none', borderRadius: '10px',
-        padding: '10px 12px', marginBottom: '2px',
-        cursor: 'pointer', transition: 'background 0.15s',
-        position: 'relative',
-      }}
-    >
-      {h && (
-        <span style={{
-          position: 'absolute', left: 0, top: '18%', height: '64%',
-          width: '2px', borderRadius: '1px', background: ACCENT,
-        }} />
-      )}
-      <div style={{
-        fontSize: '13px', fontWeight: 600, lineHeight: 1.3,
-        color: h ? '#fff' : TEXT2,
-        paddingLeft: h ? '6px' : '0',
-        transition: 'all 0.15s',
-      }}>
-        {title}
-      </div>
-      {sub && (
-        <div style={{
-          fontSize: '11px', color: TEXT3, marginTop: '2px',
-          paddingLeft: h ? '6px' : '0', transition: 'padding 0.15s',
-        }}>
-          {sub}
-        </div>
-      )}
-    </button>
-  )
 }
 
 /* ─── hero ─── */
@@ -213,29 +171,72 @@ function Chip({ label, selected, onClick }: { label: string; selected: boolean; 
   )
 }
 
-const MOODS = ['Романтика', 'Радость', 'Энергия', 'Ностальгия', 'Юмор', 'Торжественность']
-const GENRES = ['Поп', 'Баллада', 'Рок', 'Рэп', 'Джаз', 'Электроника', 'Шансон', 'Акустика']
+const MOODS = ['Романтика', 'Радость', 'Грусть', 'Ностальгия', 'Энергия', 'Торжественность', 'Юмор', 'Спокойствие', 'Драйв']
+const GENRES = ['Поп', 'Баллада', 'Рок', 'Рэп', 'Хип-хоп', 'Джаз', 'R&B', 'Электроника', 'Шансон', 'Акустика', 'Фолк', 'Кантри']
+const TEMPOS = ['Медленный', 'Средний', 'Быстрый']
+const VOCALS = ['Мужской', 'Женский', 'Дуэт', 'Хор', 'Без вокала']
 
-function composeBrief(occasion: string, mood: string, genre: string, details: string): string {
-  const parts: string[] = []
-  if (occasion.trim()) parts.push(occasion.trim())
-  if (mood || genre) parts.push(`Настроение и стиль: ${[mood, genre].filter(Boolean).join(', ')}`)
-  if (details.trim()) parts.push(details.trim())
-  return parts.join('. ') || 'Персональная песня на заказ'
+const SURFACE = '#080808'
+
+interface PromptForm {
+  occasion: string
+  moods: string[]
+  genres: string[]
+  tempo: string
+  vocal: string
+  details: string
+  customText: string
+}
+
+const EMPTY_FORM: PromptForm = {
+  occasion: '', moods: [], genres: [], tempo: '', vocal: '', details: '', customText: '',
+}
+
+/* Собираем структурированный, читаемый промпт для Suno из выбранных полей. */
+function composeBrief(f: PromptForm): string {
+  const lines: string[] = []
+  if (f.occasion.trim()) lines.push(`Повод: ${f.occasion.trim()}`)
+  if (f.genres.length) lines.push(`Жанр: ${f.genres.join(', ')}`)
+  if (f.moods.length) lines.push(`Настроение: ${f.moods.join(', ')}`)
+  if (f.tempo) lines.push(`Темп: ${f.tempo}`)
+  if (f.vocal) lines.push(`Вокал: ${f.vocal}`)
+  if (f.details.trim()) lines.push(`Детали: ${f.details.trim()}`)
+  if (f.customText.trim()) lines.push(`Текст песни (использовать дословно):\n${f.customText.trim()}`)
+  lines.push('Язык исполнения: русский')
+  return lines.join('\n')
+}
+
+/* ─── section label with optional hint ─── */
+function Section({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px' }}>
+        <span style={{ fontSize: '12px', color: TEXT2, fontWeight: 500 }}>
+          {label}{required && <span style={{ color: '#ef4444', marginLeft: '3px' }}>*</span>}
+        </span>
+        {hint && <span style={{ fontSize: '11px', color: TEXT3 }}>{hint}</span>}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>{children}</div>
+    </div>
+  )
 }
 
 /* ─── prompt constructor ─── */
 function PromptBuilder({
-  occasion, setOccasion, mood, setMood, genre, setGenre, details, setDetails, onBack, onSubmit, canSubmit,
+  form, update, onBack, onSubmit, canSubmit,
 }: {
-  occasion: string; setOccasion: (v: string) => void
-  mood: string; setMood: (v: string) => void
-  genre: string; setGenre: (v: string) => void
-  details: string; setDetails: (v: string) => void
+  form: PromptForm
+  update: <K extends keyof PromptForm>(key: K, value: PromptForm[K]) => void
   onBack: () => void
   onSubmit: () => void
   canSubmit: boolean
 }) {
+  const toggleMulti = (key: 'moods' | 'genres', val: string) => {
+    const arr = form[key]
+    update(key, arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val])
+  }
+  const preview = composeBrief(form)
+
   return (
     <div style={{ width: '100%', maxWidth: '640px' }} className="fade-in">
       <button
@@ -253,52 +254,94 @@ function PromptBuilder({
           Конструктор промпта для Suno
         </span>
       </div>
-      <div style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '4px', textAlign: 'left' }}>
+      <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '4px', textAlign: 'left' }}>
         Соберите свою песню
       </div>
-      <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '24px', textAlign: 'left' }}>
-        Никаких готовых категорий — только ваш повод, настроение и детали
+      <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '26px', textAlign: 'left', lineHeight: 1.5 }}>
+        Выберите стиль, опишите детали и при желании впишите свой текст — мы превратим это в готовый трек.
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', textAlign: 'left' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', textAlign: 'left' }}>
         <TextField
           label="Для кого и по какому поводу"
-          value={occasion}
-          onChange={setOccasion}
+          required
+          value={form.occasion}
+          onChange={(v) => update('occasion', v)}
           placeholder="Например: жене на годовщину свадьбы"
-          surfaceColor="#080808"
+          surfaceColor={SURFACE}
         />
 
-        <div>
-          <div style={{ fontSize: '12px', color: TEXT2, marginBottom: '10px', fontWeight: 500 }}>Настроение</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {MOODS.map(m => (
-              <Chip key={m} label={m} selected={mood === m} onClick={() => setMood(mood === m ? '' : m)} />
-            ))}
-          </div>
-        </div>
+        <Section label="Жанр" hint="можно несколько">
+          {GENRES.map(g => (
+            <Chip key={g} label={g} selected={form.genres.includes(g)} onClick={() => toggleMulti('genres', g)} />
+          ))}
+        </Section>
 
-        <div>
-          <div style={{ fontSize: '12px', color: TEXT2, marginBottom: '10px', fontWeight: 500 }}>Жанр</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {GENRES.map(g => (
-              <Chip key={g} label={g} selected={genre === g} onClick={() => setGenre(genre === g ? '' : g)} />
-            ))}
-          </div>
-        </div>
+        <Section label="Настроение" hint="можно несколько">
+          {MOODS.map(m => (
+            <Chip key={m} label={m} selected={form.moods.includes(m)} onClick={() => toggleMulti('moods', m)} />
+          ))}
+        </Section>
+
+        <Section label="Темп">
+          {TEMPOS.map(t => (
+            <Chip key={t} label={t} selected={form.tempo === t} onClick={() => update('tempo', form.tempo === t ? '' : t)} />
+          ))}
+        </Section>
+
+        <Section label="Вокал">
+          {VOCALS.map(v => (
+            <Chip key={v} label={v} selected={form.vocal === v} onClick={() => update('vocal', form.vocal === v ? '' : v)} />
+          ))}
+        </Section>
 
         <TextField
-          label="Детали (необязательно)"
-          value={details}
-          onChange={setDetails}
+          label="Детали"
+          required
+          value={form.details}
+          onChange={(v) => update('details', v)}
           multiline
           rows={4}
-          placeholder="Имена, общие воспоминания, шутки, особые слова..."
-          surfaceColor="#080808"
+          placeholder="Имена, ваша история, важные слова и моменты, которые обязательно упомянуть..."
+          surfaceColor={SURFACE}
+          supportingText="Чем больше деталей — тем точнее получится песня."
         />
+
+        <TextField
+          label="Свой текст песни (по желанию)"
+          value={form.customText}
+          onChange={(v) => update('customText', v)}
+          multiline
+          rows={4}
+          placeholder="Впишите строки или припев, которые должны прозвучать дословно..."
+          surfaceColor={SURFACE}
+        />
+
+        {/* Live preview */}
+        <div style={{
+          background: 'rgba(0,229,192,0.04)',
+          border: '1px solid rgba(0,229,192,0.18)',
+          borderRadius: '14px', padding: '16px 18px',
+        }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: ACCENT, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '10px' }}>
+            Готовый промпт для Suno
+          </div>
+          <pre style={{
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            fontFamily: 'inherit', fontSize: '13px', lineHeight: 1.6,
+            color: 'rgba(255,255,255,0.82)', margin: 0,
+          }}>
+            {preview}
+          </pre>
+        </div>
       </div>
 
       <div style={{ marginTop: '24px' }}>
+        {!canSubmit && (
+          <div style={{ fontSize: '12px', color: TEXT3, marginBottom: '10px', textAlign: 'center' }}>
+            Заполните «Повод» и «Детали», чтобы продолжить
+          </div>
+        )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
           Продолжить — 2 000 ₽ →
         </Button>
@@ -405,11 +448,12 @@ export function CatalogPage() {
   const navigate = useNavigate()
   const { isMobile, isTablet, isDesktop } = useBreakpoint()
   const [briefOpen, setBriefOpen] = useState(false)
-  const [occasion, setOccasion] = useState('')
-  const [mood, setMood] = useState('')
-  const [genre, setGenre] = useState('')
-  const [details, setDetails] = useState('')
+  const [form, setForm] = useState<PromptForm>(EMPTY_FORM)
   const [showContact, setShowContact] = useState(false)
+
+  function updateForm<K extends keyof PromptForm>(key: K, value: PromptForm[K]) {
+    setForm(prev => ({ ...prev, [key]: value }))
+  }
 
   // Когда конструктор закрывается, строка поиска возвращается на то же место
   // экрана, где уже стоит курсор. Браузер пересчитывает hover под неподвижным
@@ -435,11 +479,11 @@ export function CatalogPage() {
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
 
   async function handleCustomOrder(email: string, phone: string) {
-    const brief = composeBrief(occasion, mood, genre, details)
+    const brief = composeBrief(form)
     await submit({ email, phone, brief, category_id: '', answers: {} })
   }
 
-  const PANEL_W = 210
+  const PANEL_W = 240
   // auto-fill держит карточки компактными (~180px) и заполняет ширину колонками,
   // вместо 4 гигантских карточек на ультрашироком экране.
   const gridCols = isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(180px, 1fr))'
@@ -537,13 +581,11 @@ export function CatalogPage() {
     >
       <div style={{ width: '100%', maxWidth: 640, margin: 'auto' }}>
         <PromptBuilder
-          occasion={occasion} setOccasion={setOccasion}
-          mood={mood} setMood={setMood}
-          genre={genre} setGenre={setGenre}
-          details={details} setDetails={setDetails}
+          form={form}
+          update={updateForm}
           onBack={closeBuilder}
           onSubmit={() => setShowContact(true)}
-          canSubmit={occasion.trim().length > 0}
+          canSubmit={form.occasion.trim().length > 0 && form.details.trim().length > 0}
         />
       </div>
     </div>
@@ -586,12 +628,20 @@ export function CatalogPage() {
         borderRight: `1px solid ${BORDER}`,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 10px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, color: TEXT3, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px 10px' }}>
-            Послушать примеры
-          </div>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
+          <PanelHeader icon="🎧" title="Примеры" sub="Послушайте, как звучит" />
           {EXAMPLE_SONGS.map(ex => (
-            <SideItem key={ex.id} title={ex.title} sub={ex.category} onClick={() => navigate(`/examples/${ex.id}`)} />
+            <SideItem
+              key={ex.id}
+              title={ex.title}
+              sub={ex.category}
+              onClick={() => navigate(`/examples/${ex.id}`)}
+              leading={(hovered) => (
+                <Thumb src={stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
+                  <PlayOverlay active={hovered} />
+                </Thumb>
+              )}
+            />
           ))}
         </div>
       </aside>
@@ -607,16 +657,18 @@ export function CatalogPage() {
         borderLeft: `1px solid ${BORDER}`,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 10px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 700, color: TEXT3, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '0 12px 10px' }}>
-            Популярные категории
-          </div>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
+          <PanelHeader icon="🔥" title="Популярное" sub="Выбор пользователей" />
           {categories.slice(0, 8).map((cat, i) => (
             <SideItem
               key={cat.id}
               title={cat.title}
-              sub={`# ${i + 1}`}
               onClick={() => navigate(`/category/${cat.id}`)}
+              leading={(hovered) => (
+                <Thumb src={stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
+                  <RankCorner n={i + 1} />
+                </Thumb>
+              )}
             />
           ))}
         </div>
