@@ -19,9 +19,11 @@ import (
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 	"github.com/numaestra/numaestra/pkg/robokassa"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -480,6 +482,81 @@ func TestHandler_ListOrders_ByPhone(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if len(resp) != 1 {
 		t.Errorf("ожидали 1 заказ, получили %d", len(resp))
+	}
+}
+
+// --- Webhook replay / nonce ---
+
+func TestHandler_Webhook_ReplayProtection(t *testing.T) {
+	repo := newHOrderRepo()
+	pricing := usecase.NewStaticPricing(map[string]int64{"standard": 150000}, "standard")
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), pricing, hTxManager{}, discardLogger())
+	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
+	mini := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithRedis(rdb)
+	router := h.Routes()
+
+	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "standard", "", nil)
+	if err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+
+	invID := fmt.Sprintf("%d", order.InvoiceID())
+	outSum := robokassa.FormatAmount(150000)
+
+	// Имитируем уже сохранённый нонс (вебхук был обработан ранее).
+	rdb.Set(context.Background(), "webhook:seen:"+invID, 1, time.Hour)
+
+	form := url.Values{}
+	form.Set("OutSum", outSum)
+	form.Set("InvId", invID)
+	form.Set("SignatureValue", webhookSig(outSum, invID))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("replay должен вернуть 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "OK"+invID {
+		t.Errorf("ожидали 'OK%s', получили %q", invID, rec.Body.String())
+	}
+	// Заказ должен оставаться pending — replay-путь не запускает HandlePaymentSuccess.
+	got, _ := repo.GetByInvoiceID(context.Background(), order.InvoiceID())
+	if got.PaymentStatus() != domain.PaymentStatusPending {
+		t.Error("replay не должен изменять статус оплаты заказа")
+	}
+}
+
+func TestHandler_Webhook_PaymentWindowExpired(t *testing.T) {
+	h, router, repo := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф", "standard")
+
+	// Вручную сдвигаем CreatedAt заказа в прошлое — за пределы 72-часового окна.
+	repo.mu.Lock()
+	snap := repo.orders[order.ID()]
+	snap.CreatedAt = time.Now().Add(-73 * time.Hour)
+	repo.orders[order.ID()] = snap
+	repo.mu.Unlock()
+
+	invID := fmt.Sprintf("%d", order.InvoiceID())
+	outSum := robokassa.FormatAmount(150000)
+	form := url.Values{}
+	form.Set("OutSum", outSum)
+	form.Set("InvId", invID)
+	form.Set("SignatureValue", webhookSig(outSum, invID))
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400 при истёкшем платёжном окне, получили %d (%s)", rec.Code, rec.Body.String())
 	}
 }
 

@@ -14,20 +14,6 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: numaestra
-          POSTGRES_PASSWORD: numaestra
-          POSTGRES_DB: numaestra
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 5
-
       redis:
         image: redis:7-alpine
         ports:
@@ -49,7 +35,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
           cache: true
 
       - name: Verify modules
@@ -63,17 +49,25 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Unit tests
+        run: go test -race -coverprofile=coverage-unit.out -covermode=atomic ./...
 
-      - name: Test (integration)
-        env:
-          POSTGRES_DSN: "postgres://numaestra:numaestra@localhost:5432/numaestra?sslmode=disable"
-          REDIS_ADDR: "localhost:6379"
-        run: go test -race -tags integration -coverprofile=coverage-integration.out -covermode=atomic ./...
+      - name: Integration tests (postgres via testcontainers, needs Docker)
+        run: go test -race -tags=integration -coverprofile=coverage-integration.out -covermode=atomic ./internal/repository/postgres/...
+
+      - name: Merge coverage profiles
+        run: |
+          echo "mode: atomic" > coverage-merged.out
+          grep -h -v "^mode:" coverage-unit.out coverage-integration.out >> coverage-merged.out
 
       - name: Coverage summary
-        run: go tool cover -func=coverage.out | tail -n 1
+        run: go tool cover -func=coverage-merged.out | tail -n 1
+
+      - name: Coverage gate (≥70% total)
+        run: |
+          TOTAL=$(go tool cover -func=coverage-merged.out | tail -n 1 | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${TOTAL}%"
+          awk -v t="$TOTAL" 'BEGIN { if (t+0 < 70) { print "Coverage " t "% is below 70% threshold"; exit 1 } }'
 
   lint:
     name: Lint
@@ -85,7 +79,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version-file: go.mod
           cache: true
 
       - name: golangci-lint

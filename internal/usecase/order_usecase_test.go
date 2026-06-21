@@ -371,6 +371,36 @@ func TestProcessGenerationTask_WrongStatus_Skipped(t *testing.T) {
 	}
 }
 
+func TestProcessGenerationTask_SessionExpired_BansAccount(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.queuedOrder(t)
+
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "", domain.ErrProviderSessionExpired
+	}
+
+	err := f.uc.ProcessGenerationTask(context.Background(), order.ID())
+	if err == nil {
+		t.Fatal("ожидали ошибку при протухшей сессии провайдера")
+	}
+
+	// Аккаунт должен быть заблокирован через BanForInvalidSession.
+	gotAcc, _ := f.accRepo.GetByID(context.Background(), acc.ID())
+	if gotAcc.Status() != domain.AccountStatusBanned {
+		t.Errorf("аккаунт должен быть Banned после протухшей сессии, получили %q", gotAcc.Status())
+	}
+	// Слот должен быть освобождён.
+	if n := f.accRepo.concurrentOf(acc.ID()); n != 0 {
+		t.Errorf("слот аккаунта должен быть освобождён, занято=%d", n)
+	}
+	// Заказ должен вернуться в queued для повторной попытки другим аккаунтом.
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("заказ должен вернуться в queued, получили %q", got.GenerationStatus())
+	}
+}
+
 // --- CheckGenerationStatus ---
 
 func TestCheckGenerationStatus_Completed(t *testing.T) {

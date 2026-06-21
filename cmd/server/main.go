@@ -53,8 +53,9 @@ const (
 	modeWorker runMode = "worker"
 )
 
-// Проверка на этапе компиляции, что S3-клиент реализует порт хранилища треков.
+// Проверки на этапе компиляции: оба S3-клиента реализуют порт хранилища треков.
 var _ domain.TrackStorage = (*s3.Client)(nil)
+var _ domain.TrackStorage = (*s3.ResilientClient)(nil)
 
 func main() {
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -92,8 +93,8 @@ func run(ctx context.Context) error {
 	}
 	defer pgPool.Close()
 
-	if err := pgPool.Ping(ctx); err != nil {
-		return fmt.Errorf("проверка соединения с postgres: %w", err)
+	if err := pingWithRetry(ctx, pgPool, log); err != nil {
+		return fmt.Errorf("postgres недоступен после всех попыток: %w", err)
 	}
 	log.Info("соединение с postgres установлено")
 
@@ -130,7 +131,7 @@ func run(ctx context.Context) error {
 
 	llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
 
-	s3Client := s3.New(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
+	s3Client := s3.NewResilientClient(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
 
 	// Notifier: SMTP если SMTP_HOST задан, иначе заглушка-логгер.
 	var notifier notify.Notifier
@@ -235,6 +236,11 @@ func run(ctx context.Context) error {
 		Password: cfg.Redis.Password,
 	})
 	defer rdb.Close() //nolint:errcheck
+
+	if err := pingRedisWithRetry(ctx, rdb, log); err != nil {
+		return fmt.Errorf("redis недоступен после всех попыток: %w", err)
+	}
+	log.Info("соединение с redis установлено")
 
 	if cfg.AdminToken == "" {
 		log.Warn("ADMIN_TOKEN не задан — административный API будет отклонять все запросы")
@@ -354,6 +360,55 @@ func buildSessionCipher(hexKey, env string, log *slog.Logger) (encryption.Cipher
 		}
 	}
 	return encryption.New(keyBytes)
+}
+
+// pingRedisWithRetry пытается достучаться до Redis с экспоненциальной выдержкой.
+// Попытки: 1s → 2s → 4s → 8s → 16s (итого ≤31s до первого запроса).
+func pingRedisWithRetry(ctx context.Context, rdb *redis.Client, log *slog.Logger) error {
+	const maxAttempts = 5
+	delay := time.Second
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := rdb.Ping(ctx).Err(); err == nil {
+			return nil
+		} else if attempt == maxAttempts {
+			return err
+		} else {
+			log.Warn("redis недоступен, повтор через...",
+				"attempt", attempt, "max", maxAttempts, "delay", delay)
+		}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		delay *= 2
+	}
+	return nil // unreachable
+}
+
+// pingWithRetry пытается достучаться до Postgres с экспоненциальной выдержкой.
+// Попытки: 1s → 2s → 4s → 8s → 16s (итого ≤31s до первого запроса).
+// Нужен при старте в k8s, когда pod поднимается раньше StatefulSet postgres.
+func pingWithRetry(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) error {
+	const maxAttempts = 5
+	delay := time.Second
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := pool.Ping(ctx); err == nil {
+			return nil
+		} else if attempt == maxAttempts {
+			return err
+		} else {
+			log.Warn("postgres недоступен, повтор через...",
+				"attempt", attempt, "max", maxAttempts, "delay", delay)
+		}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		delay *= 2
+	}
+	return nil // unreachable
 }
 
 func requestLoggerMiddleware(log *slog.Logger) func(http.Handler) http.Handler {
