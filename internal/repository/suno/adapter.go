@@ -2,6 +2,7 @@ package sunorepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.Music
 		clips, err = a.client.Generate(ctx, apiReq)
 		return err
 	}); err != nil {
+		if errors.Is(err, suno.ErrSessionExpired) {
+			return "", domain.ErrProviderSessionExpired
+		}
 		return "", fmt.Errorf("ошибка генерации в Suno: %w", err)
 	}
 

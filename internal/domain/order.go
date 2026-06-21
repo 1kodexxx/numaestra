@@ -374,6 +374,10 @@ type OrderRepository interface {
 	ListAll(ctx context.Context, limit, offset int) ([]*Order, error)
 	// CountAll возвращает общее число заказов (для пагинации Admin API).
 	CountAll(ctx context.Context) (int, error)
+
+	// ListStuckProcessing возвращает заказы, застрявшие в статусе processing
+	// дольше порогового времени (recovery после падения пода/воркера).
+	ListStuckProcessing(ctx context.Context, olderThan time.Time) ([]*Order, error)
 }
 
 // TrackStorage - порт для долгосрочного хранения готовых треков.

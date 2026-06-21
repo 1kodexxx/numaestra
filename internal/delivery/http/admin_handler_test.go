@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -162,6 +163,10 @@ func (r *adminOrderRepo) CountAll(_ context.Context) (int, error) {
 		return 0, r.countAllErr
 	}
 	return len(r.orders), nil
+}
+
+func (r *adminOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
 }
 
 var _ domain.OrderRepository = (*adminOrderRepo)(nil)

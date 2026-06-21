@@ -292,6 +292,9 @@ func (r *wOrderRepo) ListAll(_ context.Context, _, _ int) ([]*domain.Order, erro
 	return nil, nil
 }
 func (r *wOrderRepo) CountAll(_ context.Context) (int, error) { return 0, nil }
+func (r *wOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
 
 var _ domain.OrderRepository = (*wOrderRepo)(nil)
 

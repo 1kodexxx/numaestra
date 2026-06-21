@@ -5,12 +5,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ErrSessionExpired возвращается, когда Suno API отвечает 401: сессия протухла
+// или была отозвана. Вызывающий код должен немедленно вывести аккаунт из ротации.
+var ErrSessionExpired = errors.New("suno: сессия устарела или недействительна (401)")
 
 // Клиентские константы статусов Suno API
 const (
@@ -88,6 +93,9 @@ func (c *httpClient) Generate(ctx context.Context, req GenerateRequest) ([]Clip,
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrSessionExpired
+	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))
@@ -124,6 +132,9 @@ func (c *httpClient) GetFeed(ctx context.Context, ids []string) ([]Clip, error) 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, ErrSessionExpired
+	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))

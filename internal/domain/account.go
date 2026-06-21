@@ -241,6 +241,16 @@ func (a *SunoAccount) ResetFailures() {
 	a.touch()
 }
 
+// BanForInvalidSession немедленно переводит аккаунт в Banned из-за протухшей
+// или отозванной сессии. Отличается от RegisterFailure: не требует накопления
+// ошибок, так как 401 — однозначный сигнал недействительности учётных данных.
+// Аккаунт остаётся Banned до тех пор, пока администратор не обновит сессию
+// и не переведёт аккаунт обратно в Active через Admin API.
+func (a *SunoAccount) BanForInvalidSession() {
+	a.status = AccountStatusBanned
+	a.touch()
+}
+
 func (a *SunoAccount) touch() {
 	a.updatedAt = time.Now().UTC()
 }

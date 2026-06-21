@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/mail"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/numaestra/numaestra/internal/domain"
@@ -282,6 +283,23 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 
 	if err != nil {
+		// Протухшая сессия — однозначный сигнал: аккаунт нужно немедленно вывести из
+		// ротации без накопления счётчика ошибок. Заказ уходит обратно в очередь, чтобы
+		// следующий свободный аккаунт подхватил его. Администратор обновляет сессию вручную.
+		if errors.Is(err, domain.ErrProviderSessionExpired) {
+			uc.log.Error("сессия Suno-аккаунта недействительна — аккаунт заблокирован до обновления сессии",
+				"account_id", account.ID(), "email", account.Email())
+			account.BanForInvalidSession()
+			account.ReleaseSlot()
+			metrics.ActiveWorkerSlots.Dec()
+			order.RequeueForRetry()
+			if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+				uc.log.Error("не удалось сохранить состояние после обнаружения протухшей сессии",
+					"order_id", order.ID(), "err", saveErr)
+			}
+			return fmt.Errorf("сессия провайдера недействительна: %w", err)
+		}
+
 		metrics.SunoAPIErrors.Inc()
 		uc.log.Error("ошибка API Suno", "account", account.Email(), "err", err)
 		// Порядок важен: сначала регистрируем ошибку (она может перевести аккаунт в Banned),
@@ -501,4 +519,69 @@ func (uc *OrderUseCase) GetOrderByToken(ctx context.Context, token string) (*dom
 		return nil, domain.ErrOrderUnauthorized
 	}
 	return order, nil
+}
+
+// ==========================================
+// 3. ФОНОВОЕ ОБСЛУЖИВАНИЕ (Вызывается по расписанию)
+// ==========================================
+
+// stuckOrderThreshold — время, после которого заказ в статусе processing считается
+// застрявшим. 15 минут покрывают максимальный таймаут одной задачи (90с generate +
+// 3мин status check) с запасом на медленный S3 и LLM.
+const stuckOrderThreshold = 15 * time.Minute
+
+// RecoverStuckOrders находит заказы, застрявшие в processing после краша пода/воркера,
+// и переводит их обратно в queued, освобождая захваченный слот аккаунта.
+// Операция идемпотентна: повторный вызов для уже восстановленного заказа ничего не сделает.
+func (uc *OrderUseCase) RecoverStuckOrders(ctx context.Context) error {
+	threshold := time.Now().UTC().Add(-stuckOrderThreshold)
+	orders, err := uc.orderRepo.ListStuckProcessing(ctx, threshold)
+	if err != nil {
+		return fmt.Errorf("поиск застрявших заказов: %w", err)
+	}
+	if len(orders) == 0 {
+		return nil
+	}
+
+	uc.log.Warn("обнаружены застрявшие заказы, инициируем восстановление", "count", len(orders))
+	for _, order := range orders {
+		if err := uc.recoverStuckOrder(ctx, order); err != nil {
+			uc.log.Error("не удалось восстановить застрявший заказ",
+				"order_id", order.ID(), "err", err)
+			// Продолжаем с остальными — частичное восстановление лучше полного простоя.
+		}
+	}
+	return nil
+}
+
+func (uc *OrderUseCase) recoverStuckOrder(ctx context.Context, order *domain.Order) error {
+	// Сохраняем ID до вызова RequeueForRetry, который очищает assignedAccountID.
+	accountID := order.AssignedAccountID()
+
+	if err := order.RequeueForRetry(); err != nil {
+		return fmt.Errorf("перевод застрявшего заказа в queued: %w", err)
+	}
+	metrics.ActiveWorkerSlots.Dec()
+
+	if accountID != nil {
+		account, err := uc.accRepo.GetByID(ctx, *accountID)
+		if err != nil {
+			uc.log.Error("аккаунт не найден при recovery — сохраняем только заказ",
+				"order_id", order.ID(), "account_id", *accountID, "err", err)
+			return uc.orderRepo.Update(ctx, order)
+		}
+		account.ReleaseSlot()
+		if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
+			return fmt.Errorf("атомарное сохранение при recovery: %w", err)
+		}
+		uc.log.Info("застрявший заказ восстановлен",
+			"order_id", order.ID(), "account_id", *accountID)
+		return nil
+	}
+
+	if err := uc.orderRepo.Update(ctx, order); err != nil {
+		return fmt.Errorf("сохранение восстановленного заказа: %w", err)
+	}
+	uc.log.Info("застрявший заказ восстановлен (аккаунт не был захвачен)", "order_id", order.ID())
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -406,6 +407,62 @@ func (r *OrderRepository) CountAll(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("count all orders: %w", err)
 	}
 	return count, nil
+}
+
+// ListStuckProcessing возвращает заказы, застрявшие в статусе processing дольше
+// порогового времени. Используется фоновым recovery-процессом для детектирования
+// заказов, брошенных после краша пода/воркера.
+func (r *OrderRepository) ListStuckProcessing(ctx context.Context, olderThan time.Time) ([]*domain.Order, error) {
+	query := `
+		SELECT id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt,
+		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
+		       failure_reason, access_token, created_at, updated_at, paid_at, completed_at
+		FROM orders
+		WHERE generation_status = 'processing' AND updated_at < $1
+		ORDER BY updated_at ASC
+	`
+	rows, err := r.conn(ctx).Query(ctx, query, olderThan)
+	if err != nil {
+		return nil, fmt.Errorf("list stuck processing orders: %w", err)
+	}
+	defer rows.Close()
+
+	var snaps []domain.OrderSnapshot
+	for rows.Next() {
+		var snap domain.OrderSnapshot
+		if err := rows.Scan(
+			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
+			&snap.CategoryID, &snap.SunoPrompt,
+			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
+			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.CreatedAt, &snap.UpdatedAt,
+			&snap.PaidAt, &snap.CompletedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan stuck order row: %w", err)
+		}
+		snaps = append(snaps, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stuck orders: %w", err)
+	}
+	if len(snaps) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]uuid.UUID, len(snaps))
+	for i, s := range snaps {
+		ids[i] = s.ID
+	}
+	tracksMap, err := r.getTracksForOrders(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load tracks for stuck orders: %w", err)
+	}
+
+	orders := make([]*domain.Order, 0, len(snaps))
+	for _, snap := range snaps {
+		snap.Tracks = tracksMap[snap.ID]
+		orders = append(orders, domain.RestoreOrder(snap))
+	}
+	return orders, nil
 }
 
 func (r *OrderRepository) getTracksForOrder(ctx context.Context, orderID uuid.UUID) ([]domain.Track, error) {

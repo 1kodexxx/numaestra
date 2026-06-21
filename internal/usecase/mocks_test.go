@@ -170,6 +170,10 @@ func (r *inMemOrderRepo) ListAll(_ context.Context, limit, offset int) ([]*domai
 	return out, nil
 }
 
+func (r *inMemOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
+
 func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

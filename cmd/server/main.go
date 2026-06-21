@@ -196,6 +196,23 @@ func run(ctx context.Context) error {
 			}
 		}()
 		defer asynqServer.Stop()
+
+		// Фоновое восстановление застрявших заказов: каждые 5 минут ищем заказы,
+		// брошенные в статусе processing после краша пода, и возвращаем их в очередь.
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if err := orderUC.RecoverStuckOrders(ctx); err != nil {
+						log.Error("ошибка восстановления застрявших заказов", "err", err)
+					}
+				}
+			}
+		}()
 	}
 
 	// В режиме "worker" HTTP-сервер не нужен — ждём сигнала и выходим.

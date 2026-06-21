@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -613,6 +614,9 @@ func (r *hOrderRepo) ListAll(_ context.Context, _, _ int) ([]*domain.Order, erro
 }
 
 func (r *hOrderRepo) CountAll(_ context.Context) (int, error) { return 0, nil }
+func (r *hOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
 
 var _ domain.OrderRepository = (*hOrderRepo)(nil)
 
