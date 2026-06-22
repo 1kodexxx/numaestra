@@ -48,15 +48,29 @@
   padding: 0;
 }
 
-html, body, #root {
-  height: 100%;
-  background: #080808;
+html { height: 100%; background: #080808; scroll-behavior: smooth; }
+body, #root { height: 100%; }
+
+body {
   color: #ffffff;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01';
+  font-optical-sizing: auto;
+  /* Атмосферный фон: базовый чёрный + мягкие cyan-свечения сверху (фиксированы
+     при скролле). Просвечивает на публичных страницах с прозрачным контейнером. */
+  background-color: #080808;
+  background-image:
+    radial-gradient(62% 48% at 50% -8%, rgba(0, 229, 192, 0.08), transparent 72%),
+    radial-gradient(46% 40% at 100% 2%, rgba(0, 191, 165, 0.05), transparent 70%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
+
+/* #root прозрачен, чтобы атмосферный фон body был виден сквозь страницы. */
+#root { background: transparent; }
 
 button { font-family: inherit; }
 
@@ -164,6 +178,52 @@ button { font-family: inherit; }
   to   { opacity: 1; transform: scale(1); }
 }
 @utility scale-in { animation: scale-in 0.22s var(--ease-emphasized) forwards; }
+
+/* Вход снизу с плавным появлением. Для стаггера задайте inline animation-delay. */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@utility fade-up { animation: fade-up 0.5s var(--ease-decelerate) both; }
+
+/* Плавный переход между страницами. Только opacity — без transform, чтобы не
+   ломать позиционирование fixed-оверлеев (конструктор, модалки). */
+@keyframes route-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.route-fade { animation: route-fade 0.3s var(--ease-decelerate); }
+
+/* Фирменная марка: столбики статичны, «играют» эквалайзером при наведении на лого. */
+@keyframes logo-eq {
+  0%, 100% { transform: scaleY(0.5); }
+  50%      { transform: scaleY(1); }
+}
+.brand-bar {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: logo-eq 1.2s ease-in-out infinite;
+}
+/* На наведении — чуть живее. */
+.brand-link:hover .brand-bar {
+  animation-duration: 0.7s;
+}
+
+/* Медленное парение декоративных элементов (орбы, иконки). */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-18px); }
+}
+@utility float-y { animation: float-y 7s ease-in-out infinite; }
+
+/* Градиентный фирменный текст. */
+@utility gradient-text {
+  background: linear-gradient(120deg, #00e5c0, #00bfa5 55%, #2de2b6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
 
 /* Range input */
 input[type="range"] {

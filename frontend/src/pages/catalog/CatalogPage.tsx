@@ -5,6 +5,7 @@ import { useCreateOrder } from '@features/create-order'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
 import { Button, TextField, useRipple } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
+import { Footer } from '@widgets/footer'
 import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
 import type { Category } from '@entities/category'
 
@@ -59,60 +60,87 @@ function getIcon(cat: Category, idx: number): string {
   return FALLBACK_ICONS[idx % FALLBACK_ICONS.length]
 }
 
+/* ─── animated equalizer (decorative) ─── */
+function Equalizer() {
+  const bars = [14, 22, 32, 24, 38, 28, 18, 30, 20, 12]
+  return (
+    <div aria-hidden style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '4px', height: '40px', marginBottom: '20px' }}>
+      {bars.map((h, i) => (
+        <span
+          key={i}
+          className="wave-animate"
+          style={{
+            width: '4px', height: `${h}px`, borderRadius: '2px',
+            background: 'linear-gradient(180deg, #00e5c0, rgba(0,191,165,0.35))',
+            transformOrigin: 'bottom',
+            animationDelay: `${i * 0.09}s`,
+            animationDuration: `${1 + (i % 3) * 0.25}s`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 /* ─── hero ─── */
 function Hero({ compact }: { compact: boolean }) {
   return (
-    <div style={{ textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
-      <div style={{
-        display: 'inline-flex', alignItems: 'center', gap: '7px',
-        background: 'rgba(0,229,192,0.08)', border: '1px solid rgba(0,229,192,0.18)',
-        borderRadius: '20px', padding: '5px 13px 5px 11px', marginBottom: compact ? '14px' : '18px',
-      }}>
-        <span style={{ fontSize: '12px' }}>🎙️</span>
-        <span style={{ fontSize: '11px', fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-          AI-студия персональных песен
-        </span>
+    <div style={{ position: 'relative', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
+      {/* floating ambient orbs */}
+      <div aria-hidden style={{ position: 'absolute', inset: '-40px 0 0', pointerEvents: 'none', overflow: 'visible' }}>
+        <div className="float-y" style={{ position: 'absolute', top: '-10px', left: '8%', width: 160, height: 160, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,229,192,0.18), transparent 70%)', filter: 'blur(20px)' }} />
+        <div className="float-y" style={{ position: 'absolute', top: '20px', right: '6%', width: 130, height: 130, borderRadius: '50%', background: 'radial-gradient(circle, rgba(45,226,182,0.14), transparent 70%)', filter: 'blur(18px)', animationDelay: '2.5s' }} />
       </div>
 
-      <h1 style={{
-        fontSize: compact ? '28px' : '40px',
-        fontWeight: 800, letterSpacing: '-0.035em', lineHeight: 1.1,
-        marginBottom: '14px',
-      }}>
-        Песня, написанная{' '}
-        <span style={{
-          background: 'linear-gradient(120deg, #00e5c0, #00bfa5)',
-          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+      <div style={{ position: 'relative' }}>
+        {!compact && <Equalizer />}
+
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: '7px',
+          background: 'rgba(0,229,192,0.08)', border: '1px solid rgba(0,229,192,0.18)',
+          borderRadius: '20px', padding: '5px 13px 5px 11px', marginBottom: compact ? '14px' : '18px',
         }}>
-          лично для вас
-        </span>
-      </h1>
+          <span style={{ fontSize: '12px' }}>🎙️</span>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            AI-студия персональных песен
+          </span>
+        </div>
 
-      <p style={{
-        fontSize: compact ? '14px' : '16px', color: TEXT2, lineHeight: 1.6,
-        maxWidth: '460px', margin: '0 auto',
-      }}>
-        Опишите повод — и получите 4 готовые версии трека уже через 24 часа
-      </p>
+        <h1 style={{
+          fontSize: compact ? '28px' : '42px',
+          fontWeight: 800, letterSpacing: '-0.038em', lineHeight: 1.08,
+          marginBottom: '14px',
+        }}>
+          Песня, написанная{' '}
+          <span className="gradient-text">лично для вас</span>
+        </h1>
 
-      {/* trust pills */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px',
-        marginTop: compact ? '16px' : '22px',
-      }}>
-        {['4 версии трека', 'Готово за 24 часа', '2 000 ₽ · без подписок'].map(t => (
-          <div key={t} style={{
-            display: 'inline-flex', alignItems: 'center', gap: '6px',
-            background: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
-            borderRadius: '20px', padding: '6px 13px',
-            fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.6)',
-          }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 6 9 17l-5-5"/>
-            </svg>
-            {t}
-          </div>
-        ))}
+        <p style={{
+          fontSize: compact ? '14px' : '16px', color: TEXT2, lineHeight: 1.6,
+          maxWidth: '460px', margin: '0 auto',
+        }}>
+          Опишите повод — и получите 4 готовые версии трека уже через 24 часа
+        </p>
+
+        {/* trust pills */}
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px',
+          marginTop: compact ? '16px' : '22px',
+        }}>
+          {['4 версии трека', 'Готово за 24 часа', '2 000 ₽ · без подписок'].map(t => (
+            <div key={t} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              background: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
+              borderRadius: '20px', padding: '6px 13px',
+              fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.6)',
+            }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6 9 17l-5-5"/>
+              </svg>
+              {t}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -364,6 +392,7 @@ function CategoryCard({ cat, index, onClick }: { cat: Category; index: number; o
       onMouseLeave={() => setH(false)}
       aria-label={`Категория: ${cat.title}`}
       style={{
+        width: '100%',
         aspectRatio: '1 / 1',
         display: 'flex',
         flexDirection: 'column',
@@ -524,12 +553,13 @@ export function CatalogPage() {
           {loading
             ? Array.from({ length: 8 }, (_, i) => <SkeletonCard key={i} />)
             : categories.map((cat, i) => (
-                <CategoryCard
-                  key={cat.id}
-                  cat={cat}
-                  index={i}
-                  onClick={() => navigate(`/category/${cat.id}`)}
-                />
+                <div key={cat.id} className="fade-up" style={{ animationDelay: `${Math.min(i * 0.035, 0.4)}s` }}>
+                  <CategoryCard
+                    cat={cat}
+                    index={i}
+                    onClick={() => navigate(`/category/${cat.id}`)}
+                  />
+                </div>
               ))}
         </div>
       </div>
@@ -562,6 +592,8 @@ export function CatalogPage() {
           </div>
         </div>
       )}
+
+      {!loading && <Footer />}
     </>
   )
 
@@ -630,9 +662,10 @@ export function CatalogPage() {
       }}>
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
           <PanelHeader icon="🎧" title="Примеры" sub="Послушайте, как звучит" />
-          {EXAMPLE_SONGS.map(ex => (
+          {EXAMPLE_SONGS.map((ex, i) => (
             <SideItem
               key={ex.id}
+              index={i}
               title={ex.title}
               sub={ex.category}
               onClick={() => navigate(`/examples/${ex.id}`)}
@@ -662,6 +695,7 @@ export function CatalogPage() {
           {categories.slice(0, 8).map((cat, i) => (
             <SideItem
               key={cat.id}
+              index={i}
               title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (

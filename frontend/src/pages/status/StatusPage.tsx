@@ -110,14 +110,22 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
         borderRadius: '24px', padding: '36px 36px 28px', textAlign: 'center', marginBottom: '16px',
         position: 'relative', overflow: 'hidden',
       }}>
-        {gs === 'completed' && (
+        {gs !== 'failed' && (
           <div style={{
             position: 'absolute', inset: 0, pointerEvents: 'none',
             background: 'radial-gradient(ellipse 60% 50% at 50% 0%, rgba(0,229,192,0.08) 0%, transparent 70%)',
           }} />
         )}
 
-        <div style={{ fontSize: '52px', marginBottom: '14px', lineHeight: 1 }}>{icon}</div>
+        <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px' }}>
+          {!isTerminal && (
+            <span aria-hidden className="progress-pulse" style={{
+              position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              width: 60, height: 60, borderRadius: '50%', background: 'rgba(0,229,192,0.1)',
+            }} />
+          )}
+          <div style={{ fontSize: '52px', lineHeight: 1, position: 'relative' }}>{icon}</div>
+        </div>
         <div style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '8px' }}>{title}</div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '32px' }}>{sub}</div>
 

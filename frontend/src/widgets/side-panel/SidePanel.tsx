@@ -94,12 +94,13 @@ export function RankCorner({ n }: { n: number }) {
 
 /* ─── side panel item ─── */
 export function SideItem({
-  title, sub, onClick, leading,
+  title, sub, onClick, leading, index = 0,
 }: {
   title: string
   sub?: string
   onClick: () => void
   leading?: (hovered: boolean) => React.ReactNode
+  index?: number
 }) {
   const [h, setH] = useState(false)
   return (
@@ -107,16 +108,23 @@ export function SideItem({
       onClick={onClick}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
+      className="fade-up"
       style={{
         width: '100%', display: 'flex', alignItems: 'center', gap: '12px',
         textAlign: 'left',
-        background: h ? 'rgba(255,255,255,0.05)' : 'transparent',
-        border: `1px solid ${h ? 'rgba(255,255,255,0.09)' : 'transparent'}`,
+        // В покое — отдельная «карточка» с лёгким фоном и границей, чтобы колонка
+        // не сливалась в монолит; на hover — акцентный градиент и подъём.
+        background: h
+          ? 'linear-gradient(135deg, rgba(0,229,192,0.1), rgba(0,229,192,0.03))'
+          : 'rgba(255,255,255,0.025)',
+        border: `1px solid ${h ? 'rgba(0,229,192,0.3)' : 'rgba(255,255,255,0.06)'}`,
         borderRadius: '14px',
-        padding: '9px 10px', marginBottom: '4px',
+        padding: '9px 11px', marginBottom: '8px',
         cursor: 'pointer',
-        transform: h ? 'translateX(3px)' : 'translateX(0)',
-        transition: 'all 0.18s cubic-bezier(0.34,1.4,0.64,1)',
+        boxShadow: h ? '0 8px 22px rgba(0,0,0,0.28)' : '0 1px 2px rgba(0,0,0,0.25)',
+        transform: h ? 'translate(3px, -1px)' : 'translate(0, 0)',
+        transition: 'background 0.18s, border-color 0.18s, box-shadow 0.18s, transform 0.18s cubic-bezier(0.34,1.4,0.64,1)',
+        animationDelay: `${Math.min(index * 0.05, 0.4)}s`,
       }}
     >
       {leading?.(h)}

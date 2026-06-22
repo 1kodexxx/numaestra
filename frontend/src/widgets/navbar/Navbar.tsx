@@ -1,23 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-
-function WaveLogo() {
-  const bars = [10, 18, 24, 16, 10]
-  return (
-    <svg width="26" height="24" viewBox="0 0 26 24" fill="none" aria-hidden>
-      {bars.map((h, i) => (
-        <rect
-          key={i}
-          x={i * 6}
-          y={(24 - h) / 2}
-          width="4"
-          height={h}
-          rx="2"
-          fill="#00e5c0"
-        />
-      ))}
-    </svg>
-  )
-}
+import { BrandMark } from '@shared/ui'
 
 export function Navbar() {
   const { pathname } = useLocation()
@@ -38,8 +20,8 @@ export function Navbar() {
         borderBottom: '1px solid rgba(255,255,255,0.05)',
       }}
     >
-      <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <WaveLogo />
+      <Link to="/" className="brand-link" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <BrandMark size={26} />
         <span style={{ fontSize: '17px', fontWeight: 700, color: '#fff', letterSpacing: '-0.02em' }}>
           Numaestra
         </span>

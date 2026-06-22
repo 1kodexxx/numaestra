@@ -290,9 +290,9 @@ export function CategoryPage() {
       <aside style={{ width: PANEL_W, flexShrink: 0, borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
           <PanelHeader icon="🎧" title="Примеры" sub="Послушайте, как звучит" />
-          {EXAMPLE_SONGS.map((ex) => (
+          {EXAMPLE_SONGS.map((ex, i) => (
             <SideItem
-              key={ex.id} title={ex.title} sub={ex.category}
+              key={ex.id} index={i} title={ex.title} sub={ex.category}
               onClick={() => navigate(`/examples/${ex.id}`)}
               leading={(hovered) => (
                 <Thumb src={stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
@@ -320,7 +320,7 @@ export function CategoryPage() {
           <PanelHeader icon="🔥" title="Популярное" sub="Другие категории" />
           {topCats.map((cat, i) => (
             <SideItem
-              key={cat.id} title={cat.title}
+              key={cat.id} index={i} title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (
                 <Thumb src={stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
