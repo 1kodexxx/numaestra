@@ -598,25 +598,35 @@ func (uc *OrderUseCase) recoverStuckOrder(ctx context.Context, order *domain.Ord
 	}
 	metrics.ActiveWorkerSlots.Dec()
 
+	// 1. Сохраняем заказ (queued) и освобождаем слот захваченного аккаунта.
 	if accountID != nil {
 		account, err := uc.accRepo.GetByID(ctx, *accountID)
 		if err != nil {
 			uc.log.Error("аккаунт не найден при recovery — сохраняем только заказ",
 				"order_id", order.ID(), "account_id", *accountID, "err", err)
-			return uc.orderRepo.Update(ctx, order)
+			if err := uc.orderRepo.Update(ctx, order); err != nil {
+				return fmt.Errorf("сохранение восстановленного заказа: %w", err)
+			}
+		} else {
+			account.ReleaseSlot()
+			if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
+				return fmt.Errorf("атомарное сохранение при recovery: %w", err)
+			}
 		}
-		account.ReleaseSlot()
-		if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
-			return fmt.Errorf("атомарное сохранение при recovery: %w", err)
-		}
-		uc.log.Info("застрявший заказ восстановлен",
-			"order_id", order.ID(), "account_id", *accountID)
-		return nil
-	}
-
-	if err := uc.orderRepo.Update(ctx, order); err != nil {
+	} else if err := uc.orderRepo.Update(ctx, order); err != nil {
 		return fmt.Errorf("сохранение восстановленного заказа: %w", err)
 	}
-	uc.log.Info("застрявший заказ восстановлен (аккаунт не был захвачен)", "order_id", order.ID())
+
+	// 2. КЛЮЧЕВОЕ: заново ставим задачу генерации. RecoverStuckOrders только меняет
+	// статус в БД на queued; исходная Asynq-задача к этому моменту уже завершилась
+	// (повторный прогон пропускался по статусу) или потеряна при краше. Без новой
+	// задачи заказ навсегда остался бы в queued. Постановка идемпотентна (TaskID),
+	// а ListStuckProcessing после смены статуса этот заказ уже не вернёт — поэтому
+	// если enqueue упадёт, возвращаем ошибку, чтобы это попало в логи/метрики.
+	if err := uc.queue.EnqueueGenerationTask(ctx, order.ID()); err != nil {
+		return fmt.Errorf("повторная постановка задачи генерации при recovery: %w", err)
+	}
+
+	uc.log.Info("застрявший заказ восстановлен и повторно поставлен в очередь", "order_id", order.ID())
 	return nil
 }

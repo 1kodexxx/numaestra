@@ -1,27 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { adminOrderApi } from '@entities/admin-order'
 import type { AdminOrder } from '@entities/admin-order'
-import { Spinner } from '@shared/ui'
+import { Spinner, Button } from '@shared/ui'
+import { A, PageHeader, Panel, ErrorBanner, EmptyState, paymentBadge, generationBadge } from '@widgets/admin-layout'
 
 const PER_PAGE = 20
 
-const PAYMENT_LABEL: Record<AdminOrder['payment_status'], string> = {
-  pending: 'Ожидает оплаты',
-  paid: 'Оплачен',
-  failed: 'Оплата не прошла',
-  refunded: 'Возврат',
-}
-
-const GENERATION_LABEL: Record<AdminOrder['generation_status'], string> = {
-  new: 'Новый',
-  queued: 'В очереди',
-  processing: 'Генерируется',
-  completed: 'Готов',
-  failed: 'Ошибка',
-}
-
 export function AdminOrdersPage() {
+  const navigate = useNavigate()
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -40,60 +27,68 @@ export function AdminOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Заказы</h1>
+    <div style={{ maxWidth: 980 }}>
+      <PageHeader title="Заказы" subtitle={total > 0 ? `Всего заказов: ${total}` : 'Список заказов клиентов'} />
 
-      {loading && <div className="py-10"><Spinner /></div>}
-      {error && <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm mb-4">{error}</div>}
+      {loading && <div style={{ padding: '48px', textAlign: 'center' }}><Spinner /></div>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {!loading && (
+      {!loading && orders.length === 0 && <Panel><EmptyState icon="🧾" text="Заказов пока нет." /></Panel>}
+
+      {!loading && orders.length > 0 && (
         <>
-          <div className="flex flex-col gap-2">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {orders.map((o) => (
-              <Link
-                key={o.id}
-                to={`/admin/orders/${o.id}`}
-                className="bg-bg2 border border-border rounded-lg px-5 py-4 flex items-center justify-between gap-4 no-underline text-txt hover:border-accent2 transition-colors"
-              >
-                <div>
-                  <div className="font-semibold">#{o.invoice_id} — {o.email || o.phone}</div>
-                  <div className="text-sm text-muted mt-0.5 line-clamp-1">{o.brief}</div>
-                </div>
-                <div className="flex items-center gap-3 shrink-0 text-sm">
-                  <span className="text-muted">{(o.amount_kopecks / 100).toFixed(0)} ₽</span>
-                  <span className="bg-accent/15 border border-accent/30 text-accent px-2.5 py-1 rounded-full text-xs">
-                    {PAYMENT_LABEL[o.payment_status]}
-                  </span>
-                  <span className="bg-bg3 border border-border text-muted px-2.5 py-1 rounded-full text-xs">
-                    {GENERATION_LABEL[o.generation_status]}
-                  </span>
-                </div>
-              </Link>
+              <OrderRow key={o.id} order={o} onClick={() => navigate(`/admin/orders/${o.id}`)} />
             ))}
-            {orders.length === 0 && <div className="text-muted text-sm">Заказов пока нет.</div>}
           </div>
 
           {totalPages > 1 && (
-            <div className="flex items-center gap-3 mt-6">
-              <button
-                className="px-3 py-1.5 rounded-lg text-sm bg-transparent border border-border text-muted cursor-pointer hover:text-txt disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                ← Назад
-              </button>
-              <span className="text-sm text-muted">{page} / {totalPages}</span>
-              <button
-                className="px-3 py-1.5 rounded-lg text-sm bg-transparent border border-border text-muted cursor-pointer hover:text-txt disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Далее →
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px', marginTop: '24px' }}>
+              <Button variant="outlined" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Назад</Button>
+              <span style={{ fontSize: '13px', color: A.txt2 }}>{page} / {totalPages}</span>
+              <Button variant="outlined" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Далее →</Button>
             </div>
           )}
         </>
       )}
+    </div>
+  )
+}
+
+function OrderRow({ order, onClick }: { order: AdminOrder; onClick: () => void }) {
+  const [h, setH] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        background: A.surface,
+        border: `1px solid ${h ? 'rgba(0,229,192,0.35)' : A.border}`,
+        borderRadius: '16px', boxShadow: 'var(--elevation-1)',
+        padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px',
+        cursor: 'pointer',
+        transform: h ? 'translateY(-1px)' : 'translateY(0)',
+        transition: 'all 0.15s',
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+          <span style={{ fontSize: '15px', fontWeight: 700, color: A.txt }}>#{order.invoice_id}</span>
+          <span style={{ fontSize: '13px', color: A.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {order.email || order.phone || '—'}
+          </span>
+        </div>
+        <div style={{ fontSize: '13px', color: A.txt3, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '420px' }}>
+          {order.brief}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: A.txt }}>{(order.amount_kopecks / 100).toFixed(0)} ₽</span>
+        {paymentBadge(order.payment_status)}
+        {generationBadge(order.generation_status)}
+      </div>
     </div>
   )
 }

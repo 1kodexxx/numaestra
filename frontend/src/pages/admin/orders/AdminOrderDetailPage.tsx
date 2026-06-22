@@ -2,14 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminOrderApi } from '@entities/admin-order'
 import type { AdminOrder } from '@entities/admin-order'
-import { Spinner } from '@shared/ui'
+import { Spinner, Button, TextField } from '@shared/ui'
 import { ApiError } from '@shared/api'
-
-const inputCls = [
-  'w-full bg-bg3 border border-border rounded-lg px-3 py-2',
-  'text-txt text-sm outline-none transition-colors',
-  'focus:border-accent2 placeholder:text-muted resize-y',
-].join(' ')
+import { A, Panel, ErrorBanner, SuccessBanner, paymentBadge, generationBadge } from '@widgets/admin-layout'
 
 export function AdminOrderDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -38,14 +33,10 @@ export function AdminOrderDetailPage() {
 
   async function handleSendFeedback(e: React.FormEvent) {
     e.preventDefault()
-    setSendError(null)
-    setSendOk(false)
-    setSending(true)
+    setSendError(null); setSendOk(false); setSending(true)
     try {
       await adminOrderApi.sendFeedback(id, message)
-      setMessage('')
-      setSendOk(true)
-      load()
+      setMessage(''); setSendOk(true); load()
     } catch (err) {
       setSendError(err instanceof ApiError ? err.message : 'Не удалось отправить сообщение')
     } finally {
@@ -55,8 +46,7 @@ export function AdminOrderDetailPage() {
 
   async function handleRefund() {
     if (!confirm('Инициировать возврат платежа клиенту через Robokassa?')) return
-    setRefundError(null)
-    setRefunding(true)
+    setRefundError(null); setRefunding(true)
     try {
       await adminOrderApi.refund(id)
       load()
@@ -67,84 +57,114 @@ export function AdminOrderDetailPage() {
     }
   }
 
-  if (loading) return <div className="py-10"><Spinner /></div>
-  if (error) return <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm">{error}</div>
+  if (loading) return <div style={{ padding: '48px', textAlign: 'center' }}><Spinner /></div>
+  if (error) return <ErrorBanner>{error}</ErrorBanner>
   if (!order) return null
 
   return (
-    <div className="max-w-3xl">
-      <Link to="/admin/orders" className="text-muted no-underline text-sm hover:text-txt transition-colors">← К списку заказов</Link>
-      <h1 className="text-2xl font-bold mt-2 mb-6">Заказ #{order.invoice_id}</h1>
+    <div style={{ maxWidth: 760 }}>
+      <Link to="/admin/orders" style={{ color: A.txt2, textDecoration: 'none', fontSize: '13px' }}>← К списку заказов</Link>
 
-      <div className="bg-bg2 border border-border rounded-xl p-6 mb-6 grid grid-cols-2 gap-4 text-sm">
-        <div><div className="text-muted">Email</div><div>{order.email || '—'}</div></div>
-        <div><div className="text-muted">Телефон</div><div>{order.phone || '—'}</div></div>
-        <div><div className="text-muted">Сумма</div><div>{(order.amount_kopecks / 100).toFixed(0)} ₽</div></div>
-        <div><div className="text-muted">Статус оплаты</div><div>{order.payment_status}</div></div>
-        <div><div className="text-muted">Статус генерации</div><div>{order.generation_status}</div></div>
-        <div><div className="text-muted">Создан</div><div>{new Date(order.created_at).toLocaleString('ru-RU')}</div></div>
-        <div className="col-span-2"><div className="text-muted">Бриф</div><div>{order.brief}</div></div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0 28px', flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.03em' }}>Заказ #{order.invoice_id}</h1>
+        {paymentBadge(order.payment_status)}
+        {generationBadge(order.generation_status)}
       </div>
 
+      {/* Info grid */}
+      <Panel style={{ padding: '22px 24px', marginBottom: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px' }}>
+          <Info label="Email" value={order.email || '—'} />
+          <Info label="Телефон" value={order.phone || '—'} />
+          <Info label="Сумма" value={`${(order.amount_kopecks / 100).toFixed(0)} ₽`} />
+          <Info label="Создан" value={new Date(order.created_at).toLocaleString('ru-RU')} />
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Info label="Бриф" value={order.brief} />
+          </div>
+        </div>
+      </Panel>
+
+      {/* Tracks */}
       {order.tracks.length > 0 && (
-        <div className="bg-bg2 border border-border rounded-xl p-6 mb-6">
-          <div className="text-sm font-semibold mb-3">Треки</div>
-          <div className="flex flex-col gap-2">
+        <Panel style={{ padding: '22px 24px', marginBottom: '16px' }}>
+          <SectionTitle>Готовые треки</SectionTitle>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
             {order.tracks.map((t) => (
-              <a key={t.index} href={t.audio_url} target="_blank" rel="noreferrer" className="text-accent text-sm no-underline hover:underline">
+              <a
+                key={t.index} href={t.audio_url} target="_blank" rel="noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.3)',
+                  borderRadius: '12px', padding: '9px 14px',
+                  color: A.accent, fontSize: '13px', fontWeight: 600, textDecoration: 'none',
+                }}
+              >
                 🎧 Вариант {t.index}
               </a>
             ))}
           </div>
-        </div>
+        </Panel>
       )}
 
+      {/* Refund */}
       {order.payment_status === 'paid' && (
-        <div className="mb-6">
-          <button
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-transparent border border-error text-error cursor-pointer hover:bg-error/10 disabled:opacity-50 transition-colors"
-            disabled={refunding}
-            onClick={handleRefund}
-          >
-            {refunding ? 'Возвращаем...' : 'Вернуть оплату'}
-          </button>
-          {refundError && <div className="bg-error/10 border border-error/30 rounded-lg px-3 py-2 text-error text-sm mt-2">{refundError}</div>}
-        </div>
+        <Panel style={{ padding: '20px 24px', marginBottom: '16px' }}>
+          <SectionTitle>Возврат оплаты</SectionTitle>
+          <div style={{ fontSize: '13px', color: A.txt2, marginBottom: '14px' }}>
+            Вернуть платёж клиенту через Robokassa. Действие необратимо.
+          </div>
+          <Button variant="outlined" onClick={handleRefund} loading={refunding} style={{ color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}>
+            Вернуть оплату
+          </Button>
+          {refundError && <div style={{ marginTop: '12px' }}><ErrorBanner>{refundError}</ErrorBanner></div>}
+        </Panel>
       )}
 
-      <div className="bg-bg2 border border-border rounded-xl p-6">
-        <div className="text-sm font-semibold mb-3">Обратная связь клиенту</div>
+      {/* Feedback */}
+      <Panel style={{ padding: '22px 24px' }}>
+        <SectionTitle>Обратная связь клиенту</SectionTitle>
 
         {order.admin_feedback && (
-          <div className="bg-bg3 border border-border rounded-lg px-4 py-3 text-sm mb-4">
-            <div className="text-muted text-xs mb-1">
+          <div style={{
+            background: A.surface2, border: `1px solid ${A.border}`, borderRadius: '12px',
+            padding: '14px 16px', fontSize: '13px', color: A.txt, marginBottom: '16px', lineHeight: 1.5,
+          }}>
+            <div style={{ fontSize: '11px', color: A.txt3, marginBottom: '6px' }}>
               Последнее сообщение{order.admin_feedback_at ? ` · ${new Date(order.admin_feedback_at).toLocaleString('ru-RU')}` : ''}
             </div>
             {order.admin_feedback}
           </div>
         )}
 
-        <form onSubmit={handleSendFeedback} className="flex flex-col gap-3">
-          <textarea
-            className={inputCls}
-            rows={3}
+        <form onSubmit={handleSendFeedback} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <TextField
+            label="Сообщение клиенту"
+            value={message} onChange={setMessage}
+            multiline rows={3}
             placeholder="Например: уточните, пожалуйста, дату праздника"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            required
+            surfaceColor={A.surface}
           />
-          {sendError && <div className="bg-error/10 border border-error/30 rounded-lg px-3 py-2 text-error text-sm">{sendError}</div>}
-          {sendOk && <div className="bg-success/10 border border-success/30 rounded-lg px-3 py-2 text-success text-sm">Письмо отправлено клиенту.</div>}
-          <button
-            type="submit"
-            disabled={sending || !order.email}
-            className="self-start px-4 py-2 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] disabled:opacity-60 transition-all"
-          >
-            {sending ? 'Отправляем...' : 'Отправить'}
-          </button>
-          {!order.email && <div className="text-xs text-muted">У заказа не указан email — отправка недоступна.</div>}
+          {sendError && <ErrorBanner>{sendError}</ErrorBanner>}
+          {sendOk && <SuccessBanner>Письмо отправлено клиенту.</SuccessBanner>}
+          <Button type="submit" loading={sending} disabled={!order.email || !message.trim()} style={{ alignSelf: 'flex-start' }}>
+            Отправить
+          </Button>
+          {!order.email && <div style={{ fontSize: '12px', color: A.txt3 }}>У заказа не указан email — отправка недоступна.</div>}
         </form>
-      </div>
+      </Panel>
     </div>
   )
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: '11px', color: A.txt3, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{label}</div>
+      <div style={{ fontSize: '14px', color: A.txt, lineHeight: 1.5, wordBreak: 'break-word' }}>{value}</div>
+    </div>
+  )
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: '11px', fontWeight: 700, color: A.txt3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '14px' }}>{children}</div>
 }

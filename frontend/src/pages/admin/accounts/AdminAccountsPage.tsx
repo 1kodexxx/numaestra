@@ -1,23 +1,17 @@
 import { useEffect, useState } from 'react'
 import { adminAccountApi } from '@entities/admin-account'
 import type { AccountStatus, AdminAccount } from '@entities/admin-account'
-import { Spinner } from '@shared/ui'
+import { Spinner, Button, TextField } from '@shared/ui'
 import { ApiError } from '@shared/api'
+import { A, PageHeader, Panel, ErrorBanner, EmptyState, StatusBadge, Field, Select } from '@widgets/admin-layout'
 
-const inputCls = [
-  'w-full bg-bg3 border border-border rounded-lg px-3 py-2',
-  'text-txt text-sm outline-none transition-colors',
-  'focus:border-accent2 placeholder:text-muted',
-].join(' ')
-
-const STATUS_LABEL: Record<AccountStatus, string> = {
-  active: 'Активен',
-  busy: 'Занят',
-  cooldown: 'Остывает',
-  out_of_tokens: 'Нет токенов',
-  banned: 'Заблокирован',
+const STATUS: Record<AccountStatus, { label: string; tone: 'green' | 'amber' | 'red' | 'cyan' | 'muted' }> = {
+  active: { label: 'Активен', tone: 'green' },
+  busy: { label: 'Занят', tone: 'cyan' },
+  cooldown: { label: 'Остывает', tone: 'amber' },
+  out_of_tokens: { label: 'Нет токенов', tone: 'amber' },
+  banned: { label: 'Заблокирован', tone: 'red' },
 }
-
 const STATUS_OPTIONS: AccountStatus[] = ['active', 'cooldown', 'banned', 'out_of_tokens']
 
 export function AdminAccountsPage() {
@@ -28,7 +22,7 @@ export function AdminAccountsPage() {
   const [showForm, setShowForm] = useState(false)
   const [email, setEmail] = useState('')
   const [session, setSession] = useState('')
-  const [maxConcurrent, setMaxConcurrent] = useState(1)
+  const [maxConcurrent, setMaxConcurrent] = useState('1')
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -45,12 +39,10 @@ export function AdminAccountsPage() {
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    setFormError(null)
-    setSubmitting(true)
+    setFormError(null); setSubmitting(true)
     try {
-      await adminAccountApi.add({ email, session, max_concurrent: maxConcurrent })
-      setEmail(''); setSession(''); setMaxConcurrent(1)
-      setShowForm(false)
+      await adminAccountApi.add({ email, session, max_concurrent: Number(maxConcurrent) || 1 })
+      setEmail(''); setSession(''); setMaxConcurrent('1'); setShowForm(false)
       load()
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Не удалось добавить аккаунт')
@@ -69,73 +61,75 @@ export function AdminAccountsPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Пул Suno-аккаунтов</h1>
-        <button
-          className="px-4 py-2 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] transition-all"
-          onClick={() => setShowForm((v) => !v)}
-        >
-          {showForm ? 'Отмена' : '+ Аккаунт'}
-        </button>
-      </div>
+    <div style={{ maxWidth: 880 }}>
+      <PageHeader
+        title="Suno-аккаунты"
+        subtitle="Пул аккаунтов, к которым подключается воркер генерации"
+        action={<Button variant={showForm ? 'outlined' : 'filled'} onClick={() => setShowForm(v => !v)}>{showForm ? 'Отмена' : '+ Аккаунт'}</Button>}
+      />
 
       {showForm && (
-        <form onSubmit={handleAdd} className="bg-bg2 border border-border rounded-xl p-6 mb-6 flex flex-col gap-3 max-w-xl">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted">Email аккаунта Suno</label>
-            <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted">Сессия (cookie/токен Suno — будет зашифрован при сохранении)</label>
-            <textarea className={inputCls} rows={3} value={session} onChange={(e) => setSession(e.target.value)} required />
-          </div>
-          <div className="flex flex-col gap-1 max-w-40">
-            <label className="text-xs text-muted">Лимит параллельных задач</label>
-            <input type="number" min={1} className={inputCls} value={maxConcurrent} onChange={(e) => setMaxConcurrent(Number(e.target.value))} />
-          </div>
-          {formError && <div className="bg-error/10 border border-error/30 rounded-lg px-3 py-2 text-error text-sm">{formError}</div>}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="self-start px-4 py-2 rounded-lg text-sm font-semibold bg-linear-to-br from-accent2 to-accent text-white border-none cursor-pointer hover:brightness-[1.15] disabled:opacity-60 transition-all"
-          >
-            {submitting ? 'Добавляем...' : 'Добавить'}
-          </button>
-        </form>
+        <Panel style={{ padding: '24px', marginBottom: '24px', maxWidth: 560 }}>
+          <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <TextField label="Email аккаунта Suno" type="email" value={email} onChange={setEmail} required surfaceColor={A.surface} />
+            <TextField
+              label="Сессия (cookie/токен Suno)"
+              value={session} onChange={setSession}
+              multiline rows={3} required
+              supportingText="Будет зашифрована при сохранении."
+              surfaceColor={A.surface}
+            />
+            <div style={{ maxWidth: 200 }}>
+              <Field label="Лимит параллельных задач">
+                <input
+                  type="number" min={1} value={maxConcurrent}
+                  onChange={(e) => setMaxConcurrent(e.target.value)}
+                  style={{
+                    background: A.surface2, border: `1px solid ${A.border}`, borderRadius: '12px',
+                    padding: '12px 14px', color: A.txt, fontSize: '14px', fontFamily: 'inherit', outline: 'none',
+                  }}
+                />
+              </Field>
+            </div>
+            {formError && <ErrorBanner>{formError}</ErrorBanner>}
+            <Button type="submit" loading={submitting} style={{ alignSelf: 'flex-start' }}>Добавить аккаунт</Button>
+          </form>
+        </Panel>
       )}
 
-      {loading && <div className="py-10"><Spinner /></div>}
-      {error && <div className="bg-error/10 border border-error/30 rounded-lg px-4 py-3 text-error text-sm mb-4">{error}</div>}
+      {loading && <div style={{ padding: '48px', textAlign: 'center' }}><Spinner /></div>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {!loading && (
-        <div className="flex flex-col gap-2">
-          {accounts.map((a) => (
-            <div key={a.id} className="bg-bg2 border border-border rounded-lg px-5 py-4 flex items-center justify-between gap-4">
-              <div>
-                <div className="font-semibold">{a.email}</div>
-                <div className="text-sm text-muted mt-0.5">
-                  Токенов: {a.token_balance} · Занято слотов: {a.concurrent_tasks}/{a.max_concurrent_tasks}
+      {!loading && accounts.length === 0 && <Panel><EmptyState icon="🎚️" text="Аккаунтов пока нет — добавьте первый." /></Panel>}
+
+      {!loading && accounts.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {accounts.map((a) => {
+            const s = STATUS[a.status]
+            const slotsFull = a.concurrent_tasks >= a.max_concurrent_tasks
+            return (
+              <Panel key={a.id} style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: A.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.email}</div>
+                  <div style={{ fontSize: '13px', color: A.txt2, marginTop: '5px', display: 'flex', gap: '14px' }}>
+                    <span>🪙 Токены: <b style={{ color: A.txt }}>{a.token_balance}</b></span>
+                    <span style={{ color: slotsFull ? '#fbbf24' : A.txt2 }}>
+                      ⚙️ Слоты: <b style={{ color: slotsFull ? '#fbbf24' : A.txt }}>{a.concurrent_tasks}/{a.max_concurrent_tasks}</b>
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="bg-bg3 border border-border text-muted px-2.5 py-1 rounded-full text-xs">
-                  {STATUS_LABEL[a.status]}
-                </span>
-                <select
-                  className="bg-bg3 border border-border rounded-lg px-2 py-1.5 text-xs text-txt outline-none cursor-pointer"
-                  value=""
-                  onChange={(e) => { if (e.target.value) handleStatusChange(a.id, e.target.value as AccountStatus) }}
-                >
-                  <option value="">Сменить статус…</option>
-                  {STATUS_OPTIONS.filter((s) => s !== a.status).map((s) => (
-                    <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ))}
-          {accounts.length === 0 && <div className="text-muted text-sm">Аккаунтов пока нет.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                  <StatusBadge label={s.label} tone={s.tone} dot />
+                  <Select value="" onChange={(v) => v && handleStatusChange(a.id, v as AccountStatus)} style={{ padding: '8px 12px', fontSize: '13px' }}>
+                    <option value="">Сменить статус…</option>
+                    {STATUS_OPTIONS.filter((o) => o !== a.status).map((o) => (
+                      <option key={o} value={o}>{STATUS[o].label}</option>
+                    ))}
+                  </Select>
+                </div>
+              </Panel>
+            )
+          })}
         </div>
       )}
     </div>

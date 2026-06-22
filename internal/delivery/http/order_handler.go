@@ -168,6 +168,14 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusBadRequest, "поле brief слишком длинное")
 			return
 		}
+		if errors.Is(err, usecase.ErrInvalidEmail) {
+			respondError(w, r, http.StatusBadRequest, "некорректный формат email")
+			return
+		}
+		if errors.Is(err, usecase.ErrInvalidPhone) {
+			respondError(w, r, http.StatusBadRequest, "некорректный формат телефона")
+			return
+		}
 		h.log.Error("ошибка создания заказа", "err", err)
 		respondError(w, r, http.StatusInternalServerError, "не удалось создать заказ")
 		return

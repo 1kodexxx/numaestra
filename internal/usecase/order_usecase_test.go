@@ -860,3 +860,61 @@ func TestRecoverStuckOrders_MultipleOrders_ProcessesAll(t *testing.T) {
 		}
 	}
 }
+
+// Регрессия: восстановление зависшего заказа должно ЗАНОВО поставить задачу
+// генерации. Иначе заказ возвращается в queued, но его никто не обрабатывает —
+// исходная Asynq-задача уже завершилась/потеряна, а нового enqueue не было,
+// и оплаченный заказ молча зависает навсегда.
+func TestRecoverStuckOrders_ReenqueuesGenerationTask(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 100)
+
+	f.accRepo.mu.Lock()
+	snap := f.accRepo.accounts[acc.ID()]
+	snap.ConcurrentTasks = 1
+	f.accRepo.accounts[acc.ID()] = snap
+	f.accRepo.mu.Unlock()
+
+	order := f.processingOrder(t, acc)
+	f.orderRepo.stuckOrders = []*domain.Order{order}
+
+	// Изолируемся от постановок задач, сделанных при подготовке заказа.
+	f.queue.genCalls = nil
+
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders: %v", err)
+	}
+
+	if len(f.queue.genCalls) != 1 {
+		t.Fatalf("ожидали ровно 1 повторную постановку задачи генерации, получили %d", len(f.queue.genCalls))
+	}
+	if f.queue.genCalls[0] != order.ID() {
+		t.Errorf("задача поставлена для %s, ожидали %s", f.queue.genCalls[0], order.ID())
+	}
+}
+
+// Сбой повторной постановки задачи (например, Redis недоступен) не должен ронять
+// весь проход реконсайлера: ошибка логируется per-order, статус заказа уже queued.
+func TestRecoverStuckOrders_EnqueueError_Handled(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 100)
+
+	f.accRepo.mu.Lock()
+	snap := f.accRepo.accounts[acc.ID()]
+	snap.ConcurrentTasks = 1
+	f.accRepo.accounts[acc.ID()] = snap
+	f.accRepo.mu.Unlock()
+
+	order := f.processingOrder(t, acc)
+	f.orderRepo.stuckOrders = []*domain.Order{order}
+	f.queue.enqueueGenErr = errors.New("redis down")
+
+	if err := f.uc.RecoverStuckOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverStuckOrders не должен возвращать ошибку при сбое enqueue: %v", err)
+	}
+
+	saved, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if saved.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("заказ должен быть queued даже при сбое enqueue, получили %q", saved.GenerationStatus())
+	}
+}

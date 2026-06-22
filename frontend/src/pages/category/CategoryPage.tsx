@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { categoryApi } from '@entities/category'
 import { useCatalog } from '@features/load-catalog'
 import { useCreateOrder } from '@features/create-order'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
-import { Button } from '@shared/ui'
+import { Button, TextField } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
 import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
 import type { Category, Question, WizardData } from '@entities/category'
@@ -13,6 +13,7 @@ const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.07)'
 const TEXT2 = 'rgba(255,255,255,0.48)'
 const TEXT3 = 'rgba(255,255,255,0.22)'
+const SURFACE = '#080808'
 const PANEL_W = 240
 
 /* ─── breakpoint hook ─── */
@@ -26,223 +27,272 @@ function useBreakpoint() {
   return { isMobile: w < 640, isTablet: w >= 640 && w < 1200, isDesktop: w >= 1200 }
 }
 
-/* ── question widget ── */
-function QuestionWidget({ q, value, onChange }: { q: Question; value: string; onChange: (v: string) => void }) {
-  if (q.ui_type === 'select' || q.ui_type === 'radio' || q.ui_type === 'tags') {
-    return (
-      <div style={{ marginBottom: '18px' }}>
-        <div style={{ fontSize: '12px', color: TEXT2, marginBottom: '8px', fontWeight: 500 }}>
-          {q.question_text}{q.is_required ? ' *' : ''}
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {q.options.map((opt) => {
-            const sel = value === opt.value
-            return (
-              <button
-                key={opt.value}
-                onClick={() => onChange(opt.value)}
-                style={{
-                  padding: '6px 12px', borderRadius: '20px',
-                  fontSize: '12px', fontWeight: sel ? 600 : 400, fontFamily: 'inherit',
-                  background: sel ? 'rgba(0,229,192,0.14)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${sel ? 'rgba(0,229,192,0.5)' : 'rgba(255,255,255,0.08)'}`,
-                  color: sel ? ACCENT : TEXT2,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                }}
-                onMouseEnter={(e) => { if (!sel) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)'; e.currentTarget.style.color = '#fff' } }}
-                onMouseLeave={(e) => { if (!sel) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = TEXT2 } }}
-              >
-                {opt.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
+/* ─── chip ─── */
+function Chip({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
-    <div style={{ marginBottom: '14px' }}>
-      <label style={{ display: 'block', fontSize: '12px', color: TEXT2, marginBottom: '6px', fontWeight: 500 }}>
-        {q.question_text}{q.is_required ? ' *' : ''}
-      </label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Ваш ответ..."
-        style={{
-          width: '100%', background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '10px', padding: '10px 13px',
-          color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
-          transition: 'border-color 0.15s',
-        }}
-        onFocus={(e) => { e.target.style.borderColor = 'rgba(0,229,192,0.4)' }}
-        onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.08)' }}
-      />
+    <button
+      onClick={onClick}
+      style={{
+        padding: '9px 15px', borderRadius: '20px', fontFamily: 'inherit',
+        background: selected ? 'rgba(0,229,192,0.14)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${selected ? 'rgba(0,229,192,0.5)' : 'rgba(255,255,255,0.1)'}`,
+        color: selected ? ACCENT : 'rgba(255,255,255,0.62)',
+        fontSize: '13px', fontWeight: selected ? 600 : 400,
+        cursor: 'pointer', transition: 'all 0.15s',
+      }}
+      onMouseEnter={(e) => { if (!selected) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff' } }}
+      onMouseLeave={(e) => { if (!selected) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'rgba(255,255,255,0.62)' } }}
+    >
+      {label}
+    </button>
+  )
+}
+
+/* ─── section label ─── */
+function Section({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px' }}>
+        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>
+          {label}{required && <span style={{ color: '#f87171', marginLeft: '3px' }}>*</span>}
+        </span>
+        {hint && <span style={{ fontSize: '11px', color: TEXT3 }}>{hint}</span>}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>{children}</div>
     </div>
   )
 }
 
-/* ── page ── */
-function buildBrief(questions: Question[], answers: Record<string, string>, cat: Category): string {
-  const parts = questions.filter(q => answers[q.mapping_key]?.trim()).map(q => `${q.question_text}: ${answers[q.mapping_key]}`)
-  return parts.length > 0 ? parts.join('. ') : `Персональная песня — ${cat.title}`
+/* ─── one wizard question → подходящий контрол ─── */
+function QuestionField({
+  q, textValue, tagValues, onText, onToggleTag,
+}: {
+  q: Question
+  textValue: string
+  tagValues: string[]
+  onText: (v: string) => void
+  onToggleTag: (v: string) => void
+}) {
+  if (q.ui_type === 'text' || q.ui_type === 'textarea') {
+    return (
+      <TextField
+        label={q.question_text}
+        required={q.is_required}
+        value={textValue}
+        onChange={onText}
+        multiline={q.ui_type === 'textarea'}
+        rows={3}
+        surfaceColor={SURFACE}
+      />
+    )
+  }
+
+  const multi = q.ui_type === 'tags'
+  return (
+    <Section label={q.question_text} required={q.is_required} hint={multi ? 'можно выбрать несколько' : undefined}>
+      {q.options.map((opt) => {
+        const sel = multi ? tagValues.includes(opt.value) : textValue === opt.value
+        return (
+          <Chip
+            key={opt.value}
+            label={opt.label}
+            selected={sel}
+            onClick={() => (multi ? onToggleTag(opt.value) : onText(textValue === opt.value ? '' : opt.value))}
+          />
+        )
+      })}
+    </Section>
+  )
+}
+
+/* ─── собрать промпт ─── */
+function buildBrief(
+  questions: Question[], answers: Record<string, string>, cat: Category | undefined,
+  customText: string, extraNotes: string,
+): string {
+  const parts = questions
+    .filter((q) => answers[q.mapping_key]?.trim())
+    .map((q) => `${q.question_text}: ${answers[q.mapping_key]}`)
+  if (extraNotes.trim()) parts.push(`Дополнительно: ${extraNotes.trim()}`)
+  let base = parts.length > 0 ? parts.join('. ') : `Персональная песня — ${cat?.title ?? ''}`
+  if (customText.trim()) base += `\nТекст песни (использовать дословно):\n${customText.trim()}`
+  return base
 }
 
 export function CategoryPage() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { isMobile, isTablet, isDesktop } = useBreakpoint()
+  const { isMobile, isDesktop } = useBreakpoint()
   const { categories } = useCatalog()
   const [wizard, setWizard] = useState<WizardData | null>(null)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [brief, setBrief] = useState('')
-  const [briefTouched, setBriefTouched] = useState(false)
+  const [answers, setAnswers] = useState<Record<string, string>>({})   // text / select / radio
+  const [tagSel, setTagSel] = useState<Record<string, string[]>>({})    // tags (multi)
+  const [customText, setCustomText] = useState('')
+  const [extraNotes, setExtraNotes] = useState('')
   const [showContact, setShowContact] = useState(false)
-  const [questionsOpen, setQuestionsOpen] = useState(false)
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
 
-  const category = categories.find(c => c.id === id)
+  const category = categories.find((c) => c.id === id)
 
   useEffect(() => {
-    categoryApi.wizard(id)
-      .then(w => { setWizard(w); setAnswers({}) })
-      .catch(() => {})
+    setWizard(null); setAnswers({}); setTagSel({}); setCustomText(''); setExtraNotes('')
+    categoryApi.wizard(id).then(setWizard).catch(() => {})
   }, [id])
 
-  useEffect(() => {
-    if (briefTouched || !wizard || !category) return
-    setBrief(buildBrief(wizard.questions, answers, category))
-  }, [answers, wizard, category, briefTouched])
+  // Итоговая карта ответов: одиночные + мультивыбор (склеенный запятой).
+  const mergedAnswers = useMemo(() => {
+    const m: Record<string, string> = { ...answers }
+    for (const [k, arr] of Object.entries(tagSel)) if (arr.length) m[k] = arr.join(', ')
+    return m
+  }, [answers, tagSel])
+
+  const preview = useMemo(
+    () => buildBrief(wizard?.questions ?? [], mergedAnswers, category, customText, extraNotes),
+    [wizard, mergedAnswers, category, customText, extraNotes],
+  )
+
+  function toggleTag(key: string, val: string) {
+    setTagSel((prev) => {
+      const arr = prev[key] ?? []
+      return { ...prev, [key]: arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val] }
+    })
+  }
 
   async function handleOrder(email: string, phone: string) {
-    const finalBrief = brief.trim() || `Персональная песня — ${category?.title ?? ''}`
-    await submit({ email, phone, brief: finalBrief, category_id: id, answers })
+    await submit({ email, phone, brief: preview, category_id: id, answers: mergedAnswers })
   }
 
   const topCats = categories.slice(0, 8)
-  const pad = isMobile ? '16px' : isTablet ? '24px' : '28px'
+  const icon = '🎵'
 
-  /* ── mobile / tablet layout ── */
-  if (!isDesktop) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
-        {showContact && (
-          <ContactModal loading={submitting} error={submitError} onClose={() => setShowContact(false)} onSubmit={handleOrder} />
+  /* ── контент конструктора (общий для мобайла и десктопа) ── */
+  const formBody = (
+    <>
+      <button
+        onClick={() => navigate('/')}
+        style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', padding: 0, marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '6px' }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
+      >
+        ← Назад к категориям
+      </button>
+
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '8px' }}>
+        <span style={{
+          flexShrink: 0, width: 48, height: 48, borderRadius: '14px',
+          background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '24px', boxShadow: '0 6px 18px rgba(0,229,192,0.28)',
+        }}>{icon}</span>
+        <div>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Конструктор песни
+          </div>
+          <h1 style={{ fontSize: isMobile ? '22px' : '26px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.15 }}>
+            {category?.title ?? 'Категория'}
+          </h1>
+        </div>
+      </div>
+      {category?.description && (
+        <p style={{ fontSize: '14px', color: TEXT2, lineHeight: 1.55, marginBottom: '26px' }}>{category.description}</p>
+      )}
+
+      {/* questions */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        {wizard ? (
+          wizard.questions.map((q) => (
+            <QuestionField
+              key={q.id}
+              q={q}
+              textValue={answers[q.mapping_key] ?? ''}
+              tagValues={tagSel[q.mapping_key] ?? []}
+              onText={(v) => setAnswers((prev) => ({ ...prev, [q.mapping_key]: v }))}
+              onToggleTag={(v) => toggleTag(q.mapping_key, v)}
+            />
+          ))
+        ) : (
+          Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="skeleton" style={{ height: '52px', borderRadius: '12px', opacity: 1 - i * 0.12 }} />
+          ))
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: `20px ${pad} 0` }}>
-          <button
-            onClick={() => navigate('/')}
-            style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: 0, marginBottom: '16px', transition: 'color 0.15s' }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
-          >
-            ← Назад
-          </button>
+        {/* universal extras */}
+        <TextField
+          label="Свой текст песни (по желанию)"
+          value={customText}
+          onChange={setCustomText}
+          multiline
+          rows={3}
+          placeholder="Строки или припев, которые должны прозвучать дословно..."
+          surfaceColor={SURFACE}
+        />
+        <TextField
+          label="Дополнительные пожелания (по желанию)"
+          value={extraNotes}
+          onChange={setExtraNotes}
+          multiline
+          rows={2}
+          placeholder="Что ещё учесть: имена, отсылки, чего избегать..."
+          surfaceColor={SURFACE}
+        />
 
-          {category && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.2)', borderRadius: '20px', padding: '4px 12px 4px 8px', marginBottom: '10px' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: ACCENT }} />
-                <span style={{ fontSize: '12px', fontWeight: 600, color: ACCENT }}>{category.title}</span>
-              </div>
-              <div style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.2 }}>
-                Расскажите о вашей песне
-              </div>
-            </div>
-          )}
-
-          <textarea
-            placeholder="Опишите, какую песню хотите получить..."
-            value={brief}
-            onChange={(e) => { setBrief(e.target.value); setBriefTouched(true) }}
-            rows={6}
-            style={{
-              width: '100%',
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.09)',
-              borderRadius: '16px', padding: '18px 20px',
-              color: '#fff', fontSize: '15px', lineHeight: 1.7,
-              fontFamily: 'inherit', resize: 'none', outline: 'none',
-              transition: 'border-color 0.2s, box-shadow 0.2s',
-              marginBottom: '12px',
-            }}
-            onFocus={(e) => {
-              e.target.style.borderColor = 'rgba(0,229,192,0.35)'
-              e.target.style.boxShadow = '0 0 0 4px rgba(0,229,192,0.06)'
-            }}
-            onBlur={(e) => {
-              e.target.style.borderColor = 'rgba(255,255,255,0.09)'
-              e.target.style.boxShadow = 'none'
-            }}
-          />
-
-          {/* Collapsible questions */}
-          {wizard && wizard.questions.length > 0 && (
-            <div style={{ marginBottom: '16px' }}>
-              <button
-                onClick={() => setQuestionsOpen(o => !o)}
-                style={{
-                  width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  background: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
-                  borderRadius: questionsOpen ? '14px 14px 0 0' : '14px',
-                  padding: '13px 16px', cursor: 'pointer', transition: 'all 0.15s',
-                }}
-              >
-                <span style={{ fontSize: '13px', fontWeight: 600, color: TEXT2 }}>
-                  Помощник — заполните вопросы
-                </span>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={TEXT2} strokeWidth="2.5" strokeLinecap="round"
-                  style={{ transform: questionsOpen ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
-                  <path d="m6 9 6 6 6-6"/>
-                </svg>
-              </button>
-              {questionsOpen && (
-                <div className="fade-in" style={{
-                  background: 'rgba(255,255,255,0.02)', border: `1px solid ${BORDER}`,
-                  borderTop: 'none', borderRadius: '0 0 14px 14px', padding: '16px',
-                }}>
-                  {wizard.questions.map(q => (
-                    <QuestionWidget
-                      key={q.id} q={q}
-                      value={answers[q.mapping_key] ?? ''}
-                      onChange={v => setAnswers(prev => ({ ...prev, [q.mapping_key]: v }))}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+        {/* live preview */}
+        <div style={{
+          background: 'rgba(0,229,192,0.04)', border: '1px solid rgba(0,229,192,0.18)',
+          borderRadius: '14px', padding: '16px 18px',
+        }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: ACCENT, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '10px' }}>
+            Готовый промпт для Suno
+          </div>
+          <pre style={{
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit',
+            fontSize: '13px', lineHeight: 1.6, color: 'rgba(255,255,255,0.82)', margin: 0,
+          }}>
+            {preview}
+          </pre>
         </div>
+      </div>
+    </>
+  )
 
-        <div style={{ padding: `12px ${pad} 20px`, borderTop: `1px solid ${BORDER}` }}>
-          <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
-            Заказать песню — 2 000 ₽ →
-          </Button>
+  const orderBar = (pad: string) => (
+    <div style={{ padding: pad, borderTop: `1px solid ${BORDER}`, background: SURFACE }}>
+      <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
+        Заказать песню — 2 000 ₽ →
+      </Button>
+    </div>
+  )
+
+  const modal = showContact && (
+    <ContactModal loading={submitting} error={submitError} onClose={() => setShowContact(false)} onSubmit={handleOrder} />
+  )
+
+  /* ── mobile / tablet ── */
+  if (!isDesktop) {
+    const p = isMobile ? '16px' : '24px'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 60px)', overflow: 'hidden' }}>
+        {modal}
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: `20px ${p} 28px`, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+          {formBody}
         </div>
+        {orderBar(`12px ${p} 18px`)}
       </div>
     )
   }
 
-  /* ── desktop layout: 4 panels ── */
+  /* ── desktop: examples | constructor | categories ── */
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
-      {showContact && (
-        <ContactModal loading={submitting} error={submitError} onClose={() => setShowContact(false)} onSubmit={handleOrder} />
-      )}
+    <div style={{ display: 'flex', height: 'calc(100dvh - 60px)', overflow: 'hidden' }}>
+      {modal}
 
-      {/* Left: examples */}
-      <aside style={{ width: PANEL_W, borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <aside style={{ width: PANEL_W, flexShrink: 0, borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
           <PanelHeader icon="🎧" title="Примеры" sub="Послушайте, как звучит" />
-          {EXAMPLE_SONGS.map(ex => (
+          {EXAMPLE_SONGS.map((ex) => (
             <SideItem
-              key={ex.id}
-              title={ex.title}
-              sub={ex.category}
+              key={ex.id} title={ex.title} sub={ex.category}
               onClick={() => navigate(`/examples/${ex.id}`)}
               leading={(hovered) => (
                 <Thumb src={stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
@@ -254,90 +304,23 @@ export function CategoryPage() {
         </div>
       </aside>
 
-      {/* Center: brief textarea */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '24px 28px', overflow: 'hidden' }}>
-        <button
-          onClick={() => navigate('/')}
-          style={{ background: 'none', border: 'none', color: TEXT2, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: 0, marginBottom: '16px', width: 'fit-content', transition: 'color 0.15s' }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
-        >
-          ← Назад
-        </button>
-
-        {category && (
-          <div style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.2)', borderRadius: '20px', padding: '4px 12px 4px 8px', marginBottom: '10px' }}>
-              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: ACCENT }} />
-              <span style={{ fontSize: '12px', fontWeight: 600, color: ACCENT }}>{category.title}</span>
-            </div>
-            <div style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.2 }}>Расскажите о вашей песне</div>
-            <div style={{ fontSize: '14px', color: TEXT2, marginTop: '6px' }}>Ответьте на вопросы справа — текст сформируется автоматически</div>
+      <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '28px 36px' }}>
+          <div style={{ maxWidth: 680, margin: '0 auto' }}>
+            {formBody}
           </div>
-        )}
-
-        <textarea
-          placeholder="Опишите, какую песню хотите получить..."
-          value={brief}
-          onChange={(e) => { setBrief(e.target.value); setBriefTouched(true) }}
-          style={{
-            flex: 1,
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.09)',
-            borderRadius: '16px', padding: '20px 22px',
-            color: '#fff', fontSize: '15px', lineHeight: 1.7,
-            fontFamily: 'inherit', resize: 'none', outline: 'none',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
-            minHeight: '180px',
-          }}
-          onFocus={(e) => {
-            e.target.style.borderColor = 'rgba(0,229,192,0.35)'
-            e.target.style.boxShadow = '0 0 0 4px rgba(0,229,192,0.06)'
-          }}
-          onBlur={(e) => {
-            e.target.style.borderColor = 'rgba(255,255,255,0.09)'
-            e.target.style.boxShadow = 'none'
-          }}
-        />
-
-        <div style={{ marginTop: '14px' }}>
-          <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
-            Заказать песню — 2 000 ₽ →
-          </Button>
+        </div>
+        <div style={{ maxWidth: 680, margin: '0 auto', width: '100%' }}>
+          {orderBar('16px 36px 20px')}
         </div>
       </main>
 
-      {/* Questions panel */}
-      <aside style={{ width: 270, borderLeft: `1px solid ${BORDER}`, borderRight: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 16px 14px', borderBottom: `1px solid ${BORDER}` }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, color: TEXT3, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Помощник</div>
-          <div style={{ fontSize: '12px', color: TEXT2, marginTop: '4px' }}>Ответы формируют промпт</div>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-          {wizard ? wizard.questions.map(q => (
-            <QuestionWidget key={q.id} q={q} value={answers[q.mapping_key] ?? ''}
-              onChange={v => setAnswers(prev => ({ ...prev, [q.mapping_key]: v }))} />
-          )) : (
-            Array.from({ length: 7 }, (_, i) => (
-              <div key={i} style={{ height: '44px', borderRadius: '10px', background: 'rgba(255,255,255,0.04)', marginBottom: '12px', opacity: 1 - i * 0.1 }} />
-            ))
-          )}
-        </div>
-        <div style={{ padding: '12px 16px 16px', borderTop: `1px solid ${BORDER}` }}>
-          <span style={{ fontSize: '11px', fontWeight: 600, color: TEXT3, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            По категории: {category?.title ?? '—'}
-          </span>
-        </div>
-      </aside>
-
-      {/* Right: top categories */}
-      <aside style={{ width: PANEL_W, borderLeft: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <aside style={{ width: PANEL_W, flexShrink: 0, borderLeft: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '18px 10px 12px' }}>
-          <PanelHeader icon="🔥" title="Популярное" sub="Выбор пользователей" />
+          <PanelHeader icon="🔥" title="Популярное" sub="Другие категории" />
           {topCats.map((cat, i) => (
             <SideItem
-              key={cat.id}
-              title={cat.title}
+              key={cat.id} title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (
                 <Thumb src={stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
