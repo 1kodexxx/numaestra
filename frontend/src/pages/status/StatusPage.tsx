@@ -6,6 +6,8 @@ import { MusicPlayer } from '@widgets/player'
 import { Button, TextField, copyText } from '@shared/ui'
 import { orderApi } from '@entities/order'
 import { useSeo } from '@shared/lib/seo'
+import { downloadFile } from '@shared/lib/download'
+import { ShareBar } from '@widgets/share-bar'
 import type { OrderDetail, OrderSummary } from '@entities/order'
 
 const ACCENT = '#00e5c0'
@@ -259,6 +261,61 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
       {gs === 'completed' && order.tracks.length > 0 && (
         <div style={{ marginBottom: '16px' }}>
           <MusicPlayer tracks={order.tracks} />
+        </div>
+      )}
+
+      {/* Downloads */}
+      {gs === 'completed' && order.tracks.length > 0 && (
+        <div style={{
+          background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '20px',
+          padding: '20px 22px', marginBottom: '16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              Скачать треки
+            </span>
+            {order.tracks.length > 1 && (
+              <button
+                onClick={() => order.tracks.forEach((t, i) => setTimeout(
+                  () => downloadFile(t.audio_url, `numaestra-${order.invoice_id}-v${t.index || i + 1}.mp3`), i * 400,
+                ))}
+                style={{
+                  background: 'none', border: 'none', color: ACCENT, fontSize: '13px', fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'inherit', padding: 0,
+                }}
+              >
+                Скачать все ↓
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {order.tracks.map((t, i) => (
+              <button
+                key={t.index || i}
+                onClick={() => downloadFile(t.audio_url, `numaestra-${order.invoice_id}-v${t.index || i + 1}.mp3`)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 14px', borderRadius: '12px', cursor: 'pointer', fontFamily: 'inherit',
+                  background: 'rgba(0,229,192,0.08)', border: '1px solid rgba(0,229,192,0.25)',
+                  color: ACCENT, fontSize: '13px', fontWeight: 600,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,229,192,0.16)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0,229,192,0.08)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                </svg>
+                Вариант {t.index || i + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Share */}
+      {gs === 'completed' && (
+        <div style={{ marginBottom: '16px' }}>
+          <ShareBar url={window.location.href} text="Послушайте песню, которую мне сделали в Numaestra 🎵" />
         </div>
       )}
 

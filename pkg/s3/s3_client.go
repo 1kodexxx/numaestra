@@ -64,7 +64,15 @@ func (c *Client) UploadFromURL(ctx context.Context, sourceURL, key, contentType 
 	defer body.Close()
 
 	// 2. Загружаем в S3 потоком, без буферизации всего файла в RAM.
-	if err := c.put(ctx, key, contentType, body, contentLength); err != nil {
+	// Content-Disposition: attachment заставляет браузер скачивать файл (а не
+	// проигрывать в табе) при прямом открытии ссылки — это надёжный путь для
+	// кнопки «Скачать», даже без CORS на бакете.
+	filename := key
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		filename = key[i+1:]
+	}
+	disposition := fmt.Sprintf("attachment; filename=%q", "numaestra-"+filename)
+	if err := c.put(ctx, key, contentType, disposition, body, contentLength); err != nil {
 		return "", fmt.Errorf("загрузка в S3 (key=%s): %w", key, err)
 	}
 
@@ -98,7 +106,7 @@ func (c *Client) download(ctx context.Context, rawURL string) (io.ReadCloser, in
 // UNSIGNED-PAYLOAD, что допустимо поверх HTTPS. Если длина неизвестна, делаем
 // безопасный fallback — читаем тело в буфер, чтобы выставить корректный
 // Content-Length (S3 PUT требует его).
-func (c *Client) put(ctx context.Context, key, contentType string, body io.Reader, contentLength int64) error {
+func (c *Client) put(ctx context.Context, key, contentType, contentDisposition string, body io.Reader, contentLength int64) error {
 	objectURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
 
 	now := time.Now().UTC()
@@ -121,6 +129,11 @@ func (c *Client) put(ctx context.Context, key, contentType string, body io.Reade
 	}
 
 	req.Header.Set("Content-Type", contentType)
+	if contentDisposition != "" {
+		// Несигнируемый стандартный заголовок — S3 сохранит его как метаданные
+		// объекта и будет отдавать при GET. На подпись SigV4 не влияет.
+		req.Header.Set("Content-Disposition", contentDisposition)
+	}
 	req.Header.Set("x-amz-content-sha256", unsignedPayload)
 	req.Header.Set("x-amz-date", amzDate)
 	req.ContentLength = contentLength
