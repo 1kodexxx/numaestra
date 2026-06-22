@@ -189,6 +189,46 @@ func MaxBodyBytes(n int64) func(http.Handler) http.Handler {
 	}
 }
 
+// contentSecurityPolicy — CSP под фактические ресурсы фронта:
+//   - style 'unsafe-inline' — React раскладывает стили инлайном (style={{}}) +
+//     Google Fonts CSS;
+//   - img https:/data: — обложки из S3 и сток-картинки (loremflickr);
+//   - media 'self'/https:/blob: — локальные mp3, треки из S3, синтез демо (blob);
+//   - connect https: — fetch треков для скачивания (download.ts) и API;
+//   - frame-ancestors/object-src/base-uri — антиclickjacking и защита от инъекций.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+	"font-src 'self' data: https://fonts.gstatic.com; " +
+	"img-src 'self' data: https:; " +
+	"media-src 'self' blob: https:; " +
+	"connect-src 'self' https:; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'none'"
+
+// SecurityHeaders выставляет защитные HTTP-заголовки на все ответы. enableHSTS
+// включает Strict-Transport-Security (только в prod за TLS — на http браузер его
+// игнорирует, а на localhost он мешал бы переключению на http).
+func SecurityHeaders(enableHSTS bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			h.Set("Cross-Origin-Opener-Policy", "same-origin")
+			h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), interest-cohort=()")
+			h.Set("Content-Security-Policy", contentSecurityPolicy)
+			if enableHSTS {
+				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // ipRateLimiter ограничивает частоту запросов по IP клиента, используя
 // токен-бакет на каждый IP. Старые записи периодически вычищаются, чтобы
 // мапа не росла бесконечно.

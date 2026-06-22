@@ -1,0 +1,29 @@
+# DEV-оверрей. Docker Compose подхватывает этот файл АВТОМАТИЧЕСКИ при
+# `docker compose up` (без флага -f). Публикует порты на хост для удобной
+# локальной разработки (psql, redis-cli, прямой доступ к API на :8080).
+#
+# В ПРОДЕ этот файл использовать не нужно — деплой идёт ТОЛЬКО с базовым файлом:
+#   docker compose -f docker-compose.yml --profile proxy up -d
+# тогда наружу торчит лишь Caddy (80/443), а postgres/redis/app доступны лишь
+# внутри docker-сети.
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  app:
+    ports:
+      - "8080:8080"
+
+  # Monitoring-профиль: UI-порты только в dev.
+  prometheus:
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    ports:
+      - "9093:9093"

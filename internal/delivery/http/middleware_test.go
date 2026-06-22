@@ -19,6 +19,36 @@ func okHandler() http.Handler {
 	})
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	t.Run("базовые заголовки выставлены, HSTS выключен", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		SecurityHeaders(false)(okHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		h := rec.Header()
+		for _, k := range []string{
+			"X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy",
+			"Content-Security-Policy", "Permissions-Policy", "Cross-Origin-Opener-Policy",
+		} {
+			if h.Get(k) == "" {
+				t.Errorf("ожидали заголовок %s", k)
+			}
+		}
+		if h.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("X-Content-Type-Options = %q", h.Get("X-Content-Type-Options"))
+		}
+		if h.Get("Strict-Transport-Security") != "" {
+			t.Error("HSTS не должен выставляться при enableHSTS=false")
+		}
+	})
+
+	t.Run("HSTS включается в prod", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		SecurityHeaders(true)(okHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if rec.Header().Get("Strict-Transport-Security") == "" {
+			t.Error("ожидали Strict-Transport-Security при enableHSTS=true")
+		}
+	})
+}
+
 func TestCORS_AllowAll_SetsHeader(t *testing.T) {
 	h := CORS(DefaultCORSOptions(nil))(okHandler())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

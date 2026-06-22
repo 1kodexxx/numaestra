@@ -344,6 +344,8 @@ func newRouter(
 	r.Use(requestLoggerMiddleware(log))
 	r.Use(apphttp.MaxBodyBytes(cfg.HTTP.MaxBodyBytes))
 	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(cfg.HTTP.CORSAllowedOrigins)))
+	// Защитные заголовки на все ответы; HSTS — только вне dev (за TLS).
+	r.Use(apphttp.SecurityHeaders(cfg.Env != "dev"))
 
 	r.Get("/healthz", checker.Handler)
 

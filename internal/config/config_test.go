@@ -59,6 +59,10 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	t.Setenv("ADMIN_LOGIN", "owner")
 	t.Setenv("ADMIN_PASSWORD", "test-admin-password")
 	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
+	t.Setenv("ROBOKASSA_MERCHANT_LOGIN", "real_shop")
+	t.Setenv("ROBOKASSA_PASS1", "real-pass-1")
+	t.Setenv("ROBOKASSA_PASS2", "real-pass-2")
+	t.Setenv("ROBOKASSA_ALLOWED_IPS", "185.59.216.0/24")
 
 	cfg, err := Load()
 	if err != nil {
@@ -181,6 +185,65 @@ func TestLoad_AdminSessionSecretRequired_NonDev(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("ожидали ошибку: ADMIN_SESSION_SECRET обязателен в staging")
+	}
+}
+
+// setValidNonDevEnv выставляет полный набор обязательных переменных для
+// успешной загрузки конфига в не-dev окружении.
+func setValidNonDevEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("ADMIN_TOKEN", "tok")
+	t.Setenv("ADMIN_LOGIN", "owner")
+	t.Setenv("ADMIN_PASSWORD", "pass")
+	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
+	t.Setenv("SUNO_API_KEY", "suno-key")
+	t.Setenv("OPENAI_API_KEY", "openai-key")
+	t.Setenv("S3_ACCESS_KEY", "s3-access")
+	t.Setenv("S3_SECRET_KEY", "s3-secret")
+	t.Setenv("ROBOKASSA_MERCHANT_LOGIN", "real_shop")
+	t.Setenv("ROBOKASSA_PASS1", "real-pass-1")
+	t.Setenv("ROBOKASSA_PASS2", "real-pass-2")
+	t.Setenv("ROBOKASSA_ALLOWED_IPS", "185.59.216.0/24")
+	t.Setenv("ROBOKASSA_IS_TEST", "false")
+}
+
+func TestLoad_NonDev_Success(t *testing.T) {
+	setValidNonDevEnv(t)
+	if _, err := Load(); err != nil {
+		t.Fatalf("ожидали успешную загрузку валидного prod-конфига, получили: %v", err)
+	}
+}
+
+func TestLoad_RobokassaTestPasswordsRejected_NonDev(t *testing.T) {
+	setValidNonDevEnv(t)
+	t.Setenv("ROBOKASSA_PASS2", "test_pass2") // публичная тестовая заглушка
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидали ошибку: тестовый ROBOKASSA_PASS2 недопустим в prod")
+	}
+}
+
+func TestLoad_RobokassaLoginDefaultRejected_NonDev(t *testing.T) {
+	setValidNonDevEnv(t)
+	t.Setenv("ROBOKASSA_MERCHANT_LOGIN", "numaestra_test")
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидали ошибку: тестовый ROBOKASSA_MERCHANT_LOGIN недопустим в prod")
+	}
+}
+
+func TestLoad_RobokassaAllowedIPsRequired_NonDev(t *testing.T) {
+	setValidNonDevEnv(t)
+	t.Setenv("ROBOKASSA_ALLOWED_IPS", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидали ошибку: ROBOKASSA_ALLOWED_IPS обязателен в prod")
+	}
+}
+
+func TestLoad_RobokassaIsTestRejected_NonDev(t *testing.T) {
+	setValidNonDevEnv(t)
+	t.Setenv("ROBOKASSA_IS_TEST", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидали ошибку: ROBOKASSA_IS_TEST=true недопустим в prod")
 	}
 }
 

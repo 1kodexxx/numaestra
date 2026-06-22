@@ -222,14 +222,22 @@ frontend/src/       React SPA (Feature-Sliced Design)
 
 ## 🚢 Продакшен (VPS / Docker Compose)
 
-Базовый `docker compose up -d` поднимает `postgres`, `redis`, `app`. Для прода —
-три опциональных профиля:
+> ⚠️ **Сеть.** Локально `docker compose up -d` автоматически подхватывает
+> `docker-compose.override.yml` и публикует порты `8080/5432/6379` на хост —
+> удобно для разработки. **В проде эти порты наружу торчать не должны.** Поэтому
+> прод-запуск идёт ТОЛЬКО с базовым файлом (`-f docker-compose.yml`), без
+> override — тогда снаружи доступен лишь Caddy (80/443), а `postgres`/`redis`/`app`
+> живут внутри docker-сети.
 
 ```bash
-docker compose --profile proxy up -d        # Caddy + авто Let's Encrypt (TLS на :443)
-docker compose --profile backup up -d       # ежедневный pg_dump в ./backups/
-docker compose --profile monitoring up -d   # Prometheus (:9090) + Alertmanager (:9093)
+# Прод: явно указываем базовый файл, чтобы НЕ подхватился dev-override.
+docker compose -f docker-compose.yml --profile proxy up -d        # Caddy + авто Let's Encrypt (TLS на :443)
+docker compose -f docker-compose.yml --profile backup up -d       # ежедневный pg_dump в ./backups/
+docker compose -f docker-compose.yml --profile monitoring up -d   # Prometheus + Alertmanager (только во внутренней сети)
 ```
+
+Дополнительно на VPS: задайте надёжный `POSTGRES_PASSWORD` в `.env` и закройте
+фаерволом всё, кроме 80/443 (например, `ufw allow 80,443/tcp && ufw enable`).
 
 - **proxy** — `DOMAIN` и `ACME_EMAIL` в `.env`; конфиг `deploy/Caddyfile`.
 - **backup** — ротация по `BACKUP_RETENTION_DAYS`; восстановление — `deploy/restore-postgres.sh`.

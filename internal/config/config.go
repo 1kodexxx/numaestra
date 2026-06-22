@@ -62,6 +62,15 @@ type RedisConfig struct {
 	Password string
 }
 
+// Тестовые заглушки Robokassa. Используются как дефолты в dev и явно
+// запрещаются в prod-валидации (см. Load): они публичны и делают подпись
+// вебхука подделываемой.
+const (
+	defaultRobokassaLogin = "numaestra_test"
+	defaultRobokassaPass1 = "test_pass1"
+	defaultRobokassaPass2 = "test_pass2"
+)
+
 type RobokassaConfig struct {
 	MerchantLogin string
 	Password1     string // Для генерации платежной ссылки
@@ -129,9 +138,9 @@ func Load() (*Config, error) {
 			Password: getEnv("REDIS_PASSWORD", ""),
 		},
 		Robokassa: RobokassaConfig{
-			MerchantLogin: getEnv("ROBOKASSA_MERCHANT_LOGIN", "numaestra_test"),
-			Password1:     getEnv("ROBOKASSA_PASS1", "test_pass1"),
-			Password2:     getEnv("ROBOKASSA_PASS2", "test_pass2"),
+			MerchantLogin: getEnv("ROBOKASSA_MERCHANT_LOGIN", defaultRobokassaLogin),
+			Password1:     getEnv("ROBOKASSA_PASS1", defaultRobokassaPass1),
+			Password2:     getEnv("ROBOKASSA_PASS2", defaultRobokassaPass2),
 			// Дефолт false: в проде безопаснее «боевой» режим. Тестовый режим
 			// нужно включать осознанно через ROBOKASSA_IS_TEST=true в dev-окружении,
 			// иначе платежи уходят в тест и Robokassa их не зачисляет.
@@ -194,6 +203,29 @@ func Load() (*Config, error) {
 		}
 		if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" {
 			return nil, fmt.Errorf("S3_ACCESS_KEY и S3_SECRET_KEY обязательны в окружении %q", cfg.Env)
+		}
+
+		// Robokassa: пароли подписывают платёжную ссылку (PASS1) и проверяют
+		// подпись вебхука оплаты (PASS2). Дефолтные test_*-значения публичны (лежат
+		// в репозитории) — с ними подпись вебхука подделывается, что позволяет
+		// пометить заказ оплаченным без реальной оплаты. Поэтому в prod они
+		// обязательны и не должны совпадать с тестовыми заглушками.
+		if cfg.Robokassa.MerchantLogin == "" || cfg.Robokassa.MerchantLogin == defaultRobokassaLogin {
+			return nil, fmt.Errorf("ROBOKASSA_MERCHANT_LOGIN обязателен в окружении %q и не должен быть тестовой заглушкой", cfg.Env)
+		}
+		if cfg.Robokassa.Password1 == "" || cfg.Robokassa.Password1 == defaultRobokassaPass1 {
+			return nil, fmt.Errorf("ROBOKASSA_PASS1 обязателен в окружении %q и не должен быть тестовой заглушкой", cfg.Env)
+		}
+		if cfg.Robokassa.Password2 == "" || cfg.Robokassa.Password2 == defaultRobokassaPass2 {
+			return nil, fmt.Errorf("ROBOKASSA_PASS2 обязателен в окружении %q и не должен быть тестовой заглушкой", cfg.Env)
+		}
+		// IP-allowlist вебхука — defense-in-depth поверх проверки подписи: вебхуки
+		// ResultURL должны приходить только с подсетей Robokassa.
+		if len(cfg.Robokassa.AllowedIPs) == 0 {
+			return nil, fmt.Errorf("ROBOKASSA_ALLOWED_IPS обязателен в окружении %q (подсети Robokassa для приёма вебхуков)", cfg.Env)
+		}
+		if cfg.Robokassa.IsTest {
+			return nil, fmt.Errorf("ROBOKASSA_IS_TEST=true недопустим в окружении %q (платежи уйдут в тестовый режим и не будут зачислены)", cfg.Env)
 		}
 	}
 
