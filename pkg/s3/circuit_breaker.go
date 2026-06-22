@@ -54,3 +54,30 @@ func (r *ResilientClient) UploadFromURL(ctx context.Context, sourceURL, key, con
 	})
 	return publicURL, err
 }
+
+// Upload загружает готовые байты под фиксированным ключом (идемпотентно),
+// поэтому retry безопасен — те же слои устойчивости, что и у UploadFromURL.
+func (r *ResilientClient) Upload(ctx context.Context, key, contentType string, data []byte) (string, error) {
+	var publicURL string
+	err := r.breaker.Do(func() error {
+		var lastErr error
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			if attempt > 0 {
+				delay := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			var err error
+			publicURL, err = r.inner.Upload(ctx, key, contentType, data)
+			if err == nil {
+				return nil
+			}
+			lastErr = err
+		}
+		return lastErr
+	})
+	return publicURL, err
+}

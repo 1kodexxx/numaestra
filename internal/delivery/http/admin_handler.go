@@ -1,11 +1,15 @@
 package apphttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -13,15 +17,29 @@ import (
 	"github.com/numaestra/numaestra/internal/usecase"
 )
 
+// CoverUploader загружает обложку категории в объектное хранилище и возвращает
+// постоянную публичную ссылку. Реализуется *s3.ResilientClient.
+type CoverUploader interface {
+	Upload(ctx context.Context, key, contentType string, data []byte) (string, error)
+}
+
 // AdminHandler обрабатывает запросы административного API.
 // Все маршруты защищены Bearer-токеном через AdminAuth middleware.
 type AdminHandler struct {
-	uc  *usecase.AdminUseCase
-	log *slog.Logger
+	uc       *usecase.AdminUseCase
+	uploader CoverUploader // nil, если S3 не настроено
+	log      *slog.Logger
 }
 
 func NewAdminHandler(uc *usecase.AdminUseCase, log *slog.Logger) *AdminHandler {
 	return &AdminHandler{uc: uc, log: log}
+}
+
+// WithCoverUploader включает загрузку обложек категорий в S3. Если не вызван
+// (или S3-ключи не заданы), эндпоинт загрузки вернёт 503.
+func (h *AdminHandler) WithCoverUploader(up CoverUploader) *AdminHandler {
+	h.uploader = up
+	return h
 }
 
 func (h *AdminHandler) Routes() chi.Router {
@@ -46,6 +64,7 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Get("/{id}", h.GetCategory)
 		r.Post("/", h.CreateCategory)
 		r.Put("/{id}", h.UpdateCategory)
+		r.Post("/{id}/cover", h.UploadCover)
 		r.Delete("/{id}", h.DeleteCategory)
 		r.Post("/{id}/questions", h.AddQuestion)
 		r.Put("/{id}/questions/{qid}", h.UpdateQuestion)
@@ -457,6 +476,72 @@ func (h *AdminHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, categoryToAdminResponse(category))
+}
+
+// coverExtByMIME — допустимые типы обложек и соответствующее расширение ключа.
+var coverExtByMIME = map[string]string{
+	"image/webp": "webp",
+	"image/png":  "png",
+	"image/jpeg": "jpg",
+}
+
+// UploadCover принимает файл обложки (multipart, поле "file"), загружает его в
+// S3 и возвращает постоянную публичную ссылку. Сам URL в категорию не
+// записывает — это делает последующий PUT категории с фронтенда.
+// POST /api/v1/admin/categories/{id}/cover
+func (h *AdminHandler) UploadCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	if h.uploader == nil {
+		respondError(w, r, http.StatusServiceUnavailable, "загрузка обложек недоступна: не настроено S3-хранилище (S3_ACCESS_KEY/S3_SECRET_KEY)")
+		return
+	}
+
+	// Глобальный лимит тела запроса — 1 МБ; держимся в его пределах.
+	const maxCoverBytes = 1 << 20
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "файл не передан (ожидается поле формы \"file\")")
+		return
+	}
+	defer file.Close() //nolint:errcheck
+
+	data, err := io.ReadAll(io.LimitReader(file, maxCoverBytes+1))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "не удалось прочитать файл")
+		return
+	}
+	if len(data) == 0 {
+		respondError(w, r, http.StatusBadRequest, "файл пустой")
+		return
+	}
+	if len(data) > maxCoverBytes {
+		respondError(w, r, http.StatusRequestEntityTooLarge, "файл слишком большой (максимум 1 МБ)")
+		return
+	}
+
+	contentType := http.DetectContentType(data)
+	ext, ok := coverExtByMIME[contentType]
+	if !ok {
+		respondError(w, r, http.StatusUnsupportedMediaType, "поддерживаются только изображения PNG, JPEG и WebP")
+		return
+	}
+
+	// Уникальный ключ с меткой времени — старая обложка не перетирается, а смена
+	// URL гарантированно сбрасывает кэш браузера/CDN.
+	key := fmt.Sprintf("covers/%s-%d.%s", id, time.Now().Unix(), ext)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	url, err := h.uploader.Upload(ctx, key, contentType, data)
+	if err != nil {
+		h.log.Error("admin: ошибка загрузки обложки", "category_id", id, "error", err)
+		respondError(w, r, http.StatusBadGateway, "не удалось загрузить обложку в хранилище")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"cover_image_url": url})
 }
 
 // DeleteCategory удаляет категорию вместе со всеми её вопросами.

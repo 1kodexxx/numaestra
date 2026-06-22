@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { synthDemoTrack, hashStr } from '@shared/lib/demoAudio'
 import type { ExampleSong } from '@shared/data/examples'
 
 const ACCENT = '#00e5c0'
@@ -12,39 +11,63 @@ function fmt(s: number) {
   return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`
 }
 
-/** Плавающий мини-плеер демо-примера (как в Spotify). Синтезирует звучание,
- *  автозапуск, перемотка по полосе, закрытие. */
-export function FloatingPlayer({ example, onClose }: { example: ExampleSong; onClose: () => void }) {
+/**
+ * Плавающий мини-плеер демо-примера (как в Spotify).
+ *
+ * Сам `<audio>`-элемент живёт в родителе (CatalogPage) и стартует синхронно
+ * в обработчике тапа — так воспроизведение не блокируется автоплей-политикой
+ * мобильных браузеров. Этот виджет — только UI: подписывается на события
+ * переданного аудио-элемента и управляет play/pause/seek.
+ */
+export function FloatingPlayer({
+  example,
+  track,
+  audioRef,
+  onClose,
+}: {
+  example: ExampleSong
+  track: { url: string; duration: number } | null
+  audioRef: React.RefObject<HTMLAudioElement | null>
+  onClose: () => void
+}) {
   const navigate = useNavigate()
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const [ready, setReady] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
-  const [dur, setDur] = useState(0)
+  const [dur, setDur] = useState(track?.duration ?? 0)
+  const ready = !!track
 
+  // Подписка на состояние внешнего аудио-элемента.
   useEffect(() => {
-    let cancelled = false
-    let createdUrl = ''
-    setReady(false); setPlaying(false); setTime(0); setDur(0)
-    void synthDemoTrack(hashStr(example.id)).then((res) => {
-      const el = audioRef.current
-      if (cancelled || !res) { if (res) URL.revokeObjectURL(res.url); return }
-      createdUrl = res.url
-      if (el) {
-        el.src = res.url
-        setDur(res.duration)
-        setReady(true)
-        el.play().then(() => setPlaying(true)).catch(() => {})
-      }
-    })
-    return () => { cancelled = true; if (createdUrl) URL.revokeObjectURL(createdUrl) }
-  }, [example.id])
+    const el = audioRef.current
+    if (!el) return
+    const onTime = () => setTime(el.currentTime)
+    const onMeta = () => { if (isFinite(el.duration) && el.duration > 0) setDur(el.duration) }
+    const onPlay = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
+    const onEnded = () => setPlaying(false)
+    el.addEventListener('timeupdate', onTime)
+    el.addEventListener('loadedmetadata', onMeta)
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    el.addEventListener('ended', onEnded)
+    // Первичная синхронизация (элемент мог уже начать играть из жеста).
+    setPlaying(!el.paused && !el.ended)
+    setTime(el.currentTime)
+    if (isFinite(el.duration) && el.duration > 0) setDur(el.duration)
+    return () => {
+      el.removeEventListener('timeupdate', onTime)
+      el.removeEventListener('loadedmetadata', onMeta)
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      el.removeEventListener('ended', onEnded)
+    }
+  }, [audioRef, example.id])
 
   function toggle() {
     const el = audioRef.current
     if (!el || !ready) return
-    if (playing) { el.pause(); setPlaying(false) }
-    else { el.play().then(() => setPlaying(true)).catch(() => {}) }
+    if (el.paused) el.play().catch(() => {})
+    else el.pause()
   }
 
   function seek(e: React.MouseEvent<HTMLDivElement>) {
@@ -63,14 +86,8 @@ export function FloatingPlayer({ example, onClose }: { example: ExampleSong; onC
       position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 35,
       background: 'rgba(15,15,15,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       borderTop: '1px solid rgba(0,229,192,0.2)', boxShadow: '0 -10px 30px rgba(0,0,0,0.45)',
+      paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
-      <audio
-        ref={audioRef}
-        preload="metadata"
-        onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => { if (isFinite(e.currentTarget.duration)) setDur(e.currentTarget.duration) }}
-        onEnded={() => setPlaying(false)}
-      />
       <div className="fade-up" style={{
         maxWidth: 1000, margin: '0 auto', padding: '12px 16px',
         display: 'flex', alignItems: 'center', gap: '14px',

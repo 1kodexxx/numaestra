@@ -8,6 +8,7 @@ import { Button, TextField } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
 import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
 import { useSeo } from '@shared/lib/seo'
+import { categoryCover } from '@shared/lib/categoryCover'
 import type { Category, Question, WizardData } from '@entities/category'
 
 const ACCENT = '#00e5c0'
@@ -330,7 +331,7 @@ export function CategoryPage() {
               key={cat.id} index={i} title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (
-                <Thumb src={cat.cover_image_url || stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
+                <Thumb src={categoryCover(cat.id, cat.cover_image_url) || stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
                   <RankCorner n={i + 1} />
                 </Thumb>
               )}

@@ -1,1 +1,1 @@
-export { apiFetch, ApiError } from './http'
+export { apiFetch, apiUpload, ApiError } from './http'

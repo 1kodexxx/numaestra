@@ -259,6 +259,11 @@ func run(ctx context.Context) error {
 		WithRedis(rdb)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
 	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log), log)
+	if cfg.S3.AccessKey != "" && cfg.S3.SecretKey != "" {
+		adminHandler = adminHandler.WithCoverUploader(s3Client)
+	} else {
+		log.Warn("S3-ключи не заданы — загрузка обложек категорий в админке будет недоступна")
+	}
 	adminAuthHandler := apphttp.NewAdminAuthHandler(cfg.AdminLogin, cfg.AdminPassword, adminSessionSecret, cfg.Env != "dev", log).WithRedis(rdb)
 	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
 	if err != nil {

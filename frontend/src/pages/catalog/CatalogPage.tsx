@@ -8,6 +8,8 @@ import { ContactModal } from '@widgets/contact-modal'
 import { Footer } from '@widgets/footer'
 import { FloatingPlayer } from '@widgets/floating-player'
 import { stockImage } from '@widgets/side-panel'
+import { hashStr, prewarmDemoTrack, getDemoTrackSync } from '@shared/lib/demoAudio'
+import { categoryCover } from '@shared/lib/categoryCover'
 import { useSeo } from '@shared/lib/seo'
 import type { Category } from '@entities/category'
 import type { ExampleSong } from '@shared/data/examples'
@@ -454,8 +456,8 @@ function SkeletonCard() {
   )
 }
 
-/* ─── horizontal section (carousel) ─── */
-function HSection({ icon, title, sub, children }: { icon: string; title: string; sub?: string; children: React.ReactNode }) {
+/* ─── section: переносящаяся сетка (ничего не обрезается по ширине) ─── */
+function HSection({ icon, title, sub, minCol = 160, children }: { icon: string; title: string; sub?: string; minCol?: number; children: React.ReactNode }) {
   return (
     <section style={{ marginTop: '8px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '14px' }}>
@@ -463,12 +465,11 @@ function HSection({ icon, title, sub, children }: { icon: string; title: string;
         <h2 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>{title}</h2>
         {sub && <span style={{ fontSize: '12px', color: TEXT3 }}>{sub}</span>}
       </div>
-      <div
-        style={{
-          display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '8px',
-          scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', scrollSnapType: 'x proximity',
-        } as React.CSSProperties}
-      >
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(auto-fill, minmax(${minCol}px, 1fr))`,
+        gap: '12px',
+      }}>
         {children}
       </div>
     </section>
@@ -484,7 +485,7 @@ function PopularCard({ cat, rank, onClick }: { cat: Category; rank: number; onCl
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
-        flexShrink: 0, width: 150, scrollSnapAlign: 'start',
+        width: '100%',
         display: 'flex', flexDirection: 'column', gap: '10px',
         background: h ? 'rgba(0,229,192,0.06)' : 'rgba(255,255,255,0.025)',
         border: `1px solid ${h ? 'rgba(0,229,192,0.3)' : 'rgba(255,255,255,0.07)'}`,
@@ -495,7 +496,7 @@ function PopularCard({ cat, rank, onClick }: { cat: Category; rank: number; onCl
       }}
     >
       <div style={{ position: 'relative', width: '100%', height: 96, borderRadius: '11px', overflow: 'hidden', background: 'linear-gradient(135deg, rgba(0,229,192,0.18), rgba(0,191,165,0.05))' }}>
-        <img src={cat.cover_image_url || stockImage(cat.id, 'celebration,party')} alt={cat.title} loading="lazy"
+        <img src={categoryCover(cat.id, cat.cover_image_url) || stockImage(cat.id, 'celebration,party')} alt={cat.title} loading="lazy"
           onError={(e) => { e.currentTarget.style.opacity = '0' }}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         <span style={{
@@ -521,7 +522,7 @@ function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
-        flexShrink: 0, width: 200, scrollSnapAlign: 'start',
+        width: '100%',
         display: 'flex', flexDirection: 'column', gap: '10px',
         background: h ? 'rgba(0,229,192,0.06)' : 'rgba(255,255,255,0.025)',
         border: `1px solid ${h ? 'rgba(0,229,192,0.3)' : 'rgba(255,255,255,0.07)'}`,
@@ -565,6 +566,34 @@ export function CatalogPage() {
   const [form, setForm] = useState<PromptForm>(EMPTY_FORM)
   const [showContact, setShowContact] = useState(false)
   const [playing, setPlaying] = useState<ExampleSong | null>(null)
+  const [track, setTrack] = useState<{ url: string; duration: number } | null>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+
+  // Прогреваем демо-треки примеров в фоне, чтобы тап запускал звук мгновенно.
+  useEffect(() => {
+    EXAMPLE_SONGS.forEach((ex) => prewarmDemoTrack(hashStr(ex.id)))
+  }, [])
+
+  // Запуск воспроизведения СИНХРОННО в жесте тапа — иначе мобильные браузеры
+  // блокируют автоплей (жест истекает после await синтеза).
+  function playExample(ex: ExampleSong) {
+    const t = getDemoTrackSync(hashStr(ex.id))
+    setTrack(t)
+    setPlaying(ex)
+    const el = audioRef.current
+    if (el && t) {
+      el.src = t.url
+      el.currentTime = 0
+      el.play().catch(() => {})
+    }
+  }
+
+  function stopExample() {
+    const el = audioRef.current
+    if (el) { el.pause(); el.removeAttribute('src'); el.load() }
+    setPlaying(null)
+    setTrack(null)
+  }
 
   useSeo({
     title: 'Numaestra — персональная песня на заказ за 10 минут',
@@ -638,8 +667,10 @@ export function CatalogPage() {
         />
       )}
       {constructorOverlay}
+      {/* Постоянный аудио-элемент: src/play() выставляются синхронно в жесте тапа. */}
+      <audio ref={audioRef} preload="auto" />
       {playing && !briefOpen && (
-        <FloatingPlayer example={playing} onClose={() => setPlaying(null)} />
+        <FloatingPlayer example={playing} track={track} audioRef={audioRef} onClose={stopExample} />
       )}
 
       {/* Одноколоночный premium-лэйаут: единый скролл, центр ≤1000px */}
@@ -660,7 +691,7 @@ export function CatalogPage() {
           {/* Популярное — горизонтальная секция */}
           {!loading && popular.length > 0 && (
             <div style={{ marginTop: '24px' }}>
-              <HSection icon="🔥" title="Популярное" sub="выбор пользователей">
+              <HSection icon="🔥" title="Популярное" sub="выбор пользователей" minCol={150}>
                 {popular.map((cat, i) => (
                   <PopularCard key={cat.id} cat={cat} rank={i + 1} onClick={() => navigate(`/category/${cat.id}`)} />
                 ))}
@@ -689,9 +720,9 @@ export function CatalogPage() {
           {/* Примеры — горизонтальная секция с плавающим плеером */}
           {!loading && (
             <div style={{ marginTop: '36px' }}>
-              <HSection icon="🎧" title="Послушать примеры" sub="нажмите play">
+              <HSection icon="🎧" title="Послушать примеры" sub="нажмите play" minCol={180}>
                 {EXAMPLE_SONGS.map((ex) => (
-                  <ExampleCard key={ex.id} ex={ex} onPlay={() => setPlaying(ex)} />
+                  <ExampleCard key={ex.id} ex={ex} onPlay={() => playExample(ex)} />
                 ))}
               </HSection>
             </div>

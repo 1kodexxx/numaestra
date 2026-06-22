@@ -53,3 +53,33 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
   return response.json() as Promise<T>
 }
+
+/**
+ * Загрузка файла через multipart/form-data. Content-Type не выставляем вручную —
+ * браузер сам добавит boundary. Авторизация админки — через cookie-сессию.
+ */
+export async function apiUpload<T>(path: string, file: File, field = 'file'): Promise<T> {
+  const form = new FormData()
+  form.append(field, file)
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  })
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`
+    let requestId: string | undefined
+    try {
+      const json = await response.json()
+      message = json.error ?? message
+      requestId = json.request_id
+    } catch {
+      // тело не JSON — используем дефолтное сообщение
+    }
+    throw new ApiError(response.status, message, requestId)
+  }
+
+  return response.json() as Promise<T>
+}

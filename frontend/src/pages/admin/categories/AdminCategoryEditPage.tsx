@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { adminCategoryApi } from '@entities/admin-category'
 import type { AdminCategory, AdminQuestion, AdminOption } from '@entities/admin-category'
@@ -23,6 +23,9 @@ export function AdminCategoryEditPage() {
   const [basePromptTemplate, setBasePromptTemplate] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   function load() {
     setLoading(true)
@@ -58,6 +61,29 @@ export function AdminCategoryEditPage() {
     }
   }
 
+  async function handleCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // позволяем выбрать тот же файл повторно
+    if (!file) return
+    setUploadError(null); setUploading(true)
+    try {
+      const { cover_image_url } = await adminCategoryApi.uploadCover(id, file)
+      setCoverImageUrl(cover_image_url)
+      // Сразу сохраняем категорию с новым URL — чтобы кнопка «просто работала».
+      await adminCategoryApi.update(id, {
+        title, description,
+        cover_image_url,
+        seo_tags: seoTags.split(',').map((t) => t.trim()).filter(Boolean),
+        base_prompt_template: basePromptTemplate,
+      })
+      load()
+    } catch (err) {
+      setUploadError(err instanceof ApiError ? err.message : 'Не удалось загрузить обложку')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   if (loading) return <div style={{ padding: '48px', textAlign: 'center' }}><Spinner /></div>
   if (error) return <ErrorBanner>{error}</ErrorBanner>
   if (!category) return null
@@ -76,7 +102,25 @@ export function AdminCategoryEditPage() {
           <TextField label="Заголовок" value={title} onChange={setTitle} required surfaceColor={A.surface} />
           <TextField label="Описание (вступление для квиза)" value={description} onChange={setDescription} multiline rows={2} surfaceColor={A.surface} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <TextField label="URL картинки" value={coverImageUrl} onChange={setCoverImageUrl} surfaceColor={A.surface} />
+            <div>
+              <TextField label="URL картинки" value={coverImageUrl} onChange={setCoverImageUrl} surfaceColor={A.surface} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
+                {coverImageUrl && (
+                  <img
+                    src={coverImageUrl}
+                    alt="Обложка"
+                    style={{ width: 72, height: 48, objectFit: 'cover', borderRadius: '8px', border: `1px solid ${A.border}`, flexShrink: 0 }}
+                    onError={(ev) => { ev.currentTarget.style.display = 'none' }}
+                  />
+                )}
+                <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCoverFile} style={{ display: 'none' }} />
+                <Button type="button" variant="outlined" size="sm" loading={uploading} onClick={() => fileRef.current?.click()}>
+                  Загрузить обложку
+                </Button>
+              </div>
+              <div style={{ fontSize: '12px', color: A.txt3, marginTop: '6px' }}>PNG, JPEG или WebP, рекомендуется 600×400, до 1 МБ</div>
+              {uploadError && <div style={{ fontSize: '12px', color: '#f87171', marginTop: '6px' }}>{uploadError}</div>}
+            </div>
             <TextField label="Тэги (через запятую)" value={seoTags} onChange={setSeoTags} surfaceColor={A.surface} />
           </div>
           <TextField label="Шаблон промпта для Suno" value={basePromptTemplate} onChange={setBasePromptTemplate} multiline rows={3} required surfaceColor={A.surface} />

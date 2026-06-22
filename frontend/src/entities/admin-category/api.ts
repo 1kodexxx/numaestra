@@ -1,4 +1,4 @@
-import { apiFetch } from '@shared/api'
+import { apiFetch, apiUpload } from '@shared/api'
 import type { AdminCategory, AdminQuestion, CategoryPayload, QuestionPayload } from './types'
 
 export const adminCategoryApi = {
@@ -20,6 +20,10 @@ export const adminCategoryApi = {
 
   remove(id: string) {
     return apiFetch<void>(`/admin/categories/${id}`, { method: 'DELETE' })
+  },
+
+  uploadCover(id: string, file: File) {
+    return apiUpload<{ cover_image_url: string }>(`/admin/categories/${id}/cover`, file)
   },
 
   addQuestion(categoryId: string, payload: QuestionPayload) {

@@ -11,6 +11,7 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -79,6 +80,16 @@ func (c *Client) UploadFromURL(ctx context.Context, sourceURL, key, contentType 
 	// 3. Формируем постоянную ссылку.
 	publicURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
 	return publicURL, nil
+}
+
+// Upload загружает уже готовые байты под ключом key и возвращает постоянную
+// публичную ссылку. В отличие от UploadFromURL источник — данные в памяти
+// (например, обложка категории, пришедшая из формы админки).
+func (c *Client) Upload(ctx context.Context, key, contentType string, data []byte) (string, error) {
+	if err := c.put(ctx, key, contentType, "", bytes.NewReader(data), int64(len(data))); err != nil {
+		return "", fmt.Errorf("загрузка в S3 (key=%s): %w", key, err)
+	}
+	return fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key), nil
 }
 
 // download скачивает тело ответа по URL и возвращает ReadCloser для потоковой

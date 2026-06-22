@@ -64,3 +64,38 @@ export async function synthDemoTrack(seed: number, seconds = 16): Promise<{ url:
 
   return { url: URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })), duration: seconds }
 }
+
+/* ── кэш готовых демо-треков на сессию (примеров немного) ── */
+const cache = new Map<number, { url: string; duration: number }>()
+
+/**
+ * Прогрев: заранее (в фоне через воркер) генерирует демо-трек и кладёт в кэш.
+ * Чтобы к моменту тапа по примеру URL уже был готов и воспроизведение
+ * запускалось синхронно внутри пользовательского жеста (важно для мобильных,
+ * где автоплей после `await` блокируется).
+ */
+export function prewarmDemoTrack(seed: number, seconds = 16): void {
+  if (cache.has(seed)) return
+  void synthDemoTrack(seed, seconds).then((t) => {
+    if (!t) return
+    if (cache.has(seed)) URL.revokeObjectURL(t.url) // гонка прогревов
+    else cache.set(seed, t)
+  })
+}
+
+/**
+ * Синхронно возвращает демо-трек: из кэша (если прогрев успел) либо рендерит
+ * на месте. Синхронность критична: вызов в обработчике тапа сохраняет
+ * пользовательский жест, и последующий audio.play() не блокируется
+ * автоплей-политикой мобильных браузеров.
+ */
+export function getDemoTrackSync(seed: number, seconds = 16): { url: string; duration: number } | null {
+  const hit = cache.get(seed)
+  if (hit) return hit
+  let buf: ArrayBuffer | null = null
+  try { buf = renderWavBuffer(seed, seconds) } catch { return null }
+  if (!buf) return null
+  const t = { url: URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })), duration: seconds }
+  cache.set(seed, t)
+  return t
+}
