@@ -1,14 +1,36 @@
+# ── Бинарники ──
 /bin/
 /numaestra
 /numaestra.exe
+*.exe
+
+# ── Секреты / окружение ──
 .env
+.env.*
+!.env.example
+
+# ── Логи и временные файлы ──
 *.log
+tmp_*
+*.tmp
 
-# Frontend dependencies
+# ── Покрытие тестами и профили Go ──
+*.out
+cov_func.txt
+coverage
+
+# ── Редакторы / ОС ──
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Frontend ──
 frontend/node_modules/
+frontend/dist/
 
-# Vite build output — генерируется через `make frontend-build`
-# Коммитим только placeholder web/out/index.html
-web/out/assets/
-web/out/*.js
-web/out/*.css
+# ── Vite build output ──
+# Регенерируется `npm run build` при сборке Docker. В git держим только
+# placeholder web/out/index.html, чтобы локальный `go build` (//go:embed out)
+# собирался без запуска фронта.
+/web/out/*
+!/web/out/index.html

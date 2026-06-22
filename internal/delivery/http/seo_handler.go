@@ -53,9 +53,15 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 
 	add := func(loc, priority, freq string) {
 		b.WriteString("  <url>\n")
-		b.WriteString("    <loc>" + xmlEscape(loc) + "</loc>\n")
-		b.WriteString("    <changefreq>" + freq + "</changefreq>\n")
-		b.WriteString("    <priority>" + priority + "</priority>\n")
+		b.WriteString("    <loc>")
+		b.WriteString(xmlEscape(loc))
+		b.WriteString("</loc>\n")
+		b.WriteString("    <changefreq>")
+		b.WriteString(freq)
+		b.WriteString("</changefreq>\n")
+		b.WriteString("    <priority>")
+		b.WriteString(priority)
+		b.WriteString("</priority>\n")
 		b.WriteString("  </url>\n")
 	}
 

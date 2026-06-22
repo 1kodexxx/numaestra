@@ -1,7 +1,27 @@
 .git
+.gitignore
 .env
+.env.*
 *.md
 docker-compose.yml
 Dockerfile
 .dockerignore
 bin/
+
+# Локальные зависимости фронта (под Windows) — внутри образа ставятся заново
+# через `npm ci`. Без этого исключения COPY frontend/ перетёр бы Linux-модули.
+frontend/node_modules/
+
+# Build output фронта регенерируется npm run build внутри образа.
+web/out/
+
+# Логи, временные файлы, покрытие тестами — в образе не нужны.
+*.log
+*.out
+tmp_*
+cov_func.txt
+coverage
+
+# Редакторы / IDE.
+.idea/
+.vscode/
