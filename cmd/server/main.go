@@ -343,7 +343,14 @@ func newRouter(
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
 	r.Use(apphttp.MaxBodyBytes(cfg.HTTP.MaxBodyBytes))
-	r.Use(apphttp.CORS(apphttp.DefaultCORSOptions(cfg.HTTP.CORSAllowedOrigins)))
+	// CORS: дефолтный wildcard "*" допустим только в dev. В проде без явного
+	// CORS_ALLOWED_ORIGINS заголовки CORS не выставляются вовсе — штатно SPA
+	// раздаётся с того же origin, что и API, и cross-origin доступ не нужен.
+	corsOpts := apphttp.DefaultCORSOptions(cfg.HTTP.CORSAllowedOrigins)
+	if cfg.Env != "dev" && len(cfg.HTTP.CORSAllowedOrigins) == 0 {
+		corsOpts.AllowedOrigins = nil
+	}
+	r.Use(apphttp.CORS(corsOpts))
 	// Защитные заголовки на все ответы; HSTS — только вне dev (за TLS).
 	r.Use(apphttp.SecurityHeaders(cfg.Env != "dev"))
 

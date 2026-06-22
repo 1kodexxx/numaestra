@@ -18,31 +18,39 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
 // Client загружает объекты в S3-совместимое хранилище.
 type Client struct {
-	endpoint   string // например "https://s3.amazonaws.com" или "https://storage.yandexcloud.net"
-	region     string
-	bucket     string
-	accessKey  string
-	secretKey  string
+	endpoint  string // например "https://s3.amazonaws.com" или "https://storage.yandexcloud.net"
+	region    string
+	bucket    string
+	accessKey string
+	secretKey string
+	// httpClient — для запросов к самому S3 (PUT). Сюда SSRF-фильтр НЕ применяется:
+	// S3-эндпоинт может быть приватным (например MinIO во внутренней сети).
 	httpClient *http.Client
+	// downloadClient — для скачивания внешних source-URL (треки Suno). Имеет
+	// SSRF-guard: запрещает подключения к приватным/loopback/link-local адресам.
+	downloadClient *http.Client
 }
 
 // New создаёт S3-клиент. endpoint — базовый URL хранилища без имени бакета.
 func New(endpoint, region, bucket, accessKey, secretKey string) *Client {
 	return &Client{
-		endpoint:   strings.TrimRight(endpoint, "/"),
-		region:     region,
-		bucket:     bucket,
-		accessKey:  accessKey,
-		secretKey:  secretKey,
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		endpoint:       strings.TrimRight(endpoint, "/"),
+		region:         region,
+		bucket:         bucket,
+		accessKey:      accessKey,
+		secretKey:      secretKey,
+		httpClient:     &http.Client{Timeout: 120 * time.Second},
+		downloadClient: newGuardedHTTPClient(120 * time.Second),
 	}
 }
 
@@ -92,14 +100,60 @@ func (c *Client) Upload(ctx context.Context, key, contentType string, data []byt
 	return fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key), nil
 }
 
+// isDisallowedIP сообщает, что адрес принадлежит небезопасной для SSRF зоне:
+// loopback (127.0.0.1/::1), приватные сети (RFC1918, fc00::/7), link-local
+// (включая облачный метадата-эндпоинт 169.254.169.254), unspecified и multicast.
+func isDisallowedIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
+}
+
+// newGuardedHTTPClient возвращает http.Client, который при установке КАЖДОГО
+// TCP-соединения (в т.ч. после редиректа и уже после DNS-резолвинга, что
+// закрывает и DNS-rebinding) запрещает подключения к приватным/служебным
+// адресам. Используется для скачивания внешних URL — защита от SSRF.
+func newGuardedHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if ip == nil {
+				return fmt.Errorf("ssrf-guard: не удалось разобрать адрес %q", host)
+			}
+			if isDisallowedIP(ip) {
+				return fmt.Errorf("ssrf-guard: подключение к небезопасному адресу %s запрещено", ip)
+			}
+			return nil
+		},
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{DialContext: dialer.DialContext},
+	}
+}
+
 // download скачивает тело ответа по URL и возвращает ReadCloser для потоковой
 // передачи вместе с длиной контента (или -1, если сервер её не сообщил).
+// Принимаются только http(s)-схемы; запросы идут через downloadClient с
+// SSRF-фильтром.
 func (c *Client) download(ctx context.Context, rawURL string) (io.ReadCloser, int64, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, 0, fmt.Errorf("некорректный source URL: %w", err)
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return nil, 0, fmt.Errorf("недопустимая схема source URL %q (ожидается http/https)", parsed.Scheme)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.downloadClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -9,6 +9,12 @@ import (
 	"testing"
 )
 
+// allowLoopbackDownloads отключает SSRF-guard у клиента: httptest-серверы
+// слушают на 127.0.0.1, который guard в проде справедливо блокирует.
+func allowLoopbackDownloads(c *Client) {
+	c.downloadClient = http.DefaultClient
+}
+
 func TestUploadFromURL_Success(t *testing.T) {
 	const audio = "fake-mp3-bytes"
 	var putBody string
@@ -34,6 +40,7 @@ func TestUploadFromURL_Success(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret")
+	allowLoopbackDownloads(c)
 	sourceURL := srv.URL + "/suno/temp.mp3"
 	publicURL, err := c.UploadFromURL(context.Background(), sourceURL, "tracks/order/1.mp3", "audio/mpeg")
 	if err != nil {
@@ -66,6 +73,7 @@ func TestUploadFromURL_DownloadFails(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "us-east-1", "bucket", "AK", "sk")
+	allowLoopbackDownloads(c)
 	if _, err := c.UploadFromURL(context.Background(), srv.URL+"/missing.mp3", "k.mp3", "audio/mpeg"); err == nil {
 		t.Fatal("ожидали ошибку при недоступном источнике")
 	}
@@ -83,8 +91,29 @@ func TestUploadFromURL_PutFails(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "us-east-1", "bucket", "AK", "sk")
+	allowLoopbackDownloads(c)
 	if _, err := c.UploadFromURL(context.Background(), srv.URL+"/a.mp3", "k.mp3", "audio/mpeg"); err == nil {
 		t.Fatal("ожидали ошибку при отказе S3 (403)")
+	}
+}
+
+func TestUploadFromURL_RejectsLoopbackSource(t *testing.T) {
+	// SSRF: source-URL, указывающий на loopback, должен блокироваться guard'ом.
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("secret-internal-data"))
+	}))
+	defer src.Close()
+
+	c := New("https://s3.example.com", "us-east-1", "bucket", "AK", "sk") // guard активен
+	if _, err := c.UploadFromURL(context.Background(), src.URL+"/x.mp3", "k.mp3", "audio/mpeg"); err == nil {
+		t.Fatal("ожидали блокировку SSRF при скачивании с loopback-адреса")
+	}
+}
+
+func TestUploadFromURL_RejectsBadScheme(t *testing.T) {
+	c := New("https://s3.example.com", "us-east-1", "bucket", "AK", "sk")
+	if _, err := c.UploadFromURL(context.Background(), "file:///etc/passwd", "k.mp3", "audio/mpeg"); err == nil {
+		t.Fatal("ожидали отказ для схемы file://")
 	}
 }
 

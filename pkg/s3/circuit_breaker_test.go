@@ -15,8 +15,10 @@ import (
 
 // newResilientTestClient создаёт ResilientClient, указывающий на тестовый сервер.
 func newResilientTestClient(srv *httptest.Server, threshold int, breakerTimeout time.Duration) *ResilientClient {
+	inner := New(srv.URL, "us-east-1", "test-bucket", "AK", "sk")
+	allowLoopbackDownloads(inner) // httptest слушает на 127.0.0.1 — SSRF-guard его блокирует
 	return &ResilientClient{
-		inner:   New(srv.URL, "us-east-1", "test-bucket", "AK", "sk"),
+		inner:   inner,
 		breaker: circuitbreaker.New("s3-test", threshold, breakerTimeout),
 	}
 }

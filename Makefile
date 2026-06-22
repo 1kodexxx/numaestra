@@ -1,4 +1,4 @@
-.PHONY: help build run test test-integration test-race cover vet lint tidy fmt docker-up docker-down clean \
+.PHONY: help build run test test-integration test-race cover vet lint vuln tidy fmt docker-up docker-down clean \
         frontend-install frontend-dev frontend-build frontend-typecheck frontend-test dev
 
 APP_NAME := numaestra
@@ -31,6 +31,9 @@ vet: ## Статический анализ go vet
 
 lint: ## Запустить golangci-lint (должен быть установлен)
 	golangci-lint run
+
+vuln: ## Проверить уязвимости в зависимостях (govulncheck)
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 tidy: ## Привести в порядок зависимости
 	go mod tidy
