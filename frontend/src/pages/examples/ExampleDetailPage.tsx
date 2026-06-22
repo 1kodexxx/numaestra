@@ -48,13 +48,13 @@ export function ExampleDetailPage() {
   useSeo({
     title: example ? `${example.title} — пример песни` : 'Пример не найден',
     description: example
-      ? `${example.description} Закажите похожую песню — 4 версии за 24 часа.`
+      ? `${example.description} Закажите похожую песню — 4 версии за 10 минут.`
       : undefined,
   })
 
   if (!example) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)', padding: '24px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100dvh - 60px)', padding: '24px' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔍</div>
         <div style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '8px' }}>Пример не найден</div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '24px' }}>Возможно, ссылка устарела</div>
@@ -165,7 +165,7 @@ export function ExampleDetailPage() {
           Хотите такую же — но про вас?
         </div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '20px' }}>
-          4 уникальные версии за 24 часа · 2 000 ₽
+          4 уникальные версии за 10 минут · 2 000 ₽
         </div>
         <Button size="lg" fullWidth onClick={() => navigate('/')}>
           Заказать свою песню →

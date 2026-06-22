@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { BrandMark } from '@shared/ui'
+import { BUSINESS } from '@shared/config/business'
 
 const TEXT2 = 'rgba(255,255,255,0.5)'
 const TEXT3 = 'rgba(255,255,255,0.32)'
@@ -36,10 +37,10 @@ export function Footer() {
               <span style={{ fontSize: '17px', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>Numaestra</span>
             </div>
             <p style={{ fontSize: '13px', color: TEXT2, lineHeight: 1.6 }}>
-              AI-студия персональных песен на заказ. Опишите повод — получите 4 готовые версии трека уже через 24 часа.
+              AI-студия персональных песен на заказ. Опишите повод — получите 4 готовые версии трека уже через 10 минут.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '14px' }}>
-              {['4 версии', 'за 24 часа', 'без подписок'].map(t => (
+              {['4 версии', 'за 10 минут', 'без подписок'].map(t => (
                 <span key={t} style={{
                   fontSize: '11px', fontWeight: 600, color: ACCENT,
                   background: 'rgba(0,229,192,0.08)', border: '1px solid rgba(0,229,192,0.2)',
@@ -50,19 +51,30 @@ export function Footer() {
           </div>
 
           {/* Links */}
-          <div style={{ display: 'flex', gap: '56px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '48px', flexWrap: 'wrap' }}>
             <div>
               <ColTitle>Сервис</ColTitle>
               <FootLink to="/">Каталог категорий</FootLink>
               <FootLink to="/status">Мой заказ</FootLink>
             </div>
             <div>
-              <ColTitle>Как это работает</ColTitle>
-              <div style={{ fontSize: '13px', color: TEXT2, lineHeight: 1.9 }}>
-                <div>1. Опишите песню</div>
-                <div>2. Оплатите заказ</div>
-                <div>3. Получите 4 трека</div>
-              </div>
+              <ColTitle>Документы</ColTitle>
+              <FootLink to="/legal/offer">Публичная оферта</FootLink>
+              <FootLink to="/legal/privacy">Политика конфиденциальности</FootLink>
+              <FootLink to="/legal/refund">Политика возврата</FootLink>
+              <FootLink to="/legal/copyright">Права на треки</FootLink>
+            </div>
+            <div>
+              <ColTitle>Контакты</ColTitle>
+              <FootLink to="/legal/contacts">Реквизиты</FootLink>
+              <a
+                href={`mailto:${BUSINESS.email}`}
+                style={{ display: 'block', fontSize: '13px', color: TEXT2, textDecoration: 'none', padding: '5px 0', width: 'fit-content' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#fff' }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = TEXT2 }}
+              >
+                {BUSINESS.email}
+              </a>
             </div>
           </div>
         </div>

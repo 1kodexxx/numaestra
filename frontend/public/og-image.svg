@@ -32,14 +32,14 @@
   <text x="100" y="438" font-family="Inter, Arial, sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="url(#acc)">лично для вас</text>
 
   <!-- subline -->
-  <text x="100" y="506" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="500" fill="rgba(255,255,255,0.62)">Опишите повод — получите 4 версии трека за 24 часа</text>
+  <text x="100" y="506" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="500" fill="rgba(255,255,255,0.62)">Опишите повод — получите 4 версии трека за 10 минут</text>
 
   <!-- pills -->
   <g font-family="Inter, Arial, sans-serif" font-size="26" font-weight="600" fill="#00e5c0">
     <rect x="100" y="544" width="200" height="52" rx="26" fill="rgba(0,229,192,0.1)" stroke="rgba(0,229,192,0.3)"/>
     <text x="200" y="578" text-anchor="middle">4 версии</text>
     <rect x="316" y="544" width="240" height="52" rx="26" fill="rgba(0,229,192,0.1)" stroke="rgba(0,229,192,0.3)"/>
-    <text x="436" y="578" text-anchor="middle">за 24 часа</text>
+    <text x="436" y="578" text-anchor="middle">за 10 минут</text>
     <rect x="572" y="544" width="280" height="52" rx="26" fill="rgba(0,229,192,0.1)" stroke="rgba(0,229,192,0.3)"/>
     <text x="712" y="578" text-anchor="middle">без подписок</text>
   </g>

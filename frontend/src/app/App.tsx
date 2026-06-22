@@ -34,7 +34,7 @@ function useStructuredData() {
         serviceType: 'Создание музыки на заказ',
         provider: { '@type': 'Organization', name: 'Numaestra', url: origin },
         areaServed: 'RU',
-        description: 'Уникальная песня под ваш повод — 4 готовые версии трека за 24 часа.',
+        description: 'Уникальная песня под ваш повод — 4 готовые версии трека за 10 минут.',
         offers: { '@type': 'Offer', price: '2000', priceCurrency: 'RUB' },
       },
     ]

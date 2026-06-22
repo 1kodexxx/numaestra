@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
-import { Button, TextField } from '@shared/ui'
+import { Button, TextField, copyText } from '@shared/ui'
 import { orderApi } from '@entities/order'
 import { useSeo } from '@shared/lib/seo'
 import type { OrderDetail, OrderSummary } from '@entities/order'
@@ -35,7 +35,7 @@ export function StatusPage() {
 
   if (loading && !order) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 60px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100dvh - 60px)' }}>
         <div className="spin-anim" style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.07)', borderTopColor: ACCENT }} />
       </div>
     )
@@ -231,8 +231,22 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
           ))}
         </div>
 
-        <div style={{ marginTop: '20px', fontSize: '12px', color: TEXT3 }}>
-          ID: <code style={{ color: 'rgba(0,229,192,0.6)', fontFamily: 'monospace' }}>{order.id}</code>
+        <div style={{ marginTop: '20px', fontSize: '12px', color: TEXT3, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          ID:
+          <button
+            onClick={() => copyText(order.id, 'ID заказа скопирован')}
+            title="Скопировать ID"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              color: 'rgba(0,229,192,0.7)', fontFamily: 'monospace', fontSize: '12px',
+              display: 'inline-flex', alignItems: 'center', gap: '5px',
+            }}
+          >
+            {order.id}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          </button>
         </div>
         {!isTerminal && (
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '4px' }}>

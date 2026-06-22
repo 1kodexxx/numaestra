@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 
 const SITE = 'Numaestra'
 const DEFAULT_DESC =
-  'AI-студия Numaestra создаёт уникальную песню под ваш повод. Опишите идею — получите 4 готовые версии трека за 24 часа.'
+  'AI-студия Numaestra создаёт уникальную песню под ваш повод. Опишите идею — получите 4 готовые версии трека за 10 минут.'
 
 interface SeoOptions {
   title: string

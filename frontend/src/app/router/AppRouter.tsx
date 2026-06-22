@@ -3,6 +3,8 @@ import { CatalogPage } from '@pages/catalog'
 import { CategoryPage } from '@pages/category'
 import { ExampleDetailPage } from '@pages/examples'
 import { StatusPage } from '@pages/status'
+import { LegalPage } from '@pages/legal'
+import { NotFoundPage } from '@pages/not-found'
 import {
   AdminRoot,
   AdminLoginPage,
@@ -22,6 +24,7 @@ export function AppRouter() {
       <Route path="/examples/:id" element={<ExampleDetailPage />} />
       <Route path="/status" element={<StatusPage />} />
       <Route path="/order/success" element={<Navigate to="/status" replace />} />
+      <Route path="/legal/:slug" element={<LegalPage />} />
 
       <Route path="/admin" element={<AdminRoot />}>
         <Route path="login" element={<AdminLoginPage />} />
@@ -35,7 +38,7 @@ export function AppRouter() {
         </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )
 }
