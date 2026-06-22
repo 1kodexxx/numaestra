@@ -7,6 +7,7 @@ import { EXAMPLE_SONGS } from '@shared/data/examples'
 import { Button, TextField } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
 import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
+import { useSeo } from '@shared/lib/seo'
 import type { Category, Question, WizardData } from '@entities/category'
 
 const ACCENT = '#00e5c0'
@@ -24,7 +25,7 @@ function useBreakpoint() {
     window.addEventListener('resize', fn)
     return () => { window.removeEventListener('resize', fn) }
   }, [])
-  return { isMobile: w < 640, isTablet: w >= 640 && w < 1200, isDesktop: w >= 1200 }
+  return { isMobile: w < 640, isTablet: w >= 640 && w < 1024, isDesktop: w >= 1024 }
 }
 
 /* ─── chip ─── */
@@ -133,6 +134,12 @@ export function CategoryPage() {
   const { loading: submitting, error: submitError, submit } = useCreateOrder()
 
   const category = categories.find((c) => c.id === id)
+
+  useSeo({
+    title: category ? `${category.title} — заказать песню` : 'Конструктор песни',
+    description: category?.description
+      || 'Соберите свою песню: повод, настроение, жанр и детали. 4 готовые версии за 24 часа.',
+  })
 
   useEffect(() => {
     setWizard(null); setAnswers({}); setTagSel({}); setCustomText(''); setExtraNotes('')
@@ -323,7 +330,7 @@ export function CategoryPage() {
               key={cat.id} index={i} title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (
-                <Thumb src={stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
+                <Thumb src={cat.cover_image_url || stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
                   <RankCorner n={i + 1} />
                 </Thumb>
               )}

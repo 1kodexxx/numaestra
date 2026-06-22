@@ -28,3 +28,13 @@ export interface OrderDetail {
   amount_kopecks: number
   tracks: Track[]
 }
+
+// Элемент ответа GET /api/v1/orders/ (список заказов владельца по токену)
+export interface OrderSummary {
+  id: string
+  invoice_id: number
+  brief: string
+  payment_status: string
+  generation_status: string
+  tracks_count: number
+}

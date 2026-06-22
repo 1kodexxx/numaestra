@@ -5,7 +5,6 @@ export interface Category {
   description: string
   cover_image_url: string
   seo_tags: string[]
-  is_active: boolean
 }
 
 export type QuestionUIType = 'select' | 'tags' | 'radio' | 'textarea' | 'text'

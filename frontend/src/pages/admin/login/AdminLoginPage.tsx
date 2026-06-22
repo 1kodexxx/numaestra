@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { useAdminSession } from '@features/admin-session'
 import { ApiError } from '@shared/api'
 import { Button, TextField } from '@shared/ui'
+import { useSeo } from '@shared/lib/seo'
 import { A, ErrorBanner } from '@widgets/admin-layout'
 
 export function AdminLoginPage() {
@@ -12,6 +13,8 @@ export function AdminLoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  useSeo({ title: 'Вход — админ-панель', noindex: true })
 
   if (!loading && currentLogin) return <Navigate to="/admin/categories" replace />
 

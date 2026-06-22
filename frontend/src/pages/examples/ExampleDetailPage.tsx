@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { EXAMPLE_SONGS } from '@shared/data/examples'
 import { MusicPlayer } from '@widgets/player'
-import { Button } from '@shared/ui'
+import { Button, Spinner } from '@shared/ui'
+import { synthDemoTrack, hashStr } from '@shared/lib/demoAudio'
+import { useSeo } from '@shared/lib/seo'
 import type { Track } from '@entities/order'
 
 const ACCENT = '#00e5c0'
@@ -9,16 +12,7 @@ const TEXT2  = 'rgba(255,255,255,0.5)'
 const TEXT3  = 'rgba(255,255,255,0.25)'
 const BORDER = 'rgba(255,255,255,0.07)'
 
-/* Demo tracks with short silent WAV — playable placeholder */
-const SILENCE_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
-
-function makeDemoTracks(count: number): Track[] {
-  return Array.from({ length: count }, (_, i) => ({
-    index: i + 1,
-    audio_url: SILENCE_URL,
-    duration_sec: 180 + i * 12,
-  }))
-}
+const DEMO_TRACK_COUNT = 4
 
 const MOOD_ICON: Record<string, string> = {
   'Романтика': '🌹', 'Радость': '🎉', 'Энергия': '⚡',
@@ -30,6 +24,33 @@ export function ExampleDetailPage() {
   const navigate = useNavigate()
 
   const example = EXAMPLE_SONGS.find((e) => e.id === id)
+  const [tracks, setTracks] = useState<Track[] | null>(null)
+
+  // Синтезируем приятное демо-звучание (плеер не молчит). Очищаем blob-URL при размонтировании.
+  useEffect(() => {
+    if (!example) return
+    let cancelled = false
+    const urls: string[] = []
+    void (async () => {
+      const base = hashStr(example.id)
+      const built: Track[] = []
+      for (let i = 0; i < DEMO_TRACK_COUNT; i++) {
+        const res = await synthDemoTrack(base + i * 7919)
+        if (res) urls.push(res.url)
+        built.push({ index: i + 1, audio_url: res?.url ?? '', duration_sec: res?.duration ?? 0 })
+      }
+      if (cancelled) urls.forEach(URL.revokeObjectURL)
+      else setTracks(built)
+    })()
+    return () => { cancelled = true; urls.forEach(URL.revokeObjectURL) }
+  }, [example])
+
+  useSeo({
+    title: example ? `${example.title} — пример песни` : 'Пример не найден',
+    description: example
+      ? `${example.description} Закажите похожую песню — 4 версии за 24 часа.`
+      : undefined,
+  })
 
   if (!example) {
     return (
@@ -42,7 +63,6 @@ export function ExampleDetailPage() {
     )
   }
 
-  const demoTracks = makeDemoTracks(4)
   const moodIcon = MOOD_ICON[example.mood] ?? '🎵'
 
   return (
@@ -122,7 +142,17 @@ export function ExampleDetailPage() {
             ДЕМО
           </span>
         </div>
-        <MusicPlayer tracks={demoTracks} />
+        {tracks && tracks.length > 0 ? (
+          <MusicPlayer tracks={tracks} />
+        ) : (
+          <div style={{
+            background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '20px',
+            padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+          }}>
+            <Spinner size={28} />
+            <span style={{ fontSize: '13px', color: TEXT2 }}>Готовим демо-звучание…</span>
+          </div>
+        )}
       </div>
 
       {/* CTA */}

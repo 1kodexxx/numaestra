@@ -4,7 +4,9 @@ import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
 import { Button, TextField } from '@shared/ui'
-import type { OrderDetail } from '@entities/order'
+import { orderApi } from '@entities/order'
+import { useSeo } from '@shared/lib/seo'
+import type { OrderDetail, OrderSummary } from '@entities/order'
 
 const ACCENT = '#00e5c0'
 const DARK   = '#080808'
@@ -28,6 +30,8 @@ export function StatusPage() {
   const [active, setActive] = useState<string | null>(initId)
 
   const { order, loading, error } = usePollOrderStatus(active)
+
+  useSeo({ title: 'Статус заказа', description: 'Отслеживайте создание вашей персональной песни.', noindex: true })
 
   if (loading && !order) {
     return (
@@ -77,6 +81,71 @@ export function StatusPage() {
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
       />
+      <OrdersOverview currentId={order.id} />
+    </div>
+  )
+}
+
+/* ── обзор всех заказов владельца (по токену) ── */
+function summaryBadge(o: OrderSummary): { label: string; color: string; bg: string } {
+  if (o.payment_status === 'pending') return { label: 'Ожидает оплаты', color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' }
+  switch (o.generation_status) {
+    case 'completed': return { label: 'Готов', color: '#4ade80', bg: 'rgba(34,197,94,0.12)' }
+    case 'failed':    return { label: 'Ошибка', color: '#f87171', bg: 'rgba(239,68,68,0.12)' }
+    case 'processing':return { label: 'Создаётся', color: ACCENT, bg: 'rgba(0,229,192,0.12)' }
+    case 'queued':    return { label: 'В очереди', color: ACCENT, bg: 'rgba(0,229,192,0.12)' }
+    default:          return { label: 'Оплачен', color: 'rgba(255,255,255,0.6)', bg: 'rgba(255,255,255,0.06)' }
+  }
+}
+
+function OrdersOverview({ currentId }: { currentId: string }) {
+  const [orders, setOrders] = useState<OrderSummary[] | null>(null)
+
+  useEffect(() => {
+    const token = orderStorage.getAccessToken() ?? undefined
+    orderApi.list(token).then(setOrders).catch(() => setOrders([]))
+  }, [])
+
+  if (!orders || orders.length < 2) return null
+
+  return (
+    <div className="fade-in" style={{ marginTop: '24px' }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '12px', padding: '0 4px' }}>
+        Ваши заказы · {orders.length}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {orders.map((o) => {
+          const b = summaryBadge(o)
+          const isCurrent = o.id === currentId
+          return (
+            <div key={o.id} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+              background: isCurrent ? 'rgba(0,229,192,0.06)' : '#0f0f0f',
+              border: `1px solid ${isCurrent ? 'rgba(0,229,192,0.3)' : BORDER}`,
+              borderRadius: '14px', padding: '13px 16px',
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>#{o.invoice_id}</span>
+                  {isCurrent && <span style={{ fontSize: '11px', color: ACCENT, fontWeight: 600 }}>текущий</span>}
+                </div>
+                <div style={{ fontSize: '12px', color: TEXT2, marginTop: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '380px' }}>
+                  {o.brief}
+                </div>
+              </div>
+              <span style={{
+                flexShrink: 0, fontSize: '12px', fontWeight: 600, color: b.color, background: b.bg,
+                border: `1px solid ${b.color}33`, borderRadius: '20px', padding: '4px 11px', whiteSpace: 'nowrap',
+              }}>
+                {b.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ fontSize: '11px', color: TEXT3, marginTop: '10px', padding: '0 4px' }}>
+        Чтобы открыть другой заказ, используйте ссылку из письма о нём.
+      </div>
     </div>
   )
 }

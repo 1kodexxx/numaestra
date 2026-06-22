@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useAdminSession } from '@features/admin-session'
 import { Spinner } from '@shared/ui'
+import { useSeo } from '@shared/lib/seo'
 import { A } from './AdminUI'
 
 const NAV = [
@@ -47,6 +48,8 @@ export function AdminLayout() {
   const { login, loading, signOut } = useAdminSession()
   const navigate = useNavigate()
   const [logoutH, setLogoutH] = useState(false)
+
+  useSeo({ title: 'Админ-панель', noindex: true })
 
   if (loading) {
     return (

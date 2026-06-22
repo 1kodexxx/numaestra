@@ -275,7 +275,8 @@ func run(ctx context.Context) error {
 	}
 
 	healthChecker := health.New(pgPool, redisOpt)
-	router := newRouter(log, orderHandler, categoryHandler, adminHandler, adminAuthHandler, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
+	seoHandler := apphttp.NewSeoHandler(promptUC, log)
+	router := newRouter(log, orderHandler, categoryHandler, adminHandler, adminAuthHandler, seoHandler, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -322,6 +323,7 @@ func newRouter(
 	categoryHandler *apphttp.CategoryHandler,
 	adminHandler *apphttp.AdminHandler,
 	adminAuthHandler *apphttp.AdminAuthHandler,
+	seoHandler *apphttp.SeoHandler,
 	checker *health.Checker,
 	cfg *config.Config,
 	adminSessionSecret []byte,
@@ -359,6 +361,10 @@ func newRouter(
 			r.Mount("/", adminHandler.Routes())
 		})
 	})
+
+	// SEO: robots.txt и sitemap.xml (абсолютные URL по хосту запроса, категории из БД).
+	r.Get("/robots.txt", seoHandler.Robots)
+	r.Get("/sitemap.xml", seoHandler.Sitemap)
 
 	// Статичные обложки категорий (SVG-заглушки, встроенные через go:embed).
 	r.Mount("/images/", http.StripPrefix("/images/", http.FileServer(http.FS(imagesFS))))

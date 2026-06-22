@@ -7,6 +7,7 @@ import { Button, TextField, useRipple } from '@shared/ui'
 import { ContactModal } from '@widgets/contact-modal'
 import { Footer } from '@widgets/footer'
 import { SideItem, PanelHeader, Thumb, PlayOverlay, RankCorner, stockImage } from '@widgets/side-panel'
+import { useSeo } from '@shared/lib/seo'
 import type { Category } from '@entities/category'
 
 /* ─── tokens ─── */
@@ -480,6 +481,11 @@ export function CatalogPage() {
   const [form, setForm] = useState<PromptForm>(EMPTY_FORM)
   const [showContact, setShowContact] = useState(false)
 
+  useSeo({
+    title: 'Numaestra — персональная песня на заказ за 24 часа',
+    description: 'Закажите уникальную песню под ваш повод: свадьба, день рождения, корпоратив и ещё 30+ категорий. Опишите идею — получите 4 версии трека за 24 часа. Один платёж, без подписок.',
+  })
+
   function updateForm<K extends keyof PromptForm>(key: K, value: PromptForm[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
   }
@@ -699,7 +705,7 @@ export function CatalogPage() {
               title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (
-                <Thumb src={stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
+                <Thumb src={cat.cover_image_url || stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
                   <RankCorner n={i + 1} />
                 </Thumb>
               )}
