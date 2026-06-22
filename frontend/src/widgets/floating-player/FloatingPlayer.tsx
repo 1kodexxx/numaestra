@@ -103,13 +103,22 @@ export function FloatingPlayer({
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
+          {example.coverUrl && (
+            <img src={example.coverUrl} alt="" aria-hidden
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          )}
+          {example.coverUrl && (
+            <span aria-hidden style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} />
+          )}
+          <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {ready ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="#062420">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={example.coverUrl ? '#fff' : '#062420'}>
               {playing ? <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /> : <path d="M8 5v14l11-7z" />}
             </svg>
           ) : (
-            <span className="spin-anim" style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(6,36,32,0.4)', borderTopColor: '#062420' }} />
+            <span className="spin-anim" style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff' }} />
           )}
+          </span>
         </button>
 
         {/* title + progress */}
@@ -118,7 +127,7 @@ export function FloatingPlayer({
             <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {example.title}
             </span>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: ACCENT, letterSpacing: '0.04em', flexShrink: 0 }}>ДЕМО</span>
+            {!example.audioUrl && <span style={{ fontSize: '11px', fontWeight: 700, color: ACCENT, letterSpacing: '0.04em', flexShrink: 0 }}>ДЕМО</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
             <span style={{ fontSize: '11px', color: TEXT2, fontVariantNumeric: 'tabular-nums', width: 32 }}>{fmt(time)}</span>

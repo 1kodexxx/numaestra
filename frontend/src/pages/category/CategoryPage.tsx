@@ -303,7 +303,7 @@ export function CategoryPage() {
               key={ex.id} index={i} title={ex.title} sub={ex.category}
               onClick={() => navigate(`/examples/${ex.id}`)}
               leading={(hovered) => (
-                <Thumb src={stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
+                <Thumb src={ex.coverUrl || stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
                   <PlayOverlay active={hovered} />
                 </Thumb>
               )}

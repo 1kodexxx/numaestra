@@ -17,6 +17,7 @@ const DEMO_TRACK_COUNT = 4
 const MOOD_ICON: Record<string, string> = {
   'Романтика': '🌹', 'Радость': '🎉', 'Энергия': '⚡',
   'Юмор': '😄', 'Ностальгия': '🕰️',
+  'Торжество': '🥂', 'Тепло': '🤍', 'Праздник': '🎊',
 }
 
 export function ExampleDetailPage() {
@@ -26,9 +27,14 @@ export function ExampleDetailPage() {
   const example = EXAMPLE_SONGS.find((e) => e.id === id)
   const [tracks, setTracks] = useState<Track[] | null>(null)
 
-  // Синтезируем приятное демо-звучание (плеер не молчит). Очищаем blob-URL при размонтировании.
+  // Если у примера есть реальная запись — играем её одним треком. Иначе
+  // синтезируем приятное демо-звучание (плеер не молчит). Очищаем blob-URL при размонтировании.
   useEffect(() => {
     if (!example) return
+    if (example.audioUrl) {
+      setTracks([{ index: 1, audio_url: example.audioUrl, duration_sec: 0 }])
+      return
+    }
     let cancelled = false
     const urls: string[] = []
     void (async () => {
@@ -112,9 +118,11 @@ export function ExampleDetailPage() {
           background: 'linear-gradient(145deg, #00e5c0, #00bfa5)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: '36px', boxShadow: '0 8px 28px rgba(0,229,192,0.25)',
-          position: 'relative', zIndex: 1,
+          position: 'relative', zIndex: 1, overflow: 'hidden',
         }}>
-          🎵
+          {example.coverUrl
+            ? <img src={example.coverUrl} alt={example.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : '🎵'}
         </div>
       </div>
 
@@ -135,12 +143,14 @@ export function ExampleDetailPage() {
       <div style={{ marginBottom: '16px' }}>
         <div style={{ fontSize: '11px', fontWeight: 700, color: TEXT3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           Прослушать
-          <span style={{
-            background: 'rgba(255,255,255,0.06)', borderRadius: '6px',
-            padding: '2px 7px', fontSize: '9px', color: TEXT2, letterSpacing: '0.04em',
-          }}>
-            ДЕМО
-          </span>
+          {!example.audioUrl && (
+            <span style={{
+              background: 'rgba(255,255,255,0.06)', borderRadius: '6px',
+              padding: '2px 7px', fontSize: '9px', color: TEXT2, letterSpacing: '0.04em',
+            }}>
+              ДЕМО
+            </span>
+          )}
         </div>
         {tracks && tracks.length > 0 ? (
           <MusicPlayer tracks={tracks} />
