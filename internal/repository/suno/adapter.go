@@ -10,6 +10,14 @@ import (
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
+// clipsPerTask — сколько клипов отдаёт одна музыкальная задача Sunor. Suno
+// генерирует две вариации за вызов, поэтому для продуктовых 4 версий адаптер
+// создаёт несколько задач (см. SubmitGeneration).
+const clipsPerTask = 2
+
+// ProviderAdapter реализует domain.MusicProvider поверх клиента Sunor.cc.
+// providerJobID — это один или несколько task_id, склеенных запятой: домен видит
+// единый идентификатор, а адаптер прячет за ним пачку задач Sunor.
 type ProviderAdapter struct {
 	client suno.APIClient
 }
@@ -20,76 +28,101 @@ func NewProviderAdapter(client suno.APIClient) *ProviderAdapter {
 
 var _ domain.MusicProvider = (*ProviderAdapter)(nil)
 
+// SubmitGeneration создаёт столько задач Sunor, сколько нужно для req.TrackCount
+// версий (по clipsPerTask на задачу), и возвращает их task_id через запятую.
+// Возвращает ошибку только если НИ одну задачу создать не удалось — частичный
+// успех допустим (лучше выдать меньше версий, чем провалить весь заказ).
 func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.MusicGenerationRequest) (string, error) {
-	apiReq := suno.GenerateRequest{
-		Prompt:           req.Brief,
-		MakeInstrumental: req.Instrumental,
-		WaitAudio:        false,
+	in := suno.MusicInput{
+		Description:  req.Brief,
+		Tags:         req.Style,
+		Instrumental: req.Instrumental,
 	}
 
-	clips, err := a.client.Generate(ctx, apiReq)
-	if err != nil {
-		if errors.Is(err, suno.ErrSessionExpired) {
+	numTasks := tasksFor(req.TrackCount)
+	var taskIDs []string
+	var firstErr error
+
+	for i := 0; i < numTasks; i++ {
+		taskID, err := a.client.CreateMusicTask(ctx, in)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		taskIDs = append(taskIDs, taskID)
+	}
+
+	if len(taskIDs) == 0 {
+		// Все задачи не создались — пробрасываем причину. 401 (недействительный
+		// ключ) маппим в доменную ошибку, чтобы use-case вывел аккаунт из ротации.
+		if errors.Is(firstErr, suno.ErrInvalidAPIKey) {
 			return "", domain.ErrProviderSessionExpired
 		}
-		return "", fmt.Errorf("ошибка генерации в Suno: %w", err)
+		return "", fmt.Errorf("ошибка создания задачи в Suno: %w", firstErr)
 	}
 
-	if len(clips) == 0 {
-		return "", fmt.Errorf("провайдер вернул пустой список клипов")
-	}
-
-	var ids []string
-	for _, clip := range clips {
-		ids = append(ids, clip.ID)
-	}
-
-	providerJobID := strings.Join(ids, ",")
-	return providerJobID, nil
+	return strings.Join(taskIDs, ","), nil
 }
 
+// FetchResult опрашивает все задачи providerJobID и агрегирует их в единый
+// результат: completed — когда все задачи терминальны и есть хоть один клип;
+// running — пока хоть одна не завершилась; failed — когда все завершились без клипов.
 func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string) (domain.MusicGenerationResult, error) {
 	if providerJobID == "" {
 		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusFailed, Error: "отсутствует provider job id"}, nil
 	}
 
-	ids := strings.Split(providerJobID, ",")
-	clips, err := a.client.GetFeed(ctx, ids)
-	if err != nil {
-		return domain.MusicGenerationResult{}, fmt.Errorf("ошибка опроса статуса Suno: %w", err)
-	}
+	taskIDs := strings.Split(providerJobID, ",")
+	var tracks []domain.ProviderTrack
+	var lastFailReason string
+	stillRunning := false
 
-	result := domain.MusicGenerationResult{
-		Status: domain.MusicGenerationStatusCompleted,
-		Tracks: make([]domain.ProviderTrack, 0, len(clips)),
-	}
+	for _, taskID := range taskIDs {
+		task, err := a.client.GetTask(ctx, taskID)
+		if err != nil {
+			return domain.MusicGenerationResult{}, fmt.Errorf("ошибка опроса статуса Suno (task %s): %w", taskID, err)
+		}
 
-	allCompleted := true
-	hasErrors := false
-	var lastError string
-
-	for _, clip := range clips {
-		switch clip.Status {
-		case suno.StatusError:
-			hasErrors = true
-			lastError = clip.ErrorMessage
-		case suno.StatusComplete:
-			result.Tracks = append(result.Tracks, domain.ProviderTrack{
-				SourceURL:   clip.AudioURL,
-				DurationSec: int(clip.Duration),
-				ExternalID:  clip.ID,
-			})
-		default:
-			allCompleted = false
+		switch task.Status {
+		case suno.StatusSuccess:
+			for _, clip := range task.Clips {
+				tracks = append(tracks, domain.ProviderTrack{
+					SourceURL:   clip.AudioURL,
+					DurationSec: clip.DurationSec,
+					ExternalID:  clip.ID,
+				})
+			}
+		case suno.StatusFailure, suno.StatusTimeout:
+			if task.FailReason != "" {
+				lastFailReason = task.FailReason
+			}
+		default: // pending / running
+			stillRunning = true
 		}
 	}
 
-	if hasErrors {
-		result.Status = domain.MusicGenerationStatusFailed
-		result.Error = lastError
-	} else if !allCompleted {
-		result.Status = domain.MusicGenerationStatusRunning
+	if stillRunning {
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
 	}
 
-	return result, nil
+	// Все задачи терминальны. Есть клипы — успех (даже если часть задач упала);
+	// клипов нет — отказ.
+	if len(tracks) == 0 {
+		if lastFailReason == "" {
+			lastFailReason = "провайдер не вернул ни одного трека"
+		}
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusFailed, Error: lastFailReason}, nil
+	}
+
+	return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusCompleted, Tracks: tracks}, nil
+}
+
+// tasksFor возвращает число задач Sunor, нужное для trackCount версий (минимум 1).
+func tasksFor(trackCount int) int {
+	if trackCount <= clipsPerTask {
+		return 1
+	}
+	return (trackCount + clipsPerTask - 1) / clipsPerTask
 }

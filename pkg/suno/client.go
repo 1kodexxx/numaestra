@@ -1,4 +1,9 @@
 // pkg/suno/client.go
+//
+// Клиент Sunor.cc Suno API (https://docs.sunor.cc). Модель асинхронная: создаём
+// задачу (POST /api/v1/task) → получаем task_id → опрашиваем её (GET
+// /api/v1/task/{id}), пока статус не станет терминальным. Авторизация — заголовок
+// x-api-key (один ключ на аккаунт, без cookie-сессий).
 package suno
 
 import (
@@ -9,26 +14,63 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
-// ErrSessionExpired возвращается, когда Suno API отвечает 401: сессия протухла
-// или была отозвана. Вызывающий код должен немедленно вывести аккаунт из ротации.
-var ErrSessionExpired = errors.New("suno: сессия устарела или недействительна (401)")
-
-// Клиентские константы статусов Suno API
+// Терминальные и промежуточные статусы задачи Sunor (поле data.status).
 const (
-	StatusSubmitted = "submitted"
-	StatusQueued    = "queued"
-	StatusStreaming = "streaming"
-	StatusComplete  = "complete"
-	StatusError     = "error"
+	StatusPending = "pending" // принята, ждёт обработки
+	StatusRunning = "running" // обрабатывается провайдером
+	StatusSuccess = "success" // готово, output.result заполнен
+	StatusFailure = "failure" // ошибка; кредиты возвращены
+	StatusTimeout = "timeout" // таймаут; кредиты возвращены
 )
 
+// Доменно-значимые ошибки API. Вызывающий код различает их через errors.Is,
+// чтобы по-разному реагировать (вывести аккаунт из ротации, не списывать ретрай и т.п.).
+var (
+	// ErrInvalidAPIKey — 401: ключ отсутствует или недействителен. Аккаунт нужно
+	// немедленно вывести из ротации до обновления ключа.
+	ErrInvalidAPIKey = errors.New("suno: неверный или отсутствующий API-ключ (401)")
+	// ErrInsufficientCredits — 402: на балансе ключа недостаточно кредитов.
+	ErrInsufficientCredits = errors.New("suno: недостаточно кредитов на балансе (402)")
+	// ErrRateLimited — 429: превышен лимит запросов (по умолчанию 120 req/мин на ключ).
+	ErrRateLimited = errors.New("suno: превышен лимит запросов (429)")
+	// ErrTaskNotFound — 404: задача не найдена (неверный id или чужой аккаунт).
+	ErrTaskNotFound = errors.New("suno: задача не найдена (404)")
+)
+
+// APIClient — порт клиента Sunor для адаптера провайдера.
 type APIClient interface {
-	Generate(ctx context.Context, req GenerateRequest) ([]Clip, error)
-	GetFeed(ctx context.Context, ids []string) ([]Clip, error)
+	// CreateMusicTask создаёт задачу генерации музыки и возвращает её task_id.
+	CreateMusicTask(ctx context.Context, in MusicInput) (taskID string, err error)
+	// GetTask возвращает текущее состояние задачи: статус и (по готовности) клипы.
+	GetTask(ctx context.Context, taskID string) (Task, error)
+}
+
+// MusicInput — параметры генерации. Используется Inspiration Mode Sunor:
+// gpt_description_prompt свободным текстом, провайдер сам пишет текст и музыку.
+type MusicInput struct {
+	Description  string // gpt_description_prompt — описание/бриф будущей песни
+	Tags         string // input.tags — стиль/жанр через запятую (опционально)
+	Instrumental bool   // make_instrumental — песня без вокала
+}
+
+// Task — провайдеро-нейтральное представление состояния задачи.
+type Task struct {
+	ID         string
+	Status     string // одна из StatusPending/Running/Success/Failure/Timeout
+	Clips      []Clip // заполнено при StatusSuccess
+	FailReason string // причина при StatusFailure/StatusTimeout
+}
+
+// Clip — один сгенерированный трек.
+type Clip struct {
+	ID          string
+	AudioURL    string
+	DurationSec int
 }
 
 type httpClient struct {
@@ -37,113 +79,178 @@ type httpClient struct {
 	client  *http.Client
 }
 
+// NewClient создаёт клиент Sunor. baseURL — корень API (например, https://sunor.cc),
+// к нему добавляется /api/v1/...; apiKey уходит в заголовок x-api-key.
 func NewClient(baseURL, apiKey string) APIClient {
 	return &httpClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
 		client: &http.Client{
-			Timeout: 30 * time.Second, // Адекватный таймаут для внешних интеграций
+			Timeout: 30 * time.Second,
 		},
 	}
 }
 
-// DTO контракты внешнего API
+// --- DTO внешнего API (snake_case согласно docs.sunor.cc) ---
 
-type GenerateRequest struct {
-	Prompt           string `json:"prompt"`
-	Tags             string `json:"tags,omitempty"`
-	Title            string `json:"title,omitempty"`
-	MakeInstrumental bool   `json:"make_instrumental"`
-	WaitAudio        bool   `json:"wait_audio"` // Обычно false для асинхронной работы
+type createTaskRequest struct {
+	Model    string         `json:"model"`
+	TaskType string         `json:"task_type"`
+	Input    musicInputBody `json:"input"`
 }
 
-type Clip struct {
-	ID           string  `json:"id"`
-	Status       string  `json:"status"`
-	AudioURL     string  `json:"audio_url"`
-	VideoURL     string  `json:"video_url,omitempty"`
-	Duration     float64 `json:"duration,omitempty"`
-	Title        string  `json:"title,omitempty"`
-	Tags         string  `json:"tags,omitempty"`
-	ErrorMessage string  `json:"error_message,omitempty"`
+type musicInputBody struct {
+	GptDescriptionPrompt string `json:"gpt_description_prompt"`
+	Tags                 string `json:"tags,omitempty"`
+	MakeInstrumental     bool   `json:"make_instrumental"`
 }
 
-// Generate инициирует процесс генерации музыки. Возвращает массив предварительных данных (обычно 2 клипа).
-func (c *httpClient) Generate(ctx context.Context, req GenerateRequest) ([]Clip, error) {
-	endpoint := fmt.Sprintf("%s/api/custom_generate", c.baseURL)
+type createTaskResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		TaskID string `json:"task_id"`
+		Status string `json:"status"`
+	} `json:"data"`
+}
 
-	body, err := json.Marshal(req)
+type getTaskResponse struct {
+	Code int `json:"code"`
+	Data struct {
+		TaskID string          `json:"task_id"`
+		Status string          `json:"status"`
+		Error  json.RawMessage `json:"error"`
+		Output struct {
+			FailReason *string      `json:"fail_reason"`
+			Result     []clipResult `json:"result"`
+		} `json:"output"`
+	} `json:"data"`
+}
+
+type clipResult struct {
+	ID       string `json:"id"`
+	AudioURL string `json:"audio_url"`
+	Metadata struct {
+		Duration float64 `json:"duration"`
+	} `json:"metadata"`
+}
+
+// CreateMusicTask отправляет POST /api/v1/task в Inspiration Mode.
+func (c *httpClient) CreateMusicTask(ctx context.Context, in MusicInput) (string, error) {
+	body, err := json.Marshal(createTaskRequest{
+		Model:    "suno",
+		TaskType: "music",
+		Input: musicInputBody{
+			GptDescriptionPrompt: in.Description,
+			Tags:                 in.Tags,
+			MakeInstrumental:     in.Instrumental,
+		},
+	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return "", fmt.Errorf("marshal create task: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	raw, err := c.do(ctx, http.MethodPost, "/api/v1/task", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+
+	var resp createTaskResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return "", fmt.Errorf("decode create task: %w", err)
+	}
+	if resp.Data.TaskID == "" {
+		return "", fmt.Errorf("suno: пустой task_id в ответе")
+	}
+	return resp.Data.TaskID, nil
+}
+
+// GetTask опрашивает GET /api/v1/task/{taskID}.
+func (c *httpClient) GetTask(ctx context.Context, taskID string) (Task, error) {
+	if taskID == "" {
+		return Task{}, fmt.Errorf("suno: пустой task id")
+	}
+
+	raw, err := c.do(ctx, http.MethodGet, "/api/v1/task/"+url.PathEscape(taskID), nil)
+	if err != nil {
+		return Task{}, err
+	}
+
+	var resp getTaskResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return Task{}, fmt.Errorf("decode get task: %w", err)
+	}
+
+	task := Task{
+		ID:         resp.Data.TaskID,
+		Status:     resp.Data.Status,
+		FailReason: failReason(resp.Data.Output.FailReason, resp.Data.Error),
+	}
+	for _, r := range resp.Data.Output.Result {
+		task.Clips = append(task.Clips, Clip{
+			ID:          r.ID,
+			AudioURL:    r.AudioURL,
+			DurationSec: int(r.Metadata.Duration),
+		})
+	}
+	if task.ID == "" {
+		task.ID = taskID
+	}
+	return task, nil
+}
+
+// do выполняет HTTP-запрос, маппит статус-коды на доменные ошибки и возвращает тело.
+func (c *httpClient) do(ctx context.Context, method, path string, body io.Reader) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+		req.Header.Set("x-api-key", c.apiKey)
 	}
 
-	resp, err := c.client.Do(httpReq)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, ErrSessionExpired
-	}
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))
-	}
-
-	var clips []Clip
-	if err := json.NewDecoder(resp.Body).Decode(&clips); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return nil, ErrInvalidAPIKey
+	case http.StatusPaymentRequired:
+		return nil, ErrInsufficientCredits
+	case http.StatusTooManyRequests:
+		return nil, ErrRateLimited
+	case http.StatusNotFound:
+		return nil, ErrTaskNotFound
 	}
 
-	return clips, nil
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+	// Создание задачи отвечает 200/202, опрос — 200. Любой иной 2xx считаем успехом.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("suno api error: status %d, body: %s", resp.StatusCode, string(raw))
+	}
+	return raw, nil
 }
 
-// GetFeed запрашивает актуальный статус сгенерированных треков по их идентификаторами.
-func (c *httpClient) GetFeed(ctx context.Context, ids []string) ([]Clip, error) {
-	if len(ids) == 0 {
-		return nil, nil
+// failReason извлекает человекочитаемую причину сбоя: сначала output.fail_reason,
+// затем data.error (строка либо произвольный JSON).
+func failReason(failReason *string, rawError json.RawMessage) string {
+	if failReason != nil && *failReason != "" {
+		return *failReason
 	}
-
-	endpoint := fmt.Sprintf("%s/api/get?ids=%s", c.baseURL, strings.Join(ids, ","))
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+	if len(rawError) == 0 || string(rawError) == "null" {
+		return ""
 	}
-
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
+	var s string
+	if err := json.Unmarshal(rawError, &s); err == nil {
+		return s
 	}
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, ErrSessionExpired
-	}
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("api error: status %d, body: %s", resp.StatusCode, string(respBody))
-	}
-
-	var clips []Clip
-	if err := json.NewDecoder(resp.Body).Decode(&clips); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	return clips, nil
+	return string(rawError)
 }

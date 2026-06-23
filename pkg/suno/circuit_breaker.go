@@ -21,22 +21,22 @@ func NewClientWithBreaker(baseURL, apiKey string) APIClient {
 	}
 }
 
-func (w *withBreaker) Generate(ctx context.Context, req GenerateRequest) ([]Clip, error) {
-	var result []Clip
+func (w *withBreaker) CreateMusicTask(ctx context.Context, in MusicInput) (string, error) {
+	var taskID string
 	err := w.breaker.Do(func() error {
 		var err error
-		result, err = w.inner.Generate(ctx, req)
+		taskID, err = w.inner.CreateMusicTask(ctx, in)
 		return err
 	})
-	return result, err
+	return taskID, err
 }
 
-func (w *withBreaker) GetFeed(ctx context.Context, ids []string) ([]Clip, error) {
-	var result []Clip
+func (w *withBreaker) GetTask(ctx context.Context, taskID string) (Task, error) {
+	var task Task
 	err := w.breaker.Do(func() error {
 		var err error
-		result, err = w.inner.GetFeed(ctx, ids)
+		task, err = w.inner.GetTask(ctx, taskID)
 		return err
 	})
-	return result, err
+	return task, err
 }

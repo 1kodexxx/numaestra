@@ -148,7 +148,7 @@ func Load() (*Config, error) {
 			AllowedIPs: getCSVEnv("ROBOKASSA_ALLOWED_IPS"),
 		},
 		Suno: SunoConfig{
-			APIURL: getEnv("SUNO_API_URL", "https://api.custom-suno.local"),
+			APIURL: getEnv("SUNO_API_URL", "https://sunor.cc"),
 			APIKey: getEnv("SUNO_API_KEY", ""),
 		},
 		S3: S3Config{

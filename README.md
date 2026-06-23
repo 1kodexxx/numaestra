@@ -89,7 +89,7 @@ LLM пишет текст, **Suno** генерирует музыку, **Robokas
 | **Backend** | Go 1.25, chi/v5, Asynq (Redis), pgx, hexagonal architecture |
 | **Frontend** | React 18, TypeScript, Vite 5, Tailwind CSS v4, Feature-Sliced Design |
 | **Данные** | PostgreSQL 16, Redis 7 |
-| **Интеграции** | Suno API, OpenRouter/OpenAI (LLM), Robokassa, S3, SMTP |
+| **Интеграции** | Suno API (Sunor.cc), OpenRouter/OpenAI (LLM), Robokassa, S3, SMTP |
 | **Инфра** | Docker Compose, Caddy (авто-TLS), Prometheus + Alertmanager |
 
 UI собран на собственных Material-примитивах (`Button`, `TextField`, `Card`,

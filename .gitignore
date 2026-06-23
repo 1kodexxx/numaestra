@@ -34,3 +34,6 @@ frontend/dist/
 # собирался без запуска фронта.
 /web/out/*
 !/web/out/index.html
+
+# Артефакты веб-скрейпинга (firecrawl)
+.firecrawl/

@@ -11,72 +11,64 @@ import (
 
 // mockInner — заглушка APIClient для тестирования withBreaker.
 type mockInner struct {
-	generateFn func() ([]Clip, error)
-	getFeedFn  func() ([]Clip, error)
+	createFn func() (string, error)
+	getFn    func() (Task, error)
 }
 
-func (m *mockInner) Generate(_ context.Context, _ GenerateRequest) ([]Clip, error) {
-	if m.generateFn != nil {
-		return m.generateFn()
+func (m *mockInner) CreateMusicTask(_ context.Context, _ MusicInput) (string, error) {
+	if m.createFn != nil {
+		return m.createFn()
 	}
-	return []Clip{{ID: "c1"}}, nil
+	return "task-1", nil
 }
 
-func (m *mockInner) GetFeed(_ context.Context, _ []string) ([]Clip, error) {
-	if m.getFeedFn != nil {
-		return m.getFeedFn()
+func (m *mockInner) GetTask(_ context.Context, _ string) (Task, error) {
+	if m.getFn != nil {
+		return m.getFn()
 	}
-	return []Clip{{ID: "c2"}}, nil
+	return Task{ID: "task-1", Status: StatusSuccess}, nil
 }
 
-func TestWithBreaker_Generate_PassesThrough(t *testing.T) {
-	wb := &withBreaker{
-		inner:   &mockInner{},
-		breaker: circuitbreaker.New("test", 5, time.Second),
-	}
-	clips, err := wb.Generate(context.Background(), GenerateRequest{Prompt: "test"})
+func TestWithBreaker_CreateMusicTask_PassesThrough(t *testing.T) {
+	wb := &withBreaker{inner: &mockInner{}, breaker: circuitbreaker.New("test", 5, time.Second)}
+	id, err := wb.CreateMusicTask(context.Background(), MusicInput{Description: "test"})
 	if err != nil {
-		t.Fatalf("Generate: %v", err)
+		t.Fatalf("CreateMusicTask: %v", err)
 	}
-	if len(clips) != 1 || clips[0].ID != "c1" {
-		t.Errorf("неверный ответ: %+v", clips)
+	if id != "task-1" {
+		t.Errorf("неверный ответ: %q", id)
 	}
 }
 
-func TestWithBreaker_GetFeed_PassesThrough(t *testing.T) {
-	wb := &withBreaker{
-		inner:   &mockInner{},
-		breaker: circuitbreaker.New("test", 5, time.Second),
-	}
-	clips, err := wb.GetFeed(context.Background(), []string{"id1"})
+func TestWithBreaker_GetTask_PassesThrough(t *testing.T) {
+	wb := &withBreaker{inner: &mockInner{}, breaker: circuitbreaker.New("test", 5, time.Second)}
+	task, err := wb.GetTask(context.Background(), "task-1")
 	if err != nil {
-		t.Fatalf("GetFeed: %v", err)
+		t.Fatalf("GetTask: %v", err)
 	}
-	if len(clips) != 1 || clips[0].ID != "c2" {
-		t.Errorf("неверный ответ: %+v", clips)
+	if task.Status != StatusSuccess {
+		t.Errorf("неверный ответ: %+v", task)
 	}
 }
 
-func TestWithBreaker_Generate_ReturnsInnerError(t *testing.T) {
+func TestWithBreaker_CreateMusicTask_ReturnsInnerError(t *testing.T) {
 	sentinel := errors.New("suno api error")
 	wb := &withBreaker{
-		inner:   &mockInner{generateFn: func() ([]Clip, error) { return nil, sentinel }},
+		inner:   &mockInner{createFn: func() (string, error) { return "", sentinel }},
 		breaker: circuitbreaker.New("test", 5, time.Second),
 	}
-	_, err := wb.Generate(context.Background(), GenerateRequest{})
-	if !errors.Is(err, sentinel) {
+	if _, err := wb.CreateMusicTask(context.Background(), MusicInput{}); !errors.Is(err, sentinel) {
 		t.Errorf("ожидали sentinel error, получили %v", err)
 	}
 }
 
-func TestWithBreaker_GetFeed_ReturnsInnerError(t *testing.T) {
-	sentinel := errors.New("feed error")
+func TestWithBreaker_GetTask_ReturnsInnerError(t *testing.T) {
+	sentinel := errors.New("get task error")
 	wb := &withBreaker{
-		inner:   &mockInner{getFeedFn: func() ([]Clip, error) { return nil, sentinel }},
+		inner:   &mockInner{getFn: func() (Task, error) { return Task{}, sentinel }},
 		breaker: circuitbreaker.New("test", 5, time.Second),
 	}
-	_, err := wb.GetFeed(context.Background(), []string{"id1"})
-	if !errors.Is(err, sentinel) {
+	if _, err := wb.GetTask(context.Background(), "id"); !errors.Is(err, sentinel) {
 		t.Errorf("ожидали sentinel error, получили %v", err)
 	}
 }
@@ -85,24 +77,21 @@ func TestWithBreaker_OpensAfterThresholdErrors(t *testing.T) {
 	const threshold = 3
 	callCount := 0
 	wb := &withBreaker{
-		inner: &mockInner{generateFn: func() ([]Clip, error) {
+		inner: &mockInner{createFn: func() (string, error) {
 			callCount++
-			return nil, errors.New("suno down")
+			return "", errors.New("suno down")
 		}},
 		breaker: circuitbreaker.New("test", threshold, time.Minute),
 	}
 
-	// threshold ошибок → цепь разомкнута.
 	for i := 0; i < threshold; i++ {
-		wb.Generate(context.Background(), GenerateRequest{}) //nolint:errcheck
+		wb.CreateMusicTask(context.Background(), MusicInput{}) //nolint:errcheck
 	}
-
 	if callCount != threshold {
 		t.Fatalf("ожидали %d вызовов внутреннего клиента, получили %d", threshold, callCount)
 	}
 
-	// Следующий вызов должен вернуть ErrCircuitOpen без обращения к inner.
-	_, err := wb.Generate(context.Background(), GenerateRequest{})
+	_, err := wb.CreateMusicTask(context.Background(), MusicInput{})
 	if !errors.Is(err, circuitbreaker.ErrCircuitOpen) {
 		t.Errorf("после %d ошибок ожидали ErrCircuitOpen, получили %v", threshold, err)
 	}
@@ -112,6 +101,5 @@ func TestWithBreaker_OpensAfterThresholdErrors(t *testing.T) {
 }
 
 func TestNewClientWithBreaker_ImplementsAPIClient(t *testing.T) {
-	// Статическая проверка: NewClientWithBreaker возвращает APIClient.
 	var _ APIClient = NewClientWithBreaker("http://localhost", "key")
 }
