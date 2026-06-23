@@ -22,7 +22,7 @@ var ErrCircuitOpen = errors.New("circuit breaker разомкнут: внешн�
 type state int
 
 const (
-	stateClosed   state = iota
+	stateClosed state = iota
 	stateOpen
 	stateHalfOpen
 )
@@ -35,9 +35,9 @@ type Breaker struct {
 	threshold int           // число последовательных ошибок до размыкания
 	timeout   time.Duration // время ожидания в Open перед переходом в Half-Open
 
-	failures    int
-	state       state
-	openedAt    time.Time
+	failures int
+	state    state
+	openedAt time.Time
 }
 
 // New создаёт новый Breaker.

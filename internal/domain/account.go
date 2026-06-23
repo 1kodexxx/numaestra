@@ -150,11 +150,11 @@ func (a *SunoAccount) Status() AccountStatus     { return a.status }
 func (a *SunoAccount) Email() string             { return a.email }
 func (a *SunoAccount) EncryptedSession() string  { return a.encryptedSession }
 func (a *SunoAccount) TokenBalance() int         { return a.tokenBalance }
-func (a *SunoAccount) FailureCount() int          { return a.failureCount }
-func (a *SunoAccount) MaxConcurrentTasks() int    { return a.maxConcurrentTasks }
-func (a *SunoAccount) ConcurrentTasks() int       { return a.concurrentTasks }
-func (a *SunoAccount) CooldownUntil() *time.Time  { return a.cooldownUntil }
-func (a *SunoAccount) UpdatedAt() time.Time       { return a.updatedAt }
+func (a *SunoAccount) FailureCount() int         { return a.failureCount }
+func (a *SunoAccount) MaxConcurrentTasks() int   { return a.maxConcurrentTasks }
+func (a *SunoAccount) ConcurrentTasks() int      { return a.concurrentTasks }
+func (a *SunoAccount) CooldownUntil() *time.Time { return a.cooldownUntil }
+func (a *SunoAccount) UpdatedAt() time.Time      { return a.updatedAt }
 
 // IsAvailable проверяет, может ли аккаунт прямо сейчас принять ещё одну задачу:
 // он активен, есть токены, не в cooldown и не достигнут лимит одновременных задач.

@@ -15,7 +15,7 @@ import (
 type inMemCategoryRepo struct {
 	mu         sync.Mutex
 	categories map[string]domain.CategorySnapshot
-	getAllErr   error
+	getAllErr  error
 	getByIDErr error
 	calls      int // счётчик вызовов GetAll для проверки кеша
 }

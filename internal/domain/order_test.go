@@ -1,4 +1,4 @@
-﻿package domain
+package domain
 
 import (
 	"strings"
@@ -331,5 +331,3 @@ func newProcessingOrder(t *testing.T) *Order {
 	_ = o.StartProcessing(uuid.New())
 	return o
 }
-
-

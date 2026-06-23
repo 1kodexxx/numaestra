@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 	"github.com/numaestra/numaestra/pkg/adminsession"
@@ -700,4 +701,3 @@ func TestAdminAuth_EmptyTokenBlocksAll(t *testing.T) {
 		t.Errorf("пустой токен должен блокировать все запросы, получили %d", w.Code)
 	}
 }
-

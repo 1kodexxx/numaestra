@@ -24,7 +24,6 @@ import (
 
 	"github.com/numaestra/numaestra/internal/config"
 	apphttp "github.com/numaestra/numaestra/internal/delivery/http"
-	"github.com/numaestra/numaestra/pkg/encryption"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/repository/postgres"
 	"github.com/numaestra/numaestra/internal/repository/queue"
@@ -33,6 +32,7 @@ import (
 	"github.com/numaestra/numaestra/internal/worker"
 	"github.com/numaestra/numaestra/migrations"
 	"github.com/numaestra/numaestra/pkg/banner"
+	"github.com/numaestra/numaestra/pkg/encryption"
 	"github.com/numaestra/numaestra/pkg/health"
 	"github.com/numaestra/numaestra/pkg/idempotency"
 	"github.com/numaestra/numaestra/pkg/logger"

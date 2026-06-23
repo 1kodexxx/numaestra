@@ -26,7 +26,7 @@ type Notifier interface {
 // OrderCompleteNotification содержит данные для уведомления о завершении заказа.
 type OrderCompleteNotification struct {
 	OrderID     string
-	AccessToken string   // токен доступа клиента — используется для формирования magic-link
+	AccessToken string // токен доступа клиента — используется для формирования magic-link
 	Email       string
 	Phone       string
 	TrackURLs   []string // постоянные ссылки на треки в S3

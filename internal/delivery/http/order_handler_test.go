@@ -17,13 +17,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 	"github.com/numaestra/numaestra/pkg/robokassa"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -560,11 +561,11 @@ func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief string) *doma
 // --- минимальные in-memory моки для конструирования use case ---
 
 type hOrderRepo struct {
-	mu             sync.Mutex
-	orders         map[uuid.UUID]domain.OrderSnapshot
-	byInvoice      map[int64]uuid.UUID
-	seq            int64
-	getByInvErr    error // инъекция ошибки для GetByInvoiceID → webhook 500
+	mu          sync.Mutex
+	orders      map[uuid.UUID]domain.OrderSnapshot
+	byInvoice   map[int64]uuid.UUID
+	seq         int64
+	getByInvErr error // инъекция ошибки для GetByInvoiceID → webhook 500
 }
 
 func newHOrderRepo() *hOrderRepo {

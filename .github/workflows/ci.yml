@@ -83,10 +83,12 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        # v7 экшена умеет запускать golangci-lint v2. Версия линтера ЗАПИНЕНА, а не
+        # latest: иначе мажорный апгрейд линтера (v1→v2) внезапно ломает CI без
+        # единой правки кода. Поднимать осознанно вместе с миграцией конфига.
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
-          args: --timeout=5m
+          version: v2.12.2
 
   vuln:
     name: Vulnerability scan

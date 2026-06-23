@@ -439,4 +439,3 @@ func TestAdminHandler_DeleteQuestion_NotFound(t *testing.T) {
 		t.Fatalf("ожидали 404, получили %d", w.Code)
 	}
 }
-

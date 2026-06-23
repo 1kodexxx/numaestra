@@ -10,21 +10,21 @@ import (
 
 // Config - главная структура конфигурации, собирающая настройки всех подсистем.
 type Config struct {
-	Env  string // dev | staging | production
+	Env string // dev | staging | production
 	// Mode управляет тем, какие компоненты запускаются в процессе:
 	//   all    — HTTP-сервер + Asynq-воркер (по умолчанию, обратно совместимо)
 	//   api    — только HTTP-сервер (для горизонтального масштабирования API)
 	//   worker — только Asynq-воркер (для горизонтального масштабирования воркеров)
-	Mode string // all | api | worker
-	HTTP HTTPConfig
-	Postgres  PostgresConfig
-	Redis     RedisConfig
-	Robokassa RobokassaConfig
-	Suno      SunoConfig
-	S3        S3Config
-	OpenAI    OpenAIConfig
-	Pricing   PricingConfig
-	Notify    NotifyConfig
+	Mode       string // all | api | worker
+	HTTP       HTTPConfig
+	Postgres   PostgresConfig
+	Redis      RedisConfig
+	Robokassa  RobokassaConfig
+	Suno       SunoConfig
+	S3         S3Config
+	OpenAI     OpenAIConfig
+	Pricing    PricingConfig
+	Notify     NotifyConfig
 	AdminToken string // ADMIN_TOKEN — Bearer-токен для /api/v1/admin/* маршрутов (скрипты/CI)
 	// AdminLogin/AdminPassword — учётные данные для входа в /admin на фронтенде
 	// (POST /api/v1/admin/login). Сравниваются с константным временем.
