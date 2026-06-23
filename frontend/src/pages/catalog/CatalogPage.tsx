@@ -314,12 +314,15 @@ function SearchBar({ onOpen }: { onOpen: () => void }) {
     <button
       onClick={onOpen}
       onMouseEnter={(e) => {
-        onOpen();
         e.currentTarget.style.borderColor = "rgba(0,229,192,0.35)";
         e.currentTarget.style.background = "rgba(255,255,255,0.045)";
         e.currentTarget.style.boxShadow = "0 0 0 4px rgba(0,229,192,0.05)";
       }}
-      onFocus={onOpen}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+        e.currentTarget.style.background = "rgba(255,255,255,0.03)";
+        e.currentTarget.style.boxShadow = "none";
+      }}
       style={{
         display: "flex",
         alignItems: "center",
@@ -330,7 +333,7 @@ function SearchBar({ onOpen }: { onOpen: () => void }) {
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: "14px",
         padding: "15px 20px",
-        cursor: "text",
+        cursor: "pointer",
         transition: "all 0.2s",
         textAlign: "left",
       }}
@@ -1192,23 +1195,13 @@ export function CatalogPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  // Конструктор открывается по наведению на поиск; защита от мгновенного
-  // переоткрытия, когда после закрытия строка возвращается под курсор.
-  const suppressHoverRef = useRef(false);
-
+  // Конструктор открывается по клику на строку поиска.
   function openBuilder() {
-    if (suppressHoverRef.current) return;
     setBriefOpen(true);
   }
 
   function closeBuilder() {
     setBriefOpen(false);
-    suppressHoverRef.current = true;
-    const clear = () => {
-      suppressHoverRef.current = false;
-      document.removeEventListener("mousemove", clear);
-    };
-    document.addEventListener("mousemove", clear);
   }
 
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
