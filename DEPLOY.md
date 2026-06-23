@@ -33,6 +33,21 @@ git clone https://github.com/1kodexxx/numaestra.git ~/numaestra
 cd ~/numaestra
 ```
 
+> 🔒 **Приватный репозиторий?** GitHub не поддерживает парольную авторизацию по
+> HTTPS для git — клонируйте по SSH через **read-only Deploy Key**:
+> ```bash
+> ssh-keygen -t ed25519 -f ~/.ssh/github_deploy -C "numaestra-server" -N ""
+> cat ~/.ssh/github_deploy.pub   # вставить в GitHub → Settings → Deploy keys → Add deploy key (без write-доступа)
+> cat >> ~/.ssh/config <<'EOF'
+> Host github.com
+>     IdentityFile ~/.ssh/github_deploy
+>     IdentitiesOnly yes
+> EOF
+> chmod 600 ~/.ssh/config
+> git clone git@github.com:1kodexxx/numaestra.git ~/numaestra
+> ```
+> Тот же ключ затем использует `git pull` внутри `deploy/deploy.sh` при автодеплое.
+
 ### Логин в GHCR (чтобы сервер мог тянуть образ)
 
 Образы GHCR приватны по умолчанию. Создайте **Personal Access Token (classic)** с правом
