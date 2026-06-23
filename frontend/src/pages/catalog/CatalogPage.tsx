@@ -1008,6 +1008,23 @@ function PopularCard({
       >
         {cat.title}
       </span>
+
+      <span
+        style={{
+          alignSelf: "flex-start",
+          fontSize: "11px",
+          fontWeight: 700,
+          color: h ? ACCENT : TEXT2,
+          background: h ? "rgba(0,229,192,0.12)" : "rgba(255,255,255,0.05)",
+          border: `1px solid ${h ? "rgba(0,229,192,0.32)" : "rgba(255,255,255,0.08)"}`,
+          borderRadius: "999px",
+          padding: "2px 9px",
+          letterSpacing: "0.01em",
+          transition: "all 0.2s",
+        }}
+      >
+        {PRICE_LABEL}
+      </span>
     </button>
   );
 }
