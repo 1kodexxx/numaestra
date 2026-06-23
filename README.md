@@ -241,8 +241,11 @@ docker compose -f docker-compose.yml --profile monitoring up -d   # Prometheus +
 
 - **proxy** — `DOMAIN` и `ACME_EMAIL` в `.env`; конфиг `deploy/Caddyfile`.
 - **backup** — ротация по `BACKUP_RETENTION_DAYS`; восстановление — `deploy/restore-postgres.sh`.
-- **monitoring** — алерты в `deploy/alerts.yml`; не забудьте прописать receiver в
-  `deploy/alertmanager.yml` (email/Telegram/Slack).
+- **monitoring** — правила алертов в `deploy/alerts.yml`. Receiver Alertmanager
+  настраивается через `.env`, без правки конфигов: задайте `ALERT_EMAIL_TO`
+  (письма уйдут через те же `SMTP_*`, что и приложение) и/или `TELEGRAM_BOT_TOKEN`
+  + `TELEGRAM_CHAT_ID`. Конфиг рендерится при старте init-сервисом
+  `alertmanager-config` (`deploy/render-alertmanager.sh`).
 
 ## ✅ Тестирование
 
