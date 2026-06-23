@@ -24,6 +24,9 @@ const BORDER = "rgba(255,255,255,0.07)";
 const TEXT2 = "rgba(255,255,255,0.48)";
 const TEXT3 = "rgba(255,255,255,0.2)";
 
+/* Фиксированная цена продукта (та же, что в Hero и конструкторе). */
+const PRICE_LABEL = "2 000 ₽";
+
 /* ─── breakpoints ─── */
 function useBreakpoint() {
   const [vp, setVp] = useState(() => ({
@@ -804,20 +807,45 @@ function CategoryCard({
         </span>
       </div>
 
-      <span
+      <div
         style={{
-          fontSize: "13px",
-          fontWeight: 700,
-          color: h ? "#00e5c0" : "rgba(255,255,255,0.85)",
-          lineHeight: 1.25,
-          letterSpacing: "-0.01em",
-          textAlign: "center",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "7px",
           position: "relative",
-          transition: "color 0.2s",
         }}
       >
-        {cat.title}
-      </span>
+        <span
+          style={{
+            fontSize: "13px",
+            fontWeight: 700,
+            color: h ? "#00e5c0" : "rgba(255,255,255,0.85)",
+            lineHeight: 1.25,
+            letterSpacing: "-0.01em",
+            textAlign: "center",
+            transition: "color 0.2s",
+          }}
+        >
+          {cat.title}
+        </span>
+
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: 700,
+            color: h ? ACCENT : TEXT2,
+            background: h ? "rgba(0,229,192,0.12)" : "rgba(255,255,255,0.05)",
+            border: `1px solid ${h ? "rgba(0,229,192,0.32)" : "rgba(255,255,255,0.08)"}`,
+            borderRadius: "999px",
+            padding: "2px 9px",
+            letterSpacing: "0.01em",
+            transition: "all 0.2s",
+          }}
+        >
+          {PRICE_LABEL}
+        </span>
+      </div>
       {rippleEl}
     </button>
   );
