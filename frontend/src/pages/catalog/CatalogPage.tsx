@@ -3,6 +3,7 @@ import { useCreateOrder } from "@features/create-order";
 import { useCatalog } from "@features/load-catalog";
 import type { ExampleSong } from "@shared/data/examples";
 import { EXAMPLE_SONGS } from "@shared/data/examples";
+import { exampleApi } from "@entities/example";
 import { categoryCover } from "@shared/lib/categoryCover";
 import {
   getDemoTrackSync,
@@ -1147,12 +1148,37 @@ export function CatalogPage() {
   );
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  // Примеры приходят из админки (API). До загрузки и при сбое — захардкоженный
+  // список как резерв, чтобы блок «Послушать примеры» не пустовал.
+  const [examples, setExamples] = useState<ExampleSong[]>(EXAMPLE_SONGS);
+  useEffect(() => {
+    exampleApi
+      .list()
+      .then((items) => {
+        if (items.length === 0) return; // оставляем резерв
+        setExamples(
+          items.map((e) => ({
+            id: e.id,
+            title: e.title,
+            category: e.category,
+            description: e.description,
+            mood: e.mood,
+            audioUrl: e.audio_url,
+            coverUrl: e.cover_url,
+          })),
+        );
+      })
+      .catch(() => {
+        /* сеть недоступна — остаёмся на резервном списке */
+      });
+  }, []);
+
   // Прогреваем демо-синтез только для примеров без реальной записи.
   useEffect(() => {
-    EXAMPLE_SONGS.forEach((ex) => {
+    examples.forEach((ex) => {
       if (!ex.audioUrl) prewarmDemoTrack(hashStr(ex.id));
     });
-  }, []);
+  }, [examples]);
 
   // Запуск воспроизведения СИНХРОННО в жесте тапа — иначе мобильные браузеры
   // блокируют автоплей (жест истекает после await синтеза).
@@ -1393,7 +1419,7 @@ export function CatalogPage() {
                 sub="нажмите play"
                 minCol={180}
               >
-                {EXAMPLE_SONGS.map((ex) => (
+                {examples.map((ex) => (
                   <ExampleCard
                     key={ex.id}
                     ex={ex}

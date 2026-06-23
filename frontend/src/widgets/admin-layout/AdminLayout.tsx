@@ -6,7 +6,9 @@ import { useSeo } from '@shared/lib/seo'
 import { A } from './AdminUI'
 
 const NAV = [
+  { to: '/admin/dashboard', label: 'Дашборд', icon: '📊' },
   { to: '/admin/categories', label: 'Категории', icon: '🗂️' },
+  { to: '/admin/examples', label: 'Примеры работ', icon: '🎧' },
   { to: '/admin/orders', label: 'Заказы', icon: '🧾' },
   { to: '/admin/accounts', label: 'Suno-аккаунты', icon: '🎚️' },
 ]

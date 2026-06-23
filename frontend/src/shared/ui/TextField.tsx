@@ -13,6 +13,7 @@ interface BaseProps {
   autoFocus?: boolean
   autoComplete?: string
   required?: boolean
+  disabled?: boolean
   /** Background color behind the floating label (should match the field's container). */
   surfaceColor?: string
 }
@@ -23,7 +24,7 @@ interface BaseProps {
 export function TextField({
   label, value, onChange, error, supportingText,
   multiline = false, rows = 3, type = 'text', placeholder,
-  autoFocus, autoComplete, required, surfaceColor = '#0f0f0f',
+  autoFocus, autoComplete, required, disabled, surfaceColor = '#0f0f0f',
 }: BaseProps) {
   const id = useId()
   const [focused, setFocused] = useState(false)
@@ -46,6 +47,8 @@ export function TextField({
     transition: 'border-color var(--dur-short) var(--ease-standard)',
     /* keep text from shifting when border grows 1px→2px */
     margin: focused || error ? 0 : '1px',
+    opacity: disabled ? 0.5 : 1,
+    cursor: disabled ? 'not-allowed' : undefined,
   }
 
   return (
@@ -81,6 +84,7 @@ export function TextField({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             autoFocus={autoFocus}
+            disabled={disabled}
             style={fieldStyle}
           />
         ) : (
@@ -94,6 +98,7 @@ export function TextField({
             onBlur={() => setFocused(false)}
             autoFocus={autoFocus}
             autoComplete={autoComplete}
+            disabled={disabled}
             style={fieldStyle}
           />
         )}

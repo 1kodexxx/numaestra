@@ -423,6 +423,26 @@ func (r *OrderRepository) CountAll(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// Stats возвращает агрегаты по заказам для дашборда админки одним запросом.
+func (r *OrderRepository) Stats(ctx context.Context) (domain.OrderStats, error) {
+	var s domain.OrderStats
+	err := r.conn(ctx).QueryRow(ctx, `
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (WHERE payment_status = 'paid'),
+			COALESCE(SUM(amount_kopecks) FILTER (WHERE payment_status = 'paid'), 0),
+			COUNT(*) FILTER (WHERE generation_status = 'completed'),
+			COUNT(*) FILTER (WHERE generation_status IN ('queued', 'processing')),
+			COUNT(*) FILTER (WHERE generation_status = 'failed'),
+			COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')
+		FROM orders
+	`).Scan(&s.TotalOrders, &s.PaidOrders, &s.RevenueKopecks, &s.Completed, &s.Processing, &s.Failed, &s.OrdersToday)
+	if err != nil {
+		return domain.OrderStats{}, fmt.Errorf("order stats: %w", err)
+	}
+	return s, nil
+}
+
 // ListStuckProcessing возвращает заказы, застрявшие в статусе processing дольше
 // порогового времени. Используется фоновым recovery-процессом для детектирования
 // заказов, брошенных после краша пода/воркера.

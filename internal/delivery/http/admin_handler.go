@@ -27,9 +27,11 @@ type CoverUploader interface {
 // AdminHandler обрабатывает запросы административного API.
 // Все маршруты защищены Bearer-токеном через AdminAuth middleware.
 type AdminHandler struct {
-	uc       *usecase.AdminUseCase
-	uploader CoverUploader // nil, если S3 не настроено
-	log      *slog.Logger
+	uc        *usecase.AdminUseCase
+	exampleUC *usecase.ExampleUseCase // nil → роуты примеров не регистрируются
+	stats     *usecase.StatsUseCase   // nil → роут статистики не регистрируется
+	uploader  CoverUploader           // nil, если S3 не настроено
+	log       *slog.Logger
 }
 
 func NewAdminHandler(uc *usecase.AdminUseCase, log *slog.Logger) *AdminHandler {
@@ -40,6 +42,18 @@ func NewAdminHandler(uc *usecase.AdminUseCase, log *slog.Logger) *AdminHandler {
 // (или S3-ключи не заданы), эндпоинт загрузки вернёт 503.
 func (h *AdminHandler) WithCoverUploader(up CoverUploader) *AdminHandler {
 	h.uploader = up
+	return h
+}
+
+// WithExamples включает админский CRUD примеров готовых работ.
+func (h *AdminHandler) WithExamples(uc *usecase.ExampleUseCase) *AdminHandler {
+	h.exampleUC = uc
+	return h
+}
+
+// WithStats включает эндпоинт сводной статистики для дашборда.
+func (h *AdminHandler) WithStats(uc *usecase.StatsUseCase) *AdminHandler {
+	h.stats = uc
 	return h
 }
 
@@ -71,6 +85,20 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Put("/{id}/questions/{qid}", h.UpdateQuestion)
 		r.Delete("/{id}/questions/{qid}", h.DeleteQuestion)
 	})
+
+	if h.exampleUC != nil {
+		r.Route("/examples", func(r chi.Router) {
+			r.Get("/", h.ListExamples)
+			r.Post("/", h.CreateExample)
+			r.Put("/{id}", h.UpdateExample)
+			r.Delete("/{id}", h.DeleteExample)
+			r.Post("/{id}/cover", h.UploadExampleCover)
+		})
+	}
+
+	if h.stats != nil {
+		r.Get("/stats", h.GetStats)
+	}
 
 	return r
 }

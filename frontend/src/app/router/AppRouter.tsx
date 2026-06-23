@@ -8,6 +8,8 @@ import { NotFoundPage } from '@pages/not-found'
 import {
   AdminRoot,
   AdminLoginPage,
+  AdminDashboardPage,
+  AdminExamplesPage,
   AdminCategoriesPage,
   AdminCategoryEditPage,
   AdminOrdersPage,
@@ -29,9 +31,11 @@ export function AppRouter() {
       <Route path="/admin" element={<AdminRoot />}>
         <Route path="login" element={<AdminLoginPage />} />
         <Route element={<AdminLayout />}>
-          <Route index element={<Navigate to="/admin/categories" replace />} />
+          <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="dashboard" element={<AdminDashboardPage />} />
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="categories/:id" element={<AdminCategoryEditPage />} />
+          <Route path="examples" element={<AdminExamplesPage />} />
           <Route path="orders" element={<AdminOrdersPage />} />
           <Route path="orders/:id" element={<AdminOrderDetailPage />} />
           <Route path="accounts" element={<AdminAccountsPage />} />

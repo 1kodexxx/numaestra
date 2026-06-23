@@ -1,5 +1,7 @@
 export { AdminRoot } from './AdminRoot'
 export { AdminLoginPage } from './login/AdminLoginPage'
+export { AdminDashboardPage } from './dashboard/AdminDashboardPage'
+export { AdminExamplesPage } from './examples/AdminExamplesPage'
 export { AdminCategoriesPage } from './categories/AdminCategoriesPage'
 export { AdminCategoryEditPage } from './categories/AdminCategoryEditPage'
 export { AdminOrdersPage } from './orders/AdminOrdersPage'
