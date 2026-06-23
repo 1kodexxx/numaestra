@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numaestra/numaestra/internal/domain"
 )
 
@@ -27,10 +26,10 @@ const (
 )
 
 type CategoryRepository struct {
-	db *pgxpool.Pool
+	db PgxPool
 }
 
-func NewCategoryRepository(db *pgxpool.Pool) *CategoryRepository {
+func NewCategoryRepository(db PgxPool) *CategoryRepository {
 	return &CategoryRepository{db: db}
 }
 

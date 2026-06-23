@@ -8,17 +8,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/pkg/encryption"
 )
 
 type AccountRepository struct {
-	pool   *pgxpool.Pool
+	pool   PgxPool
 	cipher encryption.Cipher
 }
 
-func NewAccountRepository(pool *pgxpool.Pool, cipher encryption.Cipher) *AccountRepository {
+func NewAccountRepository(pool PgxPool, cipher encryption.Cipher) *AccountRepository {
 	return &AccountRepository{pool: pool, cipher: cipher}
 }
 

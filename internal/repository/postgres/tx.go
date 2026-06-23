@@ -6,7 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // dbConn — минимальный интерфейс исполнителя запросов, который одинаково
@@ -18,6 +17,14 @@ type dbConn interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// PgxPool — пул соединений, от которого зависят репозитории. Совпадает по набору
+// методов с dbConn и реализуется как *pgxpool.Pool (прод), так и pgxmock
+// (unit-тесты). Хранение пула за интерфейсом позволяет покрывать SQL-логику
+// репозиториев без живого PostgreSQL и Docker.
+type PgxPool interface {
+	dbConn
 }
 
 // txCtxKey — приватный ключ для переноса активной транзакции через context.
@@ -45,10 +52,10 @@ func nullableString(s string) *string {
 // позволяет UseCase атомарно изменять несколько независимых агрегатов (Order и
 // SunoAccount), не давая репозиторию одного агрегата знать о таблицах другого.
 type TxManager struct {
-	pool *pgxpool.Pool
+	pool PgxPool
 }
 
-func NewTxManager(pool *pgxpool.Pool) *TxManager {
+func NewTxManager(pool PgxPool) *TxManager {
 	return &TxManager{pool: pool}
 }
 
@@ -85,7 +92,7 @@ func (m *TxManager) Do(ctx context.Context, fn func(ctx context.Context) error) 
 // (Unit of Work) либо открывает собственную поверх пула, если её нет. Нужна
 // методам, которые делают несколько записей и должны быть атомарны даже при
 // одиночном вызове (например, заказ + его треки).
-func runAtomic(ctx context.Context, pool *pgxpool.Pool, fn func(ctx context.Context, db dbConn) error) error {
+func runAtomic(ctx context.Context, pool PgxPool, fn func(ctx context.Context, db dbConn) error) error {
 	if tx, ok := txFromContext(ctx); ok {
 		return fn(ctx, tx)
 	}

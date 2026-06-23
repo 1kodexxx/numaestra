@@ -8,15 +8,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/numaestra/numaestra/internal/domain"
 )
 
 type OrderRepository struct {
-	pool *pgxpool.Pool
+	pool PgxPool
 }
 
-func NewOrderRepository(pool *pgxpool.Pool) *OrderRepository {
+func NewOrderRepository(pool PgxPool) *OrderRepository {
 	return &OrderRepository{pool: pool}
 }
 
