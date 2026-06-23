@@ -218,6 +218,7 @@ func (o *Order) AdminFeedback() string              { return o.adminFeedback }
 func (o *Order) AdminFeedbackAt() *time.Time        { return o.adminFeedbackAt }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
+func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
 
 // --- Стейт-машина оплаты ---
 

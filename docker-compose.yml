@@ -120,16 +120,17 @@ services:
     stop_grace_period: 30s
 
   # Reverse-proxy с автоматическим TLS (Let's Encrypt) для прод-деплоя на VPS.
-  # Запуск: docker compose --profile proxy up -d
-  # Требует DOMAIN и ACME_EMAIL в .env, и что 80/443 порта VPS смотрят сюда
-  # (а не напрямую на app — порт app лучше тогда биндить только на localhost).
+  # Запуск: docker compose -f docker-compose.yml --profile proxy up -d
+  # ВАЖНО: задайте DOMAIN и ACME_EMAIL в .env — без них Caddy не выпустит
+  # сертификат и не стартует. Дефолты пустые (а не `:?`), чтобы пустые значения
+  # не блокировали обычные dev-команды (`docker compose up`), где caddy не нужен.
   caddy:
     image: caddy:2-alpine
     container_name: numaestra-caddy
     profiles: [proxy]
     environment:
-      DOMAIN: ${DOMAIN:?DOMAIN обязателен для профиля proxy}
-      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL обязателен для профиля proxy}
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
       - "80:80"
       - "443:443"

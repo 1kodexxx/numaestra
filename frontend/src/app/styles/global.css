@@ -167,6 +167,14 @@ button { font-family: inherit; }
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
+/* Прогресс-бар генерации: непрерывно «текущий» градиент — ощущение работы. */
+@keyframes bar-flow { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
+@utility bar-flow {
+  background: linear-gradient(90deg, #00bfa5, #00e5c0, #00bfa5);
+  background-size: 200% 100%;
+  animation: bar-flow 1.5s linear infinite;
+}
+
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }

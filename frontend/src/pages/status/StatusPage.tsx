@@ -8,6 +8,7 @@ import { orderApi } from '@entities/order'
 import { useSeo } from '@shared/lib/seo'
 import { downloadFile } from '@shared/lib/download'
 import { ShareBar } from '@widgets/share-bar'
+import { GenerationProgress } from './GenerationProgress'
 import type { OrderDetail, OrderSummary } from '@entities/order'
 
 const ACCENT = '#00e5c0'
@@ -232,6 +233,13 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
             </div>
           ))}
         </div>
+
+        {/* Непрерывный прогресс генерации (после оплаты, до завершения) */}
+        {ps !== 'pending' && !isTerminal && (
+          <div style={{ marginTop: '28px', textAlign: 'left' }}>
+            <GenerationProgress status={gs} paidAt={order.paid_at} />
+          </div>
+        )}
 
         <div style={{ marginTop: '20px', fontSize: '12px', color: TEXT3, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           ID:

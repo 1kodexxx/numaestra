@@ -27,6 +27,7 @@ export interface OrderDetail {
   generation_status: GenerationStatus
   amount_kopecks: number
   tracks: Track[]
+  paid_at?: string // RFC3339; якорь для прогресс-бара генерации
 }
 
 // Элемент ответа GET /api/v1/orders/ (список заказов владельца по токену)
