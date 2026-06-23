@@ -1,9 +1,9 @@
 import type { Category } from "@entities/category";
+import { exampleApi } from "@entities/example";
 import { useCreateOrder } from "@features/create-order";
 import { useCatalog } from "@features/load-catalog";
 import type { ExampleSong } from "@shared/data/examples";
 import { EXAMPLE_SONGS } from "@shared/data/examples";
-import { exampleApi } from "@entities/example";
 import { categoryCover } from "@shared/lib/categoryCover";
 import {
   getDemoTrackSync,
@@ -704,7 +704,7 @@ function PromptBuilder({
               marginBottom: "10px",
             }}
           >
-            Готовый промпт для Suno
+            Готовый промпт для ИИ
           </div>
           <pre
             style={{
