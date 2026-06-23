@@ -222,6 +222,10 @@ frontend/src/       React SPA (Feature-Sliced Design)
 
 ## 🚢 Продакшен (VPS / Docker Compose)
 
+> 📦 **Деплой и CI/CD** — пошагово в [DEPLOY.md](DEPLOY.md): сборка образа в CI →
+> push в GHCR → авто-деплой по SSH. Прод-стек тянет готовый образ
+> (`docker-compose.prod.yml`), не собирая его на сервере.
+
 > ⚠️ **Сеть.** Локально `docker compose up -d` автоматически подхватывает
 > `docker-compose.override.yml` и публикует порты `8080/5432/6379` на хост —
 > удобно для разработки. **В проде эти порты наружу торчать не должны.** Поэтому
