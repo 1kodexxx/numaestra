@@ -339,7 +339,10 @@ func newRouter(
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
+	// RealIP помечен deprecated из-за спуфинга X-Forwarded-For/X-Real-IP, но в проде
+	// приложение всегда стоит за Caddy, который выставляет X-Real-IP={remote_host}
+	// (см. deploy/Caddyfile), затирая любой клиентский заголовок — спуфинг исключён.
+	r.Use(chimiddleware.RealIP) //nolint:staticcheck // безопасно за доверенным прокси Caddy
 	r.Use(chimiddleware.Recoverer)
 	r.Use(requestLoggerMiddleware(log))
 	r.Use(apphttp.MaxBodyBytes(cfg.HTTP.MaxBodyBytes))

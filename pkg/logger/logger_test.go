@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 )
@@ -10,7 +11,7 @@ func TestNew_Dev(t *testing.T) {
 	if l == nil {
 		t.Fatal("логгер не должен быть nil")
 	}
-	if !l.Enabled(nil, slog.LevelDebug) {
+	if !l.Enabled(context.Background(), slog.LevelDebug) {
 		t.Error("в dev-режиме должен быть включён уровень Debug")
 	}
 }
@@ -20,10 +21,10 @@ func TestNew_Production(t *testing.T) {
 	if l == nil {
 		t.Fatal("логгер не должен быть nil")
 	}
-	if l.Enabled(nil, slog.LevelDebug) {
+	if l.Enabled(context.Background(), slog.LevelDebug) {
 		t.Error("в production уровень Debug должен быть отключён")
 	}
-	if !l.Enabled(nil, slog.LevelInfo) {
+	if !l.Enabled(context.Background(), slog.LevelInfo) {
 		t.Error("в production уровень Info должен быть включён")
 	}
 }

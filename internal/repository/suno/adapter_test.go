@@ -18,7 +18,7 @@ func TestSubmitGeneration_SubmitsMultipleTasksForFourVersions(t *testing.T) {
 				t.Errorf("описание не проброшено: %q", in.Description)
 			}
 			n := atomic.AddInt32(&calls, 1)
-			return "task-" + string(rune('0'+n)), nil
+			return "task-" + string('0'+n), nil
 		},
 	}
 	a := NewProviderAdapter(mock)

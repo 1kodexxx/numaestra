@@ -129,7 +129,8 @@ func applyMigration(ctx context.Context, conn *pgxpool.Conn, version, sql string
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	// Rollback после Commit — no-op (ErrTxClosed игнорируется pgx), поэтому ошибку не проверяем.
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, sql); err != nil {
 		return fmt.Errorf("exec sql: %w", err)

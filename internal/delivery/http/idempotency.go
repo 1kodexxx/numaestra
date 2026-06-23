@@ -2,6 +2,7 @@ package apphttp
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -42,7 +43,7 @@ func idempotencyMiddleware(store idempotency.Storer) func(http.Handler) http.Han
 				return
 			}
 
-			if err != idempotency.ErrNotFound {
+			if !errors.Is(err, idempotency.ErrNotFound) {
 				// Redis недоступен — fail open.
 				next.ServeHTTP(w, r)
 				return
@@ -50,7 +51,7 @@ func idempotencyMiddleware(store idempotency.Storer) func(http.Handler) http.Han
 
 			// Ключ не найден — атомарно резервируем.
 			if rerr := store.Reserve(ctx, key); rerr != nil {
-				if rerr == idempotency.ErrConflict {
+				if errors.Is(rerr, idempotency.ErrConflict) {
 					respondError(w, r, http.StatusConflict, "запрос с таким Idempotency-Key уже выполняется")
 					return
 				}

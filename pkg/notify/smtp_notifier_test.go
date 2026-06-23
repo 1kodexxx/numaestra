@@ -30,12 +30,11 @@ func fakeSmtpServerWith(t *testing.T, overrides map[string]string) (addr string,
 
 	reply := func(rw *bufio.ReadWriter, cmdUpper, defaultResp string) {
 		resp := defaultResp
-		if overrides != nil {
-			for prefix, r := range overrides {
-				if strings.HasPrefix(cmdUpper, prefix) {
-					resp = r
-					break
-				}
+		// range по nil map — безопасный no-op, явная проверка не нужна.
+		for prefix, r := range overrides {
+			if strings.HasPrefix(cmdUpper, prefix) {
+				resp = r
+				break
 			}
 		}
 		rw.WriteString(resp + "\r\n")
@@ -66,7 +65,6 @@ func fakeSmtpServerWith(t *testing.T, overrides map[string]string) (addr string,
 
 			if inData {
 				if line == "." {
-					inData = false
 					rw.WriteString("250 OK\r\n")
 					rw.Flush()
 					received <- dataLines.String()

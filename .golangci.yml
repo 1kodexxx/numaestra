@@ -1,39 +1,54 @@
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - misspell
-    - revive
     - bodyclose
     - errorlint
+    - misspell
+    - revive
     - unconvert
-    - gofmt
-    - goimports
-
-linters-settings:
-  goimports:
-    local-prefixes: github.com/numaestra/numaestra
-  misspell:
-    locale: US
-  revive:
+  settings:
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: package-comments
-        disabled: true
-
+      # В тестах допускаем менее строгие проверки: прямое сравнение с sentinel-
+      # ошибкой (errorlint) и неотловленные ошибки/незакрытые тела ответов
+      # безопасны и читаемее, чем errors.Is/defer Close() в каждом assert'е.
+      - linters:
+          - bodyclose
+          - errcheck
+          - errorlint
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    # В тестах допускаем менее строгие проверки.
-    - path: _test\.go
-      linters:
-        - errcheck
-        - bodyclose
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/numaestra/numaestra
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

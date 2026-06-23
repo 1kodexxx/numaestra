@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/pkg/metrics"
 	"github.com/numaestra/numaestra/pkg/notify"
@@ -298,7 +299,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 			// освобождаем слот и откатываем заказ в Queued.
 			account.ReleaseSlot()
 			metrics.ActiveWorkerSlots.Dec()
-			order.RequeueForRetry()
+			_ = order.RequeueForRetry()
 			if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
 				uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
 			}
@@ -326,7 +327,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 			account.BanForInvalidSession()
 			account.ReleaseSlot()
 			metrics.ActiveWorkerSlots.Dec()
-			order.RequeueForRetry()
+			_ = order.RequeueForRetry()
 			if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
 				uc.log.Error("не удалось сохранить состояние после обнаружения протухшей сессии",
 					"order_id", order.ID(), "err", saveErr)
@@ -341,7 +342,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		account.RegisterFailure(3)
 		account.ReleaseSlot()
 		metrics.ActiveWorkerSlots.Dec()
-		order.RequeueForRetry()
+		_ = order.RequeueForRetry()
 
 		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
 			uc.log.Error("не удалось откатить заказ и аккаунт после ошибки Suno",
@@ -395,7 +396,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 
 	switch result.Status {
 	case domain.MusicGenerationStatusFailed:
-		order.Fail(result.Error)
+		_ = order.Fail(result.Error)
 		account.ReleaseSlot()
 		metrics.ActiveWorkerSlots.Dec()
 	case domain.MusicGenerationStatusCompleted:

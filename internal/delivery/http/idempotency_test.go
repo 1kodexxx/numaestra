@@ -74,7 +74,7 @@ func handler201(w http.ResponseWriter, _ *http.Request) {
 }
 
 func applyMiddleware(store idempotency.Storer, h http.HandlerFunc) http.Handler {
-	return idempotencyMiddleware(store)(http.HandlerFunc(h))
+	return idempotencyMiddleware(store)(h)
 }
 
 func TestIdempotency_NoHeader_PassThrough(t *testing.T) {

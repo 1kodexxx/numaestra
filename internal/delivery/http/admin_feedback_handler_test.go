@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 	"github.com/numaestra/numaestra/pkg/notify"
@@ -108,4 +109,3 @@ func TestAdminHandler_SendOrderFeedback_EmptyMessage(t *testing.T) {
 		t.Fatalf("ожидали 400 для пустого сообщения, получили %d", w.Code)
 	}
 }
-

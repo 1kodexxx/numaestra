@@ -141,10 +141,10 @@ func (n *SmtpNotifier) deliverMessage(client *smtp.Client, auth smtp.Auth, to, m
 func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
 	var tracks strings.Builder
 	for i, url := range notif.TrackURLs {
-		tracks.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&tracks,
 			`<li style="margin:8px 0"><a href="%s" style="color:#a855f7;font-weight:600">🎧 Вариант %d</a></li>`,
 			url, i+1,
-		))
+		)
 	}
 
 	return fmt.Sprintf(`<!DOCTYPE html>

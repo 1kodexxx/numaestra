@@ -141,7 +141,7 @@ func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
 		t.Errorf("ожидали failed после исчерпания ретраев, получили %q", got.GenerationStatus())
 	}
 	gotAcc, _ := acc.GetByID(context.Background(), account.ID())
-	if gotAcc.Status() == domain.AccountStatusBusy {
+	if gotAcc.Status() == domain.AccountStatusBusy { //nolint:staticcheck // намеренно проверяем legacy-статус: освобождение не должно оставить Busy
 		t.Error("аккаунт должен быть освобождён, а не остаться Busy")
 	}
 }

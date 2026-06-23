@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
@@ -54,7 +55,7 @@ func (p *OrderProcessor) taskLogger(ctx context.Context, taskType, orderID strin
 func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) error {
 	var payload queue.GenerationTaskPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry) // SkipRetry отменит задачу навсегда
+		return fmt.Errorf("json.Unmarshal failed: %w: %w", err, asynq.SkipRetry) // SkipRetry отменит задачу навсегда
 	}
 
 	log := p.taskLogger(ctx, t.Type(), payload.OrderID.String())
@@ -115,7 +116,7 @@ func orderIDFromTask(t *asynq.Task) (uuid.UUID, bool) {
 func (p *OrderProcessor) HandleStatusCheckTask(ctx context.Context, t *asynq.Task) error {
 	var payload queue.StatusCheckTaskPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-		return fmt.Errorf("json.Unmarshal failed: %v: %w", err, asynq.SkipRetry)
+		return fmt.Errorf("json.Unmarshal failed: %w: %w", err, asynq.SkipRetry)
 	}
 
 	log := p.taskLogger(ctx, t.Type(), payload.OrderID.String())

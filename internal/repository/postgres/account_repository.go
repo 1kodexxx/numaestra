@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/pkg/encryption"
 )
@@ -68,7 +69,8 @@ func (r *AccountRepository) FetchAndLockAvailable(ctx context.Context) (*domain.
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	// Rollback после Commit — no-op (ErrTxClosed игнорируется pgx), поэтому ошибку не проверяем.
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var snapshot domain.SunoAccountSnapshot
 
