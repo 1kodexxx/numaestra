@@ -303,7 +303,7 @@ export function CategoryPage() {
               key={ex.id} index={i} title={ex.title} sub={ex.category}
               onClick={() => navigate(`/examples/${ex.id}`)}
               leading={(hovered) => (
-                <Thumb src={ex.coverUrl || stockImage(ex.id, 'concert,music')} alt={ex.title} active={hovered}>
+                <Thumb src={ex.coverUrl || stockImage(ex.id, 'concert,music')} alt={`Обложка песни «${ex.title}»`} active={hovered}>
                   <PlayOverlay active={hovered} />
                 </Thumb>
               )}
@@ -331,7 +331,7 @@ export function CategoryPage() {
               key={cat.id} index={i} title={cat.title}
               onClick={() => navigate(`/category/${cat.id}`)}
               leading={(hovered) => (
-                <Thumb src={categoryCover(cat.id, cat.cover_image_url) || stockImage(cat.id, 'celebration,party')} alt={cat.title} active={hovered}>
+                <Thumb src={categoryCover(cat.id, cat.cover_image_url) || stockImage(cat.id, 'celebration,party')} alt={`Обложка категории ${cat.title}`} active={hovered}>
                   <RankCorner n={i + 1} />
                 </Thumb>
               )}

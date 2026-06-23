@@ -963,7 +963,7 @@ function PopularCard({
             categoryCover(cat.id, cat.cover_image_url) ||
             stockImage(cat.id, "celebration,party")
           }
-          alt={cat.title}
+          alt={`Обложка категории ${cat.title}`}
           loading="lazy"
           onError={(e) => {
             e.currentTarget.style.opacity = "0";
@@ -1070,7 +1070,7 @@ function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
       >
         <img
           src={ex.coverUrl || stockImage(ex.id, "concert,music")}
-          alt={ex.title}
+          alt={`Обложка песни «${ex.title}»`}
           loading="lazy"
           onError={(e) => {
             e.currentTarget.style.opacity = "0";

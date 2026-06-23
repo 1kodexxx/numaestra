@@ -288,7 +288,16 @@ func run(ctx context.Context) error {
 
 	healthChecker := health.New(pgPool, redisOpt)
 	seoHandler := apphttp.NewSeoHandler(promptUC, log)
-	router := newRouter(log, orderHandler, categoryHandler, exampleHandler, adminHandler, adminAuthHandler, seoHandler, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
+
+	// SEO-инъектор: вшивает в index.html серверный title/meta/OG/JSON-LD + блок
+	// текста под маршрут, чтобы краулеры видели контент без исполнения JS.
+	indexHTML, err := fs.ReadFile(spaFS, "index.html")
+	if err != nil {
+		return fmt.Errorf("чтение index.html для SEO-инъекции: %w", err)
+	}
+	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log)
+
+	router := newRouter(log, orderHandler, categoryHandler, exampleHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -337,6 +346,7 @@ func newRouter(
 	adminHandler *apphttp.AdminHandler,
 	adminAuthHandler *apphttp.AdminAuthHandler,
 	seoHandler *apphttp.SeoHandler,
+	seoInjector *apphttp.SEOInjector,
 	checker *health.Checker,
 	cfg *config.Config,
 	adminSessionSecret []byte,
@@ -397,7 +407,7 @@ func newRouter(
 
 	// React SPA — catch-all, должен быть последним.
 	// API-маршруты выше имеют приоритет по специфичности.
-	r.Mount("/", apphttp.NewSPAHandler(spaFS))
+	r.Mount("/", apphttp.NewSPAHandler(spaFS, seoInjector))
 
 	return r
 }
