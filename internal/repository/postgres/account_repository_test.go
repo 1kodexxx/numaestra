@@ -101,6 +101,75 @@ func TestAccountRepository_GetByID_Success(t *testing.T) {
 	}
 }
 
+func TestAccountRepository_List_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows(accountColumns).
+		AddRow(activeAccountRow(uuid.New())...).
+		AddRow(activeAccountRow(uuid.New())...)
+	mock.ExpectQuery("FROM suno_accounts ORDER BY created_at").WillReturnRows(rows)
+
+	repo := NewAccountRepository(mock, testCipherT(t))
+	accounts, err := repo.List(context.Background())
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(accounts) != 2 {
+		t.Errorf("ожидали 2 аккаунта, получили %d", len(accounts))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestAccountRepository_ListByStatus_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows(accountColumns).AddRow(activeAccountRow(uuid.New())...)
+	mock.ExpectQuery("FROM suno_accounts WHERE status =").WithArgs(anyArgs(1)...).WillReturnRows(rows)
+
+	repo := NewAccountRepository(mock, testCipherT(t))
+	accounts, err := repo.ListByStatus(context.Background(), domain.AccountStatusActive)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(accounts) != 1 {
+		t.Errorf("ожидали 1 аккаунт, получили %d", len(accounts))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestAccountRepository_Create_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("INSERT INTO suno_accounts").WithArgs(anyArgs(12)...).WillReturnResult(pgxmock.NewResult("INSERT", 1))
+
+	repo := NewAccountRepository(mock, testCipherT(t))
+	acc := domain.RestoreSunoAccount(domain.SunoAccountSnapshot{
+		ID: uuid.New(), Email: "a@b.c", Status: domain.AccountStatusActive, TokenBalance: 5, MaxConcurrentTasks: 3,
+	})
+	if err := repo.Create(context.Background(), acc); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
 func TestAccountRepository_Update_NotFound(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	if err != nil {

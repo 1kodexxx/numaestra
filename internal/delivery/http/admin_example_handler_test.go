@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
@@ -180,4 +182,85 @@ func TestAdminHandler_Examples_NotRegisteredWithoutBuilder(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("без WithExamples ожидали 404, получили %d", rec.Code)
 	}
+}
+
+func TestAdminHandler_UploadExampleCover_NoS3(t *testing.T) {
+	// Без CoverUploader загрузка обложки примера отвечает 503.
+	h, _ := newTestAdminHandlerWithExamples(t)
+	router := adminTestRouter(h)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/examples/e1/cover", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ожидали 503 без S3, получили %d", rec.Code)
+	}
+}
+
+// statsStub — заглушка orderStatsProvider для теста дашборда.
+type statsStub struct{}
+
+func (statsStub) Stats(_ context.Context) (domain.OrderStats, error) {
+	return domain.OrderStats{TotalOrders: 3, PaidOrders: 2, RevenueKopecks: 400000, Completed: 1}, nil
+}
+
+func TestAdminHandler_GetStats(t *testing.T) {
+	exRepo := newAdminExampleRepo()
+	_ = exRepo.Create(context.Background(), mustExample(t, "e1", true))
+	_ = exRepo.Create(context.Background(), mustExample(t, "e2", false))
+
+	statsUC := usecase.NewStatsUseCase(statsStub{}, newAdminAccRepo(), newAdminCategoryRepo(), exRepo, discardAdminLogger())
+	uc := usecase.NewAdminUseCase(newAdminOrderRepo(), newAdminAccRepo(), nil, &noopRefunder{}, nil, nil, discardAdminLogger())
+	router := adminTestRouter(NewAdminHandler(uc, discardAdminLogger()).WithStats(statsUC))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	orders, _ := resp["orders"].(map[string]any)
+	if orders["total"] != float64(3) || orders["revenue_kopecks"] != float64(400000) {
+		t.Errorf("неверные order-агрегаты: %+v", orders)
+	}
+	if resp["examples_total"] != float64(2) || resp["examples_active"] != float64(1) {
+		t.Errorf("неверные счётчики примеров: total=%v active=%v", resp["examples_total"], resp["examples_active"])
+	}
+}
+
+func TestExampleHandler_GetActive(t *testing.T) {
+	repo := newAdminExampleRepo()
+	_ = repo.Create(context.Background(), mustExample(t, "vis", true))
+	_ = repo.Create(context.Background(), mustExample(t, "hid", false))
+
+	h := NewExampleHandler(usecase.NewExampleUseCase(repo, discardAdminLogger()), discardAdminLogger())
+	router := chi.NewRouter()
+	router.Mount("/examples", h.Routes())
+
+	req := httptest.NewRequest(http.MethodGet, "/examples/", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d", rec.Code)
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 1 || list[0]["id"] != "vis" {
+		t.Fatalf("публичный список должен содержать только активные: %+v", list)
+	}
+}
+
+func mustExample(t *testing.T, id string, active bool) *domain.Example {
+	t.Helper()
+	e, err := domain.NewExample(id, "Пример "+id, "Кат", "опис", "Тепло", "a.mp3", "c.webp", 1, active)
+	if err != nil {
+		t.Fatalf("NewExample: %v", err)
+	}
+	return e
 }

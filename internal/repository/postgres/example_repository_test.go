@@ -95,6 +95,88 @@ func TestExampleRepository_GetByID_NotFound(t *testing.T) {
 	}
 }
 
+func TestExampleRepository_Create_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("INSERT INTO examples").WithArgs(anyArgs(9)...).WillReturnResult(pgxmock.NewResult("INSERT", 1))
+
+	repo := NewExampleRepository(mock)
+	if err := repo.Create(context.Background(), testExample(t)); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestExampleRepository_Update_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("UPDATE examples").WithArgs(anyArgs(9)...).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+
+	repo := NewExampleRepository(mock)
+	if err := repo.Update(context.Background(), testExample(t)); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestExampleRepository_GetByID_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows([]string{"id", "title", "category", "description", "mood", "audio_url", "cover_url", "sort_order", "is_active"}).
+		AddRow("e1", "Один", "Кат", "д", "м", "u.mp3", "c.webp", 3, true)
+	mock.ExpectQuery("FROM examples WHERE id =").WithArgs(anyArgs(1)...).WillReturnRows(rows)
+
+	repo := NewExampleRepository(mock)
+	e, err := repo.GetByID(context.Background(), "e1")
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if e.ID() != "e1" || e.Title() != "Один" || e.SortOrder() != 3 {
+		t.Fatalf("неверно разобран пример: %+v", e.Snapshot())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestExampleRepository_GetAll_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows([]string{"id", "title", "category", "description", "mood", "audio_url", "cover_url", "sort_order", "is_active"}).
+		AddRow("a", "A", "", "", "", "", "", 1, true).
+		AddRow("b", "B", "", "", "", "", "", 2, false)
+	mock.ExpectQuery("FROM examples").WillReturnRows(rows)
+
+	repo := NewExampleRepository(mock)
+	all, err := repo.GetAll(context.Background())
+	if err != nil || len(all) != 2 {
+		t.Fatalf("ожидали 2 примера, получили %d (%v)", len(all), err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
 func TestExampleRepository_GetActive_OrdersAndScans(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	if err != nil {

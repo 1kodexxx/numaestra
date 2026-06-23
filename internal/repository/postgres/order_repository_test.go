@@ -16,6 +16,202 @@ import (
 
 func testNow() time.Time { return time.Now().UTC() }
 
+// orderCols — 20 колонок в SELECT-ах orders (в порядке Scan).
+var orderCols = []string{
+	"id", "invoice_id", "customer_email", "customer_phone", "brief", "category_id", "suno_prompt",
+	"amount_kopecks", "currency", "payment_status", "generation_status", "assigned_account_id",
+	"failure_reason", "access_token", "admin_feedback", "admin_feedback_at", "created_at", "updated_at", "paid_at", "completed_at",
+}
+
+// orderRowValues — одна строка заказа для pgxmock (без треков, без nullable-времён).
+func orderRowValues(id uuid.UUID, invoice int64) []any {
+	now := time.Now().UTC()
+	return []any{
+		id, invoice, "user@example.com", "", "Бриф", "", "",
+		int64(200000), "RUB", domain.PaymentStatusPaid, domain.GenerationStatusCompleted, (*uuid.UUID)(nil),
+		"", "tok", "", (*time.Time)(nil), now, now, (*time.Time)(nil), (*time.Time)(nil),
+	}
+}
+
+// emptyTrackRows — пустой набор треков (5 колонок getTracksForOrder).
+func emptyTrackRows() *pgxmock.Rows {
+	return pgxmock.NewRows([]string{"id", "index", "audio_url", "duration_sec", "suno_track_id"})
+}
+
+// emptyBatchTrackRows — пустой набор для getTracksForOrders (6 колонок, с order_id).
+func emptyBatchTrackRows() *pgxmock.Rows {
+	return pgxmock.NewRows([]string{"id", "order_id", "index", "audio_url", "duration_sec", "suno_track_id"})
+}
+
+func TestOrderRepository_GetByID_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	id := uuid.New()
+	mock.ExpectQuery("FROM orders WHERE id =").WithArgs(anyArgs(1)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).AddRow(orderRowValues(id, 7)...))
+	mock.ExpectQuery("FROM tracks WHERE order_id =").WithArgs(anyArgs(1)...).WillReturnRows(emptyTrackRows())
+
+	repo := NewOrderRepository(mock)
+	order, err := repo.GetByID(context.Background(), id)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if order.ID() != id || order.InvoiceID() != 7 {
+		t.Errorf("неверно разобран заказ: id=%s invoice=%d", order.ID(), order.InvoiceID())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_GetByInvoiceID_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	id := uuid.New()
+	mock.ExpectQuery("FROM orders WHERE invoice_id =").WithArgs(anyArgs(1)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).AddRow(orderRowValues(id, 42)...))
+	mock.ExpectQuery("FROM tracks WHERE order_id =").WithArgs(anyArgs(1)...).WillReturnRows(emptyTrackRows())
+
+	repo := NewOrderRepository(mock)
+	order, err := repo.GetByInvoiceID(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if order.InvoiceID() != 42 {
+		t.Errorf("ожидали invoice 42, получили %d", order.InvoiceID())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_GetByAccessToken_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	id := uuid.New()
+	mock.ExpectQuery("FROM orders WHERE access_token =").WithArgs(anyArgs(1)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).AddRow(orderRowValues(id, 8)...))
+	mock.ExpectQuery("FROM tracks WHERE order_id =").WithArgs(anyArgs(1)...).WillReturnRows(emptyTrackRows())
+
+	repo := NewOrderRepository(mock)
+	if _, err := repo.GetByAccessToken(context.Background(), "tok"); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_ListAll_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery("FROM orders").WithArgs(anyArgs(2)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).
+			AddRow(orderRowValues(uuid.New(), 1)...).
+			AddRow(orderRowValues(uuid.New(), 2)...))
+	mock.ExpectQuery("FROM tracks").WithArgs(anyArgs(1)...).WillReturnRows(emptyBatchTrackRows())
+
+	repo := NewOrderRepository(mock)
+	orders, err := repo.ListAll(context.Background(), 20, 0)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(orders) != 2 {
+		t.Errorf("ожидали 2 заказа, получили %d", len(orders))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_ListByCustomerEmail_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery("FROM orders WHERE customer_email =").WithArgs(anyArgs(3)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).AddRow(orderRowValues(uuid.New(), 1)...))
+	mock.ExpectQuery("FROM tracks").WithArgs(anyArgs(1)...).WillReturnRows(emptyBatchTrackRows())
+
+	repo := NewOrderRepository(mock)
+	orders, err := repo.ListByCustomerEmail(context.Background(), "user@example.com", 20, 0)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Errorf("ожидали 1 заказ, получили %d", len(orders))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_ListByCustomerPhone_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery("FROM orders WHERE customer_phone =").WithArgs(anyArgs(3)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).AddRow(orderRowValues(uuid.New(), 1)...))
+	mock.ExpectQuery("FROM tracks").WithArgs(anyArgs(1)...).WillReturnRows(emptyBatchTrackRows())
+
+	repo := NewOrderRepository(mock)
+	orders, err := repo.ListByCustomerPhone(context.Background(), "+70000000000", 20, 0)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Errorf("ожидали 1 заказ, получили %d", len(orders))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_ListStuckProcessing_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectQuery("generation_status = 'processing'").WithArgs(anyArgs(1)...).
+		WillReturnRows(pgxmock.NewRows(orderCols).AddRow(orderRowValues(uuid.New(), 1)...))
+	mock.ExpectQuery("FROM tracks").WithArgs(anyArgs(1)...).WillReturnRows(emptyBatchTrackRows())
+
+	repo := NewOrderRepository(mock)
+	orders, err := repo.ListStuckProcessing(context.Background(), testNow())
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if len(orders) != 1 {
+		t.Errorf("ожидали 1 заказ, получили %d", len(orders))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
 func pendingOrder() *domain.Order {
 	return domain.RestoreOrder(domain.OrderSnapshot{
 		ID: uuid.New(), InvoiceID: 1001, CustomerEmail: "user@example.com",
@@ -148,6 +344,33 @@ func TestOrderRepository_NextInvoiceID(t *testing.T) {
 	}
 	if id != 42 {
 		t.Fatalf("ожидали 42, получили %d", id)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+func TestOrderRepository_Stats(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	rows := pgxmock.NewRows([]string{"total", "paid", "revenue", "completed", "processing", "failed", "today"}).
+		AddRow(10, 7, int64(1400000), 5, 2, 1, 8)
+	mock.ExpectQuery("FROM orders").WillReturnRows(rows)
+
+	repo := NewOrderRepository(mock)
+	s, err := repo.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if s.TotalOrders != 10 || s.PaidOrders != 7 || s.RevenueKopecks != 1400000 {
+		t.Errorf("неверные агрегаты: %+v", s)
+	}
+	if s.Completed != 5 || s.Processing != 2 || s.Failed != 1 || s.OrdersToday != 8 {
+		t.Errorf("неверная разбивка по статусам: %+v", s)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("неудовлетворённые ожидания: %v", err)
