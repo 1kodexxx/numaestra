@@ -112,11 +112,11 @@ func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
 	// canonical + og:url + JSON-LD — перед </head>.
 	var head strings.Builder
 	if data.canonical != "" {
-		head.WriteString(`<link rel="canonical" href="` + attr(data.canonical) + `" />` + "\n    ")
-		head.WriteString(`<meta property="og:url" content="` + attr(data.canonical) + `" />` + "\n    ")
+		fmt.Fprintf(&head, `<link rel="canonical" href="%s" />`+"\n    ", attr(data.canonical))
+		fmt.Fprintf(&head, `<meta property="og:url" content="%s" />`+"\n    ", attr(data.canonical))
 	}
 	if data.jsonLD != "" {
-		head.WriteString(`<script type="application/ld+json">` + data.jsonLD + `</script>` + "\n    ")
+		fmt.Fprintf(&head, `<script type="application/ld+json">%s</script>`+"\n    ", data.jsonLD)
 	}
 	if head.Len() > 0 {
 		out = strings.Replace(out, "</head>", head.String()+"</head>", 1)
@@ -170,12 +170,12 @@ func (s *SEOInjector) homeData(ctx context.Context, baseURL string) seoData {
 
 	var b strings.Builder
 	b.WriteString(`<main><h1>Песня, написанная лично для вас</h1>`)
-	b.WriteString(`<p>AI-студия Numaestra создаёт уникальную песню под ваш повод. Опишите идею — получите 4 готовые версии трека за 10 минут. Один платёж ` + s.priceRubles + ` ₽, без подписок.</p>`)
+	fmt.Fprintf(&b, `<p>AI-студия Numaestra создаёт уникальную песню под ваш повод. Опишите идею — получите 4 готовые версии трека за 10 минут. Один платёж %s ₽, без подписок.</p>`, s.priceRubles)
 
 	if cats, err := s.promptUC.GetAllCategories(ctx); err == nil && len(cats) > 0 {
 		b.WriteString(`<h2>Категории песен на заказ</h2><ul>`)
 		for _, c := range cats {
-			b.WriteString(`<li><a href="` + attr(baseURL+"/category/"+c.ID()) + `">` + text(c.Title()) + `</a></li>`)
+			fmt.Fprintf(&b, `<li><a href="%s">%s</a></li>`, attr(baseURL+"/category/"+c.ID()), text(c.Title()))
 		}
 		b.WriteString(`</ul>`)
 	}
@@ -199,9 +199,9 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 	canonical := baseURL + "/category/" + id
 
 	var b strings.Builder
-	b.WriteString(`<main><h1>` + text(cat.Title()) + ` — песня на заказ нейросетью</h1>`)
-	b.WriteString(`<p>` + text(desc) + `</p>`)
-	b.WriteString(`<p>Цена: ` + s.priceRubles + ` ₽ · 4 уникальные версии · готово за 10 минут.</p>`)
+	fmt.Fprintf(&b, `<main><h1>%s — песня на заказ нейросетью</h1>`, text(cat.Title()))
+	fmt.Fprintf(&b, `<p>%s</p>`, text(desc))
+	fmt.Fprintf(&b, `<p>Цена: %s ₽ · 4 уникальные версии · готово за 10 минут.</p>`, s.priceRubles)
 	b.WriteString(`</main>`)
 
 	return seoData{
