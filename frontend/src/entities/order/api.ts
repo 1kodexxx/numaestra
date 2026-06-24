@@ -21,6 +21,11 @@ export const orderApi = {
     return apiFetch<OrderDetail>(`/orders/${id}`, { accessToken })
   },
 
+  // Заново получить ссылку на оплату для неоплаченного заказа (повторная оплата).
+  paymentUrl(id: string, accessToken?: string) {
+    return apiFetch<{ payment_url: string }>(`/orders/${id}/payment-url`, { accessToken })
+  },
+
   // Список заказов владельца (по email/phone заказа, чей токен передан).
   list(accessToken?: string) {
     return apiFetch<OrderSummary[]>('/orders/', { accessToken })

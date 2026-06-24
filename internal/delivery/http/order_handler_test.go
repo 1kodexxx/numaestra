@@ -270,6 +270,48 @@ func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 	}
 }
 
+func TestHandler_GetPaymentURL_Success(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/payment-url", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if !strings.Contains(resp["payment_url"], "robokassa.ru") {
+		t.Errorf("ожидали ссылку Robokassa, получили %q", resp["payment_url"])
+	}
+}
+
+func TestHandler_GetPaymentURL_RequiresToken(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/"+uuid.NewString()+"/payment-url", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("ожидали 401 без токена, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_GetPaymentURL_TokenForDifferentOrder(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+uuid.NewString()+"/payment-url", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("ожидали 403 при чужом ID, получили %d", rec.Code)
+	}
+}
+
 func TestHandler_ListOrders_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	order := mustCreate(t, h, "user@example.com", "", "Бриф")

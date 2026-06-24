@@ -95,6 +95,7 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Use(h.requireOrderAccess)
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
+		r.Get("/{id}/payment-url", h.GetPaymentURL)
 	})
 
 	return r
@@ -181,9 +182,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outSum := robokassa.FormatAmount(order.AmountKopecks())
-	description := "Генерация студийной песни Numaestra"
-	paymentURL := h.rk.PaymentURL(outSum, order.InvoiceID(), description)
+	paymentURL := h.buildPaymentURL(order)
 
 	respondJSON(w, http.StatusCreated, OrderResponse{
 		ID:               order.ID().String(),
@@ -322,6 +321,37 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		Tracks:           tracks,
 		PaidAt:           paidAt,
 	})
+}
+
+// buildPaymentURL формирует ссылку на оплату Robokassa для заказа.
+func (h *OrderHandler) buildPaymentURL(order *domain.Order) string {
+	outSum := robokassa.FormatAmount(order.AmountKopecks())
+	return h.rk.PaymentURL(outSum, order.InvoiceID(), "Генерация студийной песни Numaestra")
+}
+
+// GetPaymentURL заново формирует ссылку на оплату для неоплаченного заказа —
+// чтобы клиент мог повторить оплату со страницы статуса, если первая попытка
+// сорвалась. Доступ по X-Access-Token (через requireOrderAccess).
+// GET /api/v1/orders/{id}/payment-url
+func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
+	order := r.Context().Value(ctxKeyOrder).(*domain.Order)
+
+	idParam := chi.URLParam(r, "id")
+	orderID, err := uuid.Parse(idParam)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+	if order.ID() != orderID {
+		respondError(w, r, http.StatusForbidden, "токен не соответствует этому заказу")
+		return
+	}
+	if order.PaymentStatus() != domain.PaymentStatusPending {
+		respondError(w, r, http.StatusConflict, "заказ уже оплачен или недоступен для оплаты")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"payment_url": h.buildPaymentURL(order)})
 }
 
 type OrderSummaryResponse struct {

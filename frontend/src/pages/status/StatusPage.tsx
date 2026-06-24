@@ -174,6 +174,21 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
   const idx       = gs === 'failed' ? 2 : STEPKEYS.findIndex(k => k === gs || (gs === 'new' && k === 'paid'))
   const isTerminal = gs === 'completed' || gs === 'failed'
 
+  const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
+
+  async function handlePay() {
+    setPayError(null); setPaying(true)
+    try {
+      const token = orderStorage.getAccessToken() ?? undefined
+      const { payment_url } = await orderApi.paymentUrl(order.id, token)
+      window.location.href = payment_url
+    } catch (err) {
+      setPayError(err instanceof Error ? err.message : 'Не удалось получить ссылку на оплату')
+      setPaying(false)
+    }
+  }
+
   return (
     <div className="fade-in">
       {/* Header */}
@@ -233,6 +248,17 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
             </div>
           ))}
         </div>
+
+        {/* Ожидание оплаты — кнопка повторного перехода к оплате */}
+        {ps === 'pending' && (
+          <div style={{ marginTop: '28px' }}>
+            <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
+            {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
+            <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+              Первая попытка не прошла? Оплатите ещё раз — заказ сохранён.
+            </div>
+          </div>
+        )}
 
         {/* Непрерывный прогресс генерации (после оплаты, до завершения) */}
         {ps !== 'pending' && !isTerminal && (
