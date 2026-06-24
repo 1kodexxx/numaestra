@@ -33,17 +33,11 @@ var _ domain.MusicProvider = (*ProviderAdapter)(nil)
 // Возвращает ошибку только если НИ одну задачу создать не удалось — частичный
 // успех допустим (лучше выдать меньше версий, чем провалить весь заказ).
 func (a *ProviderAdapter) SubmitGeneration(ctx context.Context, req domain.MusicGenerationRequest) (string, error) {
-	in := suno.MusicInput{
-		Description:  req.Brief,
-		Tags:         req.Style,
-		Instrumental: req.Instrumental,
-	}
-
-	numTasks := tasksFor(req.TrackCount)
+	jobs := generationJobs(req)
 	var taskIDs []string
 	var firstErr error
 
-	for i := 0; i < numTasks; i++ {
+	for _, in := range jobs {
 		taskID, err := a.client.CreateMusicTask(ctx, in)
 		if err != nil {
 			if firstErr == nil {

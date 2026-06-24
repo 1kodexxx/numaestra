@@ -58,10 +58,11 @@ type APIClient interface {
 }
 
 // MusicInput — параметры генерации.
-// При Instrumental=false используется Inspiration Mode TTAPI (custom=false):
-// Description — свободный текст, AI сам пишет текст и музыку.
+// Inspiration Mode: Description (gpt_description_prompt), Suno сам пишет текст.
+// Custom Mode: Lyrics (prompt) — фиксированный текст песни.
 type MusicInput struct {
-	Description  string // prompt — описание/бриф будущей песни
+	Description  string // prompt — описание для Inspiration Mode
+	Lyrics       string // готовый текст для Custom Mode
 	Tags         string // tags — стиль/жанр через запятую (опционально)
 	Instrumental bool   // instrumental — песня без вокала
 }
@@ -142,16 +143,30 @@ type musicResult struct {
 	Duration json.Number `json:"duration"`
 }
 
-// CreateMusicTask отправляет POST /suno/v1/music в Inspiration Mode (custom=false):
-// AI самостоятельно пишет слова и музыку по описанию в поле prompt.
+// CreateMusicTask отправляет POST /suno/v1/music.
+// Inspiration Mode (Lyrics пустой): AI пишет слова по Description.
+// Custom Mode (Lyrics задан): Suno поёт указанный текст.
 func (c *httpClient) CreateMusicTask(ctx context.Context, in MusicInput) (string, error) {
-	body, err := json.Marshal(createMusicRequest{
-		Custom:               false, // Inspiration Mode: AI генерирует текст из описания
-		Mv:                   c.mv,
-		GptDescriptionPrompt: in.Description,
-		Instrumental:         in.Instrumental,
-		Tags:                 in.Tags,
-	})
+	var req createMusicRequest
+	if strings.TrimSpace(in.Lyrics) != "" {
+		req = createMusicRequest{
+			Custom:       true,
+			Mv:           c.mv,
+			Prompt:       in.Lyrics,
+			Instrumental: in.Instrumental,
+			Tags:         in.Tags,
+		}
+	} else {
+		req = createMusicRequest{
+			Custom:               false,
+			Mv:                   c.mv,
+			GptDescriptionPrompt: in.Description,
+			Instrumental:         in.Instrumental,
+			Tags:                 in.Tags,
+		}
+	}
+
+	body, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("marshal create task: %w", err)
 	}

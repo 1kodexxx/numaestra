@@ -32,3 +32,13 @@ func (w *withBreaker) GenerateLyrics(ctx context.Context, facts string) (string,
 	})
 	return result, err
 }
+
+func (w *withBreaker) GenerateLyricsVariants(ctx context.Context, facts string, count int) ([]string, error) {
+	var result []string
+	err := w.breaker.Do(func() error {
+		var err error
+		result, err = w.inner.GenerateLyricsVariants(ctx, facts, count)
+		return err
+	})
+	return result, err
+}

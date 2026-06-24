@@ -421,3 +421,15 @@ var _ notify.Notifier = (*wNotifier)(nil)
 type wLLM struct{}
 
 func (l *wLLM) GenerateLyrics(_ context.Context, facts string) (string, error) { return facts, nil }
+
+func (l *wLLM) GenerateLyricsVariants(_ context.Context, facts string, count int) ([]string, error) {
+	out := make([]string, count)
+	for i := range out {
+		if i == 0 {
+			out[i] = facts
+		} else {
+			out[i] = facts + " alt"
+		}
+	}
+	return out, nil
+}

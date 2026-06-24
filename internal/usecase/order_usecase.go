@@ -17,6 +17,10 @@ import (
 	"github.com/numaestra/numaestra/pkg/openai"
 )
 
+// quizLyricVariantSuffix — инструкция для Suno Inspiration Mode: второй запрос
+// с тем же стилем, но другими русскими словами и припевом.
+const quizLyricVariantSuffix = "\n\n[IMPORTANT: This is alternative version #2. Write completely different Russian lyrics and a different chorus. Keep the same theme, mood, and musical style as version #1, but do NOT repeat lines or phrases from version #1.]"
+
 // Пользовательские ошибки слоя Use-Case
 var (
 	ErrGenerationNotReady = errors.New("генерация еще не завершена, требуется повторный опрос")
@@ -274,44 +278,26 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	}
 	metrics.ActiveWorkerSlots.Inc()
 
-	// 3. Обогащение ТЗ через LLM.
-	// Если заказ создан через квиз — sunoPrompt уже содержит готовый структурированный
-	// промпт из шаблона категории. В этом случае LLM не нужен — передаём промпт напрямую в Suno.
-	// Если заказ создан через "свободный" бриф — обогащаем через LLM как прежде.
-	var lyrics string
-	if order.SunoPrompt() != "" {
-		lyrics = order.SunoPrompt()
-		uc.log.Info("используем готовый промпт из квиза", "order_id", order.ID(), "category_id", order.CategoryID())
-	} else {
-		// Fallback на сырой Brief недопустим: бриф может быть до domain.MaxBriefLength
-		// символов, а у Suno промпт ограничен сильнее — такой запрос провайдер отбросит,
-		// и заказ всё равно упадёт. Поэтому при недоступности LLM мы НЕ генерируем
-		// "как-нибудь", а освобождаем аккаунт и возвращаем заказ в очередь: Asynq
-		// повторит задачу с backoff, пока LLM не поднимется.
-		uc.log.Info("генерация текста песни через LLM", "order_id", order.ID())
-		var err error
-		lyrics, err = uc.llmClient.GenerateLyrics(ctx, order.Brief())
-		if err != nil {
-			metrics.LLMErrors.Inc()
-			uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
-				"order_id", order.ID(), "err", err)
-			// LLM-сбой не вина аккаунта: НЕ инкрементируем failureCount, только
-			// освобождаем слот и откатываем заказ в Queued.
-			account.ReleaseSlot()
-			metrics.ActiveWorkerSlots.Dec()
-			_ = order.RequeueForRetry()
-			if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
-				uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
-			}
-			return fmt.Errorf("генерация текста LLM недоступна: %w", err)
+	// 3. Два разных текста песни: квиз — два промпта; свободный бриф — LLM.
+	briefs, err := uc.buildGenerationBriefs(ctx, order)
+	if err != nil {
+		metrics.LLMErrors.Inc()
+		uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
+			"order_id", order.ID(), "err", err)
+		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
+		_ = order.RequeueForRetry()
+		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+			uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
 		}
-		uc.log.Info("текст успешно сгенерирован")
+		return fmt.Errorf("генерация текста LLM недоступна: %w", err)
 	}
+	uc.log.Info("подготовлены варианты текста для генерации", "order_id", order.ID(), "variants", len(briefs))
 
 	// 4. Отправка структурированного запроса в Suno API.
 	// Продукт фиксированный — 4 версии песни на заказ, без тарифов.
 	req := domain.MusicGenerationRequest{
-		Brief:        lyrics,
+		Briefs:       briefs,
 		Instrumental: false,
 		TrackCount:   domain.DefaultTrackCount,
 	}
@@ -675,4 +661,22 @@ func (uc *OrderUseCase) recoverStuckOrder(ctx context.Context, order *domain.Ord
 
 	uc.log.Info("застрявший заказ восстановлен и повторно поставлен в очередь", "order_id", order.ID())
 	return nil
+}
+
+func (uc *OrderUseCase) buildGenerationBriefs(ctx context.Context, order *domain.Order) ([]string, error) {
+	if order.SunoPrompt() != "" {
+		prompt := order.SunoPrompt()
+		uc.log.Info("используем готовый промпт из квиза", "order_id", order.ID(), "category_id", order.CategoryID())
+		return []string{prompt, prompt + quizLyricVariantSuffix}, nil
+	}
+
+	uc.log.Info("генерация двух вариантов текста через LLM", "order_id", order.ID())
+	briefs, err := uc.llmClient.GenerateLyricsVariants(ctx, order.Brief(), domain.DefaultLyricVariantCount)
+	if err != nil {
+		return nil, err
+	}
+	if len(briefs) < domain.DefaultLyricVariantCount {
+		return nil, fmt.Errorf("LLM вернул %d вариантов, ожидали %d", len(briefs), domain.DefaultLyricVariantCount)
+	}
+	return briefs[:domain.DefaultLyricVariantCount], nil
 }

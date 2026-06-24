@@ -282,7 +282,13 @@ func TestProcessGenerationTask_Success(t *testing.T) {
 	f.addAccount(t, 10)
 	order := f.queuedOrder(t)
 
-	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+	f.provider.submitFn = func(_ context.Context, req domain.MusicGenerationRequest) (string, error) {
+		if len(req.Briefs) != domain.DefaultLyricVariantCount {
+			t.Errorf("ожидали %d briefs, получили %d", domain.DefaultLyricVariantCount, len(req.Briefs))
+		}
+		if req.Briefs[0] == req.Briefs[1] {
+			t.Error("два варианта текста должны отличаться")
+		}
 		return "job-123", nil
 	}
 

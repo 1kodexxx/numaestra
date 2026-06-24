@@ -10,6 +10,36 @@ import (
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
+func TestSubmitGeneration_TwoLyricBriefs(t *testing.T) {
+	var calls int32
+	var inputs []suno.MusicInput
+	mock := &suno.MockClient{
+		CreateMusicTaskFunc: func(_ context.Context, in suno.MusicInput) (string, error) {
+			inputs = append(inputs, in)
+			n := atomic.AddInt32(&calls, 1)
+			return "task-" + string('0'+n), nil
+		},
+	}
+	a := NewProviderAdapter(mock)
+
+	jobID, err := a.SubmitGeneration(context.Background(), domain.MusicGenerationRequest{
+		Briefs:     []string{"текст A", "текст B"},
+		TrackCount: domain.DefaultTrackCount,
+	})
+	if err != nil {
+		t.Fatalf("SubmitGeneration упал: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("ожидали 2 задачи (по одной на текст), создано %d", calls)
+	}
+	if len(inputs) != 2 || inputs[0].Description != "текст A" || inputs[1].Description != "текст B" {
+		t.Errorf("разные briefs не проброшены: %+v", inputs)
+	}
+	if jobID != "task-1,task-2" {
+		t.Errorf("ожидали 'task-1,task-2', получили %q", jobID)
+	}
+}
+
 func TestSubmitGeneration_SubmitsMultipleTasksForFourVersions(t *testing.T) {
 	var calls int32
 	mock := &suno.MockClient{

@@ -14,6 +14,10 @@ var ErrProviderSessionExpired = errors.New("сессия провайдера у
 // Продукт фиксированный, без тарифов: всегда 4 версии за один платёж.
 const DefaultTrackCount = 4
 
+// DefaultLyricVariantCount — сколько разных текстов песни генерируем на заказ.
+// Каждый текст даёт clipsPerTask (2) музыкальные версии → 2×2 = 4 трека.
+const DefaultLyricVariantCount = 2
+
 // MusicProvider - порт подсистемы генерации музыки. Домен не знает, реализован
 // ли он через прямую интеграцию с Suno, через стороннего API-реселлера или
 // через комбинацию нескольких источников - это решение инфраструктурного слоя.
@@ -30,7 +34,8 @@ type MusicProvider interface {
 // MusicGenerationRequest - данные, достаточные для запроса генерации, независимо
 // от того, какой конкретный провайдер стоит за MusicProvider.
 type MusicGenerationRequest struct {
-	Brief        string // техническое задание клиента в свободной форме
+	Brief        string // один промпт (legacy / fallback)
+	Briefs       []string // разные тексты: по одной Suno-задаче на элемент → 2 клипа
 	Style        string // жанр/настроение, если выделено отдельно от brief
 	Instrumental bool
 	TrackCount   int // сколько версий запросить (см. DefaultTrackCount)

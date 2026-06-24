@@ -46,6 +46,33 @@ func TestHTTPClient_CreateMusicTask_Success(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_CreateMusicTask_CustomMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"custom":true`) {
+			t.Errorf("ожидали custom=true для Custom Mode: %s", body)
+		}
+		if !strings.Contains(string(body), `"prompt":"[Verse 1]\nПривет"`) {
+			t.Errorf("тело не содержит prompt с lyrics: %s", body)
+		}
+		if strings.Contains(string(body), `"gpt_description_prompt"`) {
+			t.Errorf("Custom Mode не должен отправлять gpt_description_prompt: %s", body)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"SUCCESS","message":"success","data":{"jobId":"job-custom"}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "secret", "")
+	id, err := c.CreateMusicTask(context.Background(), MusicInput{Lyrics: "[Verse 1]\nПривет"})
+	if err != nil {
+		t.Fatalf("CreateMusicTask упал: %v", err)
+	}
+	if id != "job-custom" {
+		t.Errorf("ожидали job-custom, получили %q", id)
+	}
+}
+
 func TestHTTPClient_CreateMusicTask_CustomModel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

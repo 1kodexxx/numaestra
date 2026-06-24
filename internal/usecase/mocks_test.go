@@ -458,7 +458,8 @@ var _ notify.Notifier = (*mockNotifier)(nil)
 // --- mock LLM client ---
 
 type mockLLM struct {
-	fn func(ctx context.Context, facts string) (string, error)
+	fn         func(ctx context.Context, facts string) (string, error)
+	variantsFn func(ctx context.Context, facts string, count int) ([]string, error)
 }
 
 func (m *mockLLM) GenerateLyrics(ctx context.Context, facts string) (string, error) {
@@ -466,6 +467,29 @@ func (m *mockLLM) GenerateLyrics(ctx context.Context, facts string) (string, err
 		return m.fn(ctx, facts)
 	}
 	return "сгенерированный текст для: " + facts, nil
+}
+
+func (m *mockLLM) GenerateLyricsVariants(ctx context.Context, facts string, count int) ([]string, error) {
+	if m.variantsFn != nil {
+		return m.variantsFn(ctx, facts, count)
+	}
+	if m.fn != nil {
+		one, err := m.fn(ctx, facts)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]string, count)
+		for i := range out {
+			out[i] = one
+		}
+		return out, nil
+	}
+	first := "[Verse 1]\nсгенерированный текст для: " + facts
+	second := "[Verse 1]\nальтернативный текст для: " + facts
+	if count <= 1 {
+		return []string{first}, nil
+	}
+	return []string{first, second}, nil
 }
 
 var _ openai.APIClient = (*mockLLM)(nil)

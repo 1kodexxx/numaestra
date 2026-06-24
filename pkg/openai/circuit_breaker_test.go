@@ -19,6 +19,17 @@ func (s *stubClient) GenerateLyrics(_ context.Context, _ string) (string, error)
 	return s.result, s.err
 }
 
+func (s *stubClient) GenerateLyricsVariants(_ context.Context, _ string, count int) ([]string, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	out := make([]string, count)
+	for i := range out {
+		out[i] = s.result
+	}
+	return out, nil
+}
+
 var _ APIClient = (*stubClient)(nil)
 
 // newBreakerWith создаёт withBreaker с инжектированным stubClient и кастомным breaker.
