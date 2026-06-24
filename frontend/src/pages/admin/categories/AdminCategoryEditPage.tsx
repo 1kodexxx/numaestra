@@ -4,7 +4,7 @@ import { adminCategoryApi } from '@entities/admin-category'
 import type { AdminCategory, AdminQuestion, AdminOption } from '@entities/admin-category'
 import { Spinner, Button, TextField } from '@shared/ui'
 import { ApiError } from '@shared/api'
-import { A, Panel, ErrorBanner, EmptyState, StatusBadge, Field, Select } from '@widgets/admin-layout'
+import { A, Panel, Grid2, ErrorBanner, EmptyState, StatusBadge, Field, Select } from '@widgets/admin-layout'
 
 const UI_TYPES: AdminQuestion['ui_type'][] = ['text', 'textarea', 'select', 'tags', 'radio']
 
@@ -89,19 +89,19 @@ export function AdminCategoryEditPage() {
   if (!category) return null
 
   return (
-    <div style={{ maxWidth: 820 }}>
+    <div className="admin-page admin-page--detail">
       <Link to="/admin/categories" style={{ color: A.txt2, textDecoration: 'none', fontSize: '13px' }}>← К списку категорий</Link>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', margin: '12px 0 28px' }}>
-        <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.03em' }}>{category.title}</h1>
+      <div className="admin-page-title-row">
+        <h1>{category.title}</h1>
         <span style={{ fontSize: '13px', color: A.txt3, fontFamily: 'monospace' }}>{category.id}</span>
       </div>
 
       <Panel style={{ padding: '24px', marginBottom: '28px' }}>
-        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <form onSubmit={handleSave} className="admin-form-stack">
           <TextField label="Заголовок" value={title} onChange={setTitle} required surfaceColor={A.surface} />
           <TextField label="Описание (вступление для квиза)" value={description} onChange={setDescription} multiline rows={2} surfaceColor={A.surface} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <Grid2>
             <div>
               <TextField label="URL картинки" value={coverImageUrl} onChange={setCoverImageUrl} surfaceColor={A.surface} />
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
@@ -122,7 +122,7 @@ export function AdminCategoryEditPage() {
               {uploadError && <div style={{ fontSize: '12px', color: '#f87171', marginTop: '6px' }}>{uploadError}</div>}
             </div>
             <TextField label="Тэги (через запятую)" value={seoTags} onChange={setSeoTags} surfaceColor={A.surface} />
-          </div>
+          </Grid2>
           <TextField label="Шаблон промпта для Suno" value={basePromptTemplate} onChange={setBasePromptTemplate} multiline rows={3} required surfaceColor={A.surface} />
           {saveError && <ErrorBanner>{saveError}</ErrorBanner>}
           <Button type="submit" loading={saving} style={{ alignSelf: 'flex-start' }}>Сохранить изменения</Button>
@@ -204,8 +204,8 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em' }}>Вопросы квиза</h2>
+      <div className="admin-section-header">
+        <h2 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', margin: 0 }}>Вопросы квиза</h2>
         <Button variant={showForm ? 'outlined' : 'tonal'} size="sm" onClick={() => { resetForm(); setShowForm(v => !v) }}>
           {showForm ? 'Отмена' : '+ Вопрос'}
         </Button>
@@ -213,22 +213,22 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
 
       {showForm && (
         <Panel style={{ padding: '22px', marginBottom: '16px' }}>
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: '14px' }}>
+          <form onSubmit={handleSubmit} className="admin-form-stack admin-form-stack--sm">
+            <div className="admin-grid-step">
               <Field label="Шаг">
                 <input type="number" value={stepNumber} onChange={(e) => setStepNumber(Number(e.target.value))}
                   style={{ background: A.surface2, border: `1px solid ${A.border}`, borderRadius: '12px', padding: '12px 14px', color: A.txt, fontSize: '14px', fontFamily: 'inherit', outline: 'none', width: '100%' }} />
               </Field>
               <TextField label="Текст вопроса" value={questionText} onChange={setQuestionText} required surfaceColor={A.surface} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <Grid2 className="admin-grid-2--sm">
               <Field label="Тип поля">
                 <Select value={uiType} onChange={(v) => setUiType(v as AdminQuestion['ui_type'])}>
                   {UI_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </Select>
               </Field>
               <TextField label="Mapping key — плейсхолдер [KEY]" value={mappingKey} onChange={(v) => setMappingKey(v.toUpperCase())} required surfaceColor={A.surface} />
-            </div>
+            </Grid2>
             {needsOptions && (
               <TextField
                 label='Варианты ответа — «Метка=значение», по одному на строку'
@@ -253,10 +253,10 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
       {questions.length === 0
         ? <Panel><EmptyState icon="❓" text="Вопросов пока нет." /></Panel>
         : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div className="admin-list-stack">
             {[...questions].sort((a, b) => a.step_number - b.step_number).map((q) => (
-              <Panel key={q.id} style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px' }}>
-                <div style={{ minWidth: 0 }}>
+              <Panel key={q.id} className="admin-row-card">
+                <div className="admin-row-card__body">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '12px', fontWeight: 700, color: A.accent }}>#{q.step_number}</span>
                     <span style={{ fontSize: '14px', fontWeight: 600, color: A.txt }}>{q.question_text}</span>
@@ -267,7 +267,7 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
                     <span style={{ fontSize: '12px', color: A.txt3, fontFamily: 'monospace' }}>{q.mapping_key}</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                <div className="admin-row-card__actions">
                   <Button variant="outlined" size="sm" onClick={() => startEdit(q)}>Изменить</Button>
                   <Button variant="text" size="sm" onClick={() => handleDelete(q.id)} style={{ color: '#f87171' }}>Удалить</Button>
                 </div>

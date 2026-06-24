@@ -4,7 +4,7 @@ import { adminCategoryApi } from '@entities/admin-category'
 import type { AdminCategory } from '@entities/admin-category'
 import { Spinner, Button, TextField } from '@shared/ui'
 import { ApiError } from '@shared/api'
-import { A, PageHeader, Panel, ErrorBanner, EmptyState, StatusBadge } from '@widgets/admin-layout'
+import { A, PageHeader, Panel, Grid2, ErrorBanner, EmptyState, StatusBadge } from '@widgets/admin-layout'
 
 export function AdminCategoriesPage() {
   const navigate = useNavigate()
@@ -65,7 +65,7 @@ export function AdminCategoriesPage() {
   }
 
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div className="admin-page">
       <PageHeader
         title="Категории"
         subtitle={`${categories.length} категорий · карточки и квизы для клиентов`}
@@ -74,16 +74,16 @@ export function AdminCategoriesPage() {
 
       {showForm && (
         <Panel style={{ padding: '24px', marginBottom: '24px' }}>
-          <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <form onSubmit={handleCreate} className="admin-form-stack">
+            <Grid2>
               <TextField label="ID (слаг, напр. wedding)" value={id} onChange={setId} required surfaceColor={A.surface} />
               <TextField label="Заголовок" value={title} onChange={setTitle} required surfaceColor={A.surface} />
-            </div>
+            </Grid2>
             <TextField label="Описание (вступление для квиза)" value={description} onChange={setDescription} multiline rows={2} surfaceColor={A.surface} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <Grid2>
               <TextField label="URL картинки" value={coverImageUrl} onChange={setCoverImageUrl} placeholder="/images/covers/example.svg" surfaceColor={A.surface} />
               <TextField label="Тэги (через запятую)" value={seoTags} onChange={setSeoTags} placeholder="свадьба, подарок" surfaceColor={A.surface} />
-            </div>
+            </Grid2>
             <TextField
               label="Шаблон промпта для Suno"
               value={basePromptTemplate}
@@ -105,10 +105,10 @@ export function AdminCategoriesPage() {
       {!loading && categories.length === 0 && <Panel><EmptyState icon="🗂️" text="Категорий пока нет — создайте первую." /></Panel>}
 
       {!loading && categories.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="admin-list-stack">
           {categories.map((c) => (
-            <Panel key={c.id} style={{ padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-              <div style={{ minWidth: 0 }}>
+            <Panel key={c.id} className="admin-row-card">
+              <div className="admin-row-card__body">
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '16px', fontWeight: 700, color: A.txt }}>{c.title}</span>
                   <span style={{ fontSize: '12px', color: A.txt3, fontFamily: 'monospace' }}>{c.id}</span>
@@ -120,7 +120,7 @@ export function AdminCategoriesPage() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <div className="admin-row-card__actions">
                 <Button variant="outlined" size="sm" onClick={() => navigate(`/admin/categories/${c.id}`)}>Изменить</Button>
                 <Button variant="text" size="sm" onClick={() => handleDelete(c.id)} style={{ color: '#f87171' }}>Удалить</Button>
               </div>

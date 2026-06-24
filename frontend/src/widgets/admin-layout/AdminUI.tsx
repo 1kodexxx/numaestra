@@ -67,24 +67,36 @@ export function generationBadge(status: string) {
 /* Заголовок страницы с опциональным действием справа. */
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px', marginBottom: '28px' }}>
+    <div className="admin-page-header">
       <div>
-        <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.03em', color: A.txt }}>{title}</h1>
-        {subtitle && <div style={{ fontSize: '14px', color: A.txt2, marginTop: '4px' }}>{subtitle}</div>}
+        <h1>{title}</h1>
+        {subtitle && <div className="admin-page-header__subtitle">{subtitle}</div>}
       </div>
-      {action}
+      {action && <div className="admin-page-header__action">{action}</div>}
     </div>
   )
 }
 
 /* Карточка-поверхность. */
-export function Panel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+export function Panel({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
   return (
-    <div style={{
-      background: A.surface, border: `1px solid ${A.border}`,
-      borderRadius: '16px', boxShadow: 'var(--elevation-1)',
-      ...style,
-    }}>
+    <div
+      className={className}
+      style={{
+        background: A.surface, border: `1px solid ${A.border}`,
+        borderRadius: '16px', boxShadow: 'var(--elevation-1)',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+/* Двухколоночная сетка формы — на мобильных одна колонка. */
+export function Grid2({ children, gap, className }: { children: React.ReactNode; gap?: string; className?: string }) {
+  return (
+    <div className={['admin-grid-2', className].filter(Boolean).join(' ')} style={gap ? { gap } : undefined}>
       {children}
     </div>
   )

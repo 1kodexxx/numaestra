@@ -5,7 +5,6 @@ import type { Track } from '@entities/order'
 import { ApiError } from '@shared/api'
 import { Spinner, Button } from '@shared/ui'
 import { MusicPlayer } from '@widgets/player'
-import { Footer } from '@widgets/footer'
 import { useSeo } from '@shared/lib/seo'
 
 const ACCENT = '#00e5c0'
@@ -68,7 +67,6 @@ export function SharePage() {
           </div>
         </div>
       </div>
-      <Footer />
     </div>
   )
 }

@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAdminSession } from '@features/admin-session'
 import { Spinner } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
 import { A } from './AdminUI'
+import './admin-responsive.css'
 
 const NAV = [
   { to: '/admin/dashboard', label: 'Дашборд', icon: '📊' },
@@ -14,10 +15,10 @@ const NAV = [
   { to: '/admin/accounts', label: 'Suno-аккаунты', icon: '🎚️' },
 ]
 
-function NavItem({ to, label, icon }: { to: string; label: string; icon: string }) {
+function NavItem({ to, label, icon, onNavigate }: { to: string; label: string; icon: string; onNavigate?: () => void }) {
   const [h, setH] = useState(false)
   return (
-    <NavLink to={to} style={{ textDecoration: 'none' }}>
+    <NavLink to={to} style={{ textDecoration: 'none' }} onClick={onNavigate}>
       {({ isActive }) => (
         <div
           onMouseEnter={() => setH(true)}
@@ -50,9 +51,20 @@ function NavItem({ to, label, icon }: { to: string; label: string; icon: string 
 export function AdminLayout() {
   const { login, loading, signOut } = useAdminSession()
   const navigate = useNavigate()
+  const location = useLocation()
   const [logoutH, setLogoutH] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useSeo({ title: 'Админ-панель', noindex: true })
+
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    document.body.style.overflow = sidebarOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [sidebarOpen])
 
   if (loading) {
     return (
@@ -69,16 +81,20 @@ export function AdminLayout() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: A.bg, color: A.txt }}>
-      <aside style={{
-        width: 256, flexShrink: 0,
-        borderRight: `1px solid ${A.border}`,
-        background: A.surface,
-        display: 'flex', flexDirection: 'column',
-        padding: '22px 16px',
-        position: 'sticky', top: 0, height: '100vh',
-      }}>
-        {/* Brand */}
+    <div className="admin-shell" style={{ background: A.bg, color: A.txt }}>
+      <div
+        className={sidebarOpen ? 'admin-overlay is-visible' : 'admin-overlay'}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden={!sidebarOpen}
+      />
+
+      <aside
+        className={sidebarOpen ? 'admin-sidebar is-open' : 'admin-sidebar'}
+        style={{
+          borderRight: `1px solid ${A.border}`,
+          background: A.surface,
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 6px', marginBottom: '28px' }}>
           <span style={{
             width: 34, height: 34, borderRadius: '10px',
@@ -93,12 +109,13 @@ export function AdminLayout() {
         </div>
 
         <nav>
-          {NAV.map(n => <NavItem key={n.to} {...n} />)}
+          {NAV.map(n => (
+            <NavItem key={n.to} {...n} onNavigate={() => setSidebarOpen(false)} />
+          ))}
         </nav>
 
         <div style={{ flex: 1 }} />
 
-        {/* User + logout */}
         <div style={{ borderTop: `1px solid ${A.border}`, paddingTop: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 6px 12px' }}>
             <span style={{
@@ -132,9 +149,23 @@ export function AdminLayout() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, minWidth: 0, padding: '36px 40px', overflowX: 'auto' }}>
-        <Outlet />
-      </main>
+      <div className="admin-content">
+        <header className="admin-topbar">
+          <button
+            type="button"
+            className="admin-menu-btn"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Открыть меню"
+          >
+            ☰
+          </button>
+          <span className="admin-topbar-title">Numaestra Admin</span>
+        </header>
+
+        <main className="admin-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

@@ -47,7 +47,7 @@ export function AdminDashboardPage() {
   }, [])
 
   return (
-    <div style={{ maxWidth: 1080 }}>
+    <div className="admin-page admin-page--wide">
       <PageHeader title="Дашборд" subtitle="Сводка по заказам, выручке и ресурсам" />
 
       {loading && <div style={{ padding: '48px', textAlign: 'center' }}><Spinner /></div>}

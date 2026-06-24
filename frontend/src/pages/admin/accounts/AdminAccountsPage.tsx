@@ -70,7 +70,7 @@ export function AdminAccountsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div className="admin-page admin-page--narrow">
       <PageHeader
         title="Suno-аккаунты"
         subtitle="Пул аккаунтов, к которым подключается воркер генерации"
@@ -79,7 +79,7 @@ export function AdminAccountsPage() {
 
       {showForm && (
         <Panel style={{ padding: '24px', marginBottom: '24px', maxWidth: 560 }}>
-          <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <form onSubmit={handleAdd} className="admin-form-stack">
             <TextField label="Email аккаунта Suno" type="email" value={email} onChange={setEmail} required surfaceColor={A.surface} />
             <TextField
               label="Сессия (cookie/токен Suno)"
@@ -112,7 +112,7 @@ export function AdminAccountsPage() {
       {!loading && accounts.length === 0 && <Panel><EmptyState icon="🎚️" text="Аккаунтов пока нет — добавьте первый." /></Panel>}
 
       {!loading && accounts.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="admin-list-stack">
           {accounts.map((a) => {
             const s = STATUS[a.status]
             const slotsFull = a.concurrent_tasks >= a.max_concurrent_tasks
@@ -122,8 +122,8 @@ export function AdminAccountsPage() {
             // или с занятыми слотами при неактивном статусе.
             const stuck = a.status === 'banned' || a.status === 'cooldown' || onPause || (a.status !== 'active' && a.concurrent_tasks > 0)
             return (
-              <Panel key={a.id} style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
-                <div style={{ minWidth: 0 }}>
+              <Panel key={a.id} className="admin-row-card">
+                <div className="admin-row-card__body">
                   <div style={{ fontSize: '15px', fontWeight: 700, color: A.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.email}</div>
                   <div style={{ fontSize: '13px', color: A.txt2, marginTop: '5px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
                     <span title="Локальный счётчик-ограничитель пула, а не реальный баланс провайдера TTAPI. Реальные кредиты — в кабинете TTAPI.">
@@ -139,7 +139,7 @@ export function AdminAccountsPage() {
                     )}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                <div className="admin-row-card__actions admin-row-card__actions--wide">
                   <StatusBadge label={s.label} tone={s.tone} dot />
                   {stuck && (
                     <Button variant="filled" onClick={() => handleReset(a.id)} style={{ padding: '8px 14px', fontSize: '13px' }}>

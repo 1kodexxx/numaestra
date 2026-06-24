@@ -43,7 +43,7 @@ export function AdminReviewsPage() {
   const visible = reviews.filter((r) => r.is_published).length
 
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div className="admin-page admin-page--narrow">
       <PageHeader
         title="Отзывы"
         subtitle={loading ? 'Загрузка…' : `${reviews.length} всего · ${visible} опубликовано`}
@@ -55,7 +55,7 @@ export function AdminReviewsPage() {
       {!loading && reviews.length === 0 && <Panel><EmptyState icon="💬" text="Отзывов пока нет." /></Panel>}
 
       {!loading && reviews.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="admin-list-stack admin-list-stack--md">
           {reviews.map((r) => (
             <ReviewCard key={r.id} review={r} onAct={act} />
           ))}
@@ -79,12 +79,12 @@ function ReviewCard({ review, onAct }: { review: AdminReview; onAct: (fn: () => 
 
   return (
     <Panel style={{ padding: '18px 20px', opacity: review.is_published ? 1 : 0.6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+      <div className="admin-review-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '15px', fontWeight: 700, color: A.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{review.author_name}</span>
           <Stars value={review.rating} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <div className="admin-review-meta">
           {review.is_published
             ? <StatusBadge label="Опубликован" tone="green" dot />
             : <StatusBadge label="Скрыт" tone="muted" />}

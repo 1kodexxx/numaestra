@@ -3,7 +3,7 @@ import { adminExampleApi } from '@entities/admin-example'
 import type { AdminExample, ExamplePayload } from '@entities/admin-example'
 import { Spinner, Button, TextField } from '@shared/ui'
 import { ApiError } from '@shared/api'
-import { A, PageHeader, Panel, ErrorBanner, EmptyState, StatusBadge, Field } from '@widgets/admin-layout'
+import { A, PageHeader, Panel, Grid2, ErrorBanner, EmptyState, StatusBadge, Field } from '@widgets/admin-layout'
 
 const EMPTY: ExamplePayload = {
   id: '', title: '', category: '', description: '', mood: '',
@@ -94,7 +94,7 @@ export function AdminExamplesPage() {
   }
 
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div className="admin-page">
       <PageHeader
         title="Примеры работ"
         subtitle={`${examples.length} примеров · блок «Послушать примеры» на главной`}
@@ -103,19 +103,19 @@ export function AdminExamplesPage() {
 
       {showForm && (
         <Panel style={{ padding: '24px', marginBottom: '24px' }}>
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <form onSubmit={handleSubmit} className="admin-form-stack">
+            <Grid2>
               <TextField label="ID (слаг)" value={form.id ?? ''} onChange={(v) => set('id', v)} required={editingId == null} disabled={editingId != null} surfaceColor={A.surface} />
               <TextField label="Название" value={form.title} onChange={(v) => set('title', v)} required surfaceColor={A.surface} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            </Grid2>
+            <Grid2>
               <TextField label="Категория (метка)" value={form.category} onChange={(v) => set('category', v)} placeholder="Юбилей" surfaceColor={A.surface} />
               <TextField label="Настроение" value={form.mood} onChange={(v) => set('mood', v)} placeholder="Праздник" surfaceColor={A.surface} />
-            </div>
+            </Grid2>
             <TextField label="Описание" value={form.description} onChange={(v) => set('description', v)} multiline rows={2} surfaceColor={A.surface} />
             <TextField label="URL аудио (mp3)" value={form.audio_url} onChange={(v) => set('audio_url', v)} placeholder="https://...mp3" surfaceColor={A.surface} />
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', alignItems: 'end' }}>
+            <div className="admin-grid-field-btn">
               <TextField label="URL обложки" value={form.cover_url} onChange={(v) => set('cover_url', v)} placeholder="https://...webp" surfaceColor={A.surface} />
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '2px' }}>
                 {form.cover_url && (
@@ -129,12 +129,12 @@ export function AdminExamplesPage() {
             </div>
             {editingId == null && <div style={{ fontSize: '12px', color: A.txt3, marginTop: '-8px' }}>Загрузка обложки доступна после создания примера. URL аудио/обложки можно вставить вручную.</div>}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '16px', alignItems: 'center' }}>
+            <div className="admin-grid-sort">
               <Field label="Порядок">
                 <input type="number" value={form.sort_order} onChange={(e) => set('sort_order', Number(e.target.value))}
                   style={{ background: A.surface2, border: `1px solid ${A.border}`, borderRadius: '12px', padding: '12px 14px', color: A.txt, fontSize: '14px', fontFamily: 'inherit', outline: 'none', width: '100%' }} />
               </Field>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '14px', color: A.txt2, cursor: 'pointer', marginTop: '22px' }}>
+              <label className="admin-checkbox-row admin-checkbox-row--offset">
                 <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} style={{ width: 16, height: 16, accentColor: A.accent, cursor: 'pointer' }} />
                 Показывать на главной
               </label>
@@ -152,15 +152,15 @@ export function AdminExamplesPage() {
       {!loading && examples.length === 0 && <Panel><EmptyState icon="🎧" text="Примеров пока нет — добавьте первый." /></Panel>}
 
       {!loading && examples.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="admin-list-stack">
           {examples.map((e) => (
-            <Panel key={e.id} style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <Panel key={e.id} className="admin-row-card admin-row-card--media">
               <div style={{ width: 64, height: 44, borderRadius: '10px', overflow: 'hidden', flexShrink: 0, background: A.surface2, border: `1px solid ${A.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {e.cover_url
                   ? <img src={e.cover_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={(ev) => { ev.currentTarget.style.display = 'none' }} />
                   : <span style={{ fontSize: '18px', opacity: 0.5 }}>🎵</span>}
               </div>
-              <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="admin-row-card__body">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '15px', fontWeight: 700, color: A.txt }}>{e.title}</span>
                   <span style={{ fontSize: '12px', color: A.txt3, fontFamily: 'monospace' }}>#{e.sort_order}</span>
@@ -172,7 +172,7 @@ export function AdminExamplesPage() {
                   {e.audio_url && <a href={e.audio_url} target="_blank" rel="noreferrer" style={{ color: A.accent, textDecoration: 'none' }}>🎧 аудио</a>}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <div className="admin-row-card__actions">
                 <Button variant="outlined" size="sm" onClick={() => openEdit(e)}>Изменить</Button>
                 <Button variant="text" size="sm" onClick={() => handleDelete(e.id)} style={{ color: '#f87171' }}>Удалить</Button>
               </div>

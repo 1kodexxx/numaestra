@@ -27,7 +27,7 @@ export function AdminOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
 
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div className="admin-page">
       <PageHeader title="Заказы" subtitle={total > 0 ? `Всего заказов: ${total}` : 'Список заказов клиентов'} />
 
       {loading && <div style={{ padding: '48px', textAlign: 'center' }}><Spinner /></div>}
@@ -37,7 +37,7 @@ export function AdminOrdersPage() {
 
       {!loading && orders.length > 0 && (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div className="admin-list-stack">
             {orders.map((o) => (
               <OrderRow key={o.id} order={o} onClick={() => navigate(`/admin/orders/${o.id}`)} />
             ))}
@@ -63,28 +63,28 @@ function OrderRow({ order, onClick }: { order: AdminOrder; onClick: () => void }
       onClick={onClick}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
+      className="admin-row-card"
       style={{
         background: A.surface,
         border: `1px solid ${h ? 'rgba(0,229,192,0.35)' : A.border}`,
         borderRadius: '16px', boxShadow: 'var(--elevation-1)',
-        padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px',
         cursor: 'pointer',
         transform: h ? 'translateY(-1px)' : 'translateY(0)',
         transition: 'all 0.15s',
       }}
     >
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+      <div className="admin-row-card__body">
+        <div className="admin-row-card__meta">
           <span style={{ fontSize: '15px', fontWeight: 700, color: A.txt }}>#{order.invoice_id}</span>
           <span style={{ fontSize: '13px', color: A.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {order.email || order.phone || '—'}
           </span>
         </div>
-        <div style={{ fontSize: '13px', color: A.txt3, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '420px' }}>
+        <div className="admin-order-brief" style={{ fontSize: '13px', color: A.txt3, marginTop: '4px' }}>
           {order.brief}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+      <div className="admin-row-card__badges">
         <span style={{ fontSize: '14px', fontWeight: 700, color: A.txt }}>{(order.amount_kopecks / 100).toFixed(0)} ₽</span>
         {paymentBadge(order.payment_status)}
         {generationBadge(order.generation_status)}

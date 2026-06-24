@@ -78,23 +78,23 @@ export function AdminOrderDetailPage() {
   if (!order) return null
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div className="admin-page admin-page--order">
       <Link to="/admin/orders" style={{ color: A.txt2, textDecoration: 'none', fontSize: '13px' }}>← К списку заказов</Link>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0 28px', flexWrap: 'wrap' }}>
-        <h1 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.03em' }}>Заказ #{order.invoice_id}</h1>
+      <div className="admin-order-title-row">
+        <h1>Заказ #{order.invoice_id}</h1>
         {paymentBadge(order.payment_status)}
         {generationBadge(order.generation_status)}
       </div>
 
       {/* Info grid */}
       <Panel style={{ padding: '22px 24px', marginBottom: '16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px' }}>
+        <div className="admin-info-grid">
           <Info label="Email" value={order.email || '—'} />
           <Info label="Телефон" value={order.phone || '—'} />
           <Info label="Сумма" value={`${(order.amount_kopecks / 100).toFixed(0)} ₽`} />
           <Info label="Создан" value={new Date(order.created_at).toLocaleString('ru-RU')} />
-          <div style={{ gridColumn: '1 / -1' }}>
+          <div className="admin-info-grid__full">
             <Info label="Бриф" value={order.brief} />
           </div>
         </div>
@@ -164,7 +164,7 @@ export function AdminOrderDetailPage() {
           </div>
         )}
 
-        <form onSubmit={handleSendFeedback} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <form onSubmit={handleSendFeedback} className="admin-form-stack" style={{ gap: '14px' }}>
           <TextField
             label="Сообщение клиенту"
             value={message} onChange={setMessage}
