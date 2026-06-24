@@ -331,3 +331,38 @@ func newProcessingOrder(t *testing.T) *Order {
 	_ = o.StartProcessing(uuid.New())
 	return o
 }
+
+func TestOrder_Regenerate(t *testing.T) {
+	o, _ := NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+
+	// Неоплаченный — нельзя.
+	if err := o.Regenerate(); err == nil {
+		t.Error("неоплаченный заказ нельзя перегенерировать")
+	}
+
+	_ = o.MarkPaid()
+	_ = o.Enqueue()
+	acc := uuid.New()
+	_ = o.StartProcessing(acc)
+
+	// processing (не failed) — нельзя.
+	if err := o.Regenerate(); err == nil {
+		t.Error("заказ не в статусе failed нельзя перегенерировать")
+	}
+
+	_ = o.Fail("в пуле нет аккаунтов")
+
+	// paid + failed — можно.
+	if err := o.Regenerate(); err != nil {
+		t.Fatalf("paid+failed должен перегенерироваться: %v", err)
+	}
+	if o.GenerationStatus() != GenerationStatusQueued {
+		t.Errorf("ожидали queued, получили %q", o.GenerationStatus())
+	}
+	if o.FailureReason() != "" {
+		t.Errorf("причина ошибки должна очиститься, получили %q", o.FailureReason())
+	}
+	if o.AssignedAccountID() != nil {
+		t.Error("привязка аккаунта должна сброситься")
+	}
+}

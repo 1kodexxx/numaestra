@@ -20,6 +20,9 @@ export function AdminOrderDetailPage() {
   const [refunding, setRefunding] = useState(false)
   const [refundError, setRefundError] = useState<string | null>(null)
 
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenError, setRegenError] = useState<string | null>(null)
+
   function load() {
     setLoading(true)
     adminOrderApi
@@ -54,6 +57,19 @@ export function AdminOrderDetailPage() {
       setRefundError(err instanceof ApiError ? err.message : 'Не удалось выполнить возврат')
     } finally {
       setRefunding(false)
+    }
+  }
+
+  async function handleRegenerate() {
+    if (!confirm('Поставить заказ заново в очередь генерации?')) return
+    setRegenError(null); setRegenerating(true)
+    try {
+      await adminOrderApi.regenerate(id)
+      load()
+    } catch (err) {
+      setRegenError(err instanceof ApiError ? err.message : 'Не удалось перегенерировать')
+    } finally {
+      setRegenerating(false)
     }
   }
 
@@ -103,6 +119,18 @@ export function AdminOrderDetailPage() {
               </a>
             ))}
           </div>
+        </Panel>
+      )}
+
+      {/* Перегенерация — для оплаченных заказов с ошибкой генерации */}
+      {order.payment_status === 'paid' && order.generation_status === 'failed' && (
+        <Panel style={{ padding: '20px 24px', marginBottom: '16px' }}>
+          <SectionTitle>Перегенерация</SectionTitle>
+          <div style={{ fontSize: '13px', color: A.txt2, marginBottom: '14px' }}>
+            Заказ оплачен, но генерация сорвалась. Поставьте его заново в очередь — клиент получит трек без повторной оплаты.
+          </div>
+          <Button onClick={handleRegenerate} loading={regenerating}>Перегенерировать</Button>
+          {regenError && <div style={{ marginTop: '12px' }}><ErrorBanner>{regenError}</ErrorBanner></div>}
         </Panel>
       )}
 

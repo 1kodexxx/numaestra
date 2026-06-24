@@ -324,6 +324,23 @@ func (o *Order) Fail(reason string) error {
 	return nil
 }
 
+// Regenerate возвращает оплаченный, но упавший в генерации заказ обратно в очередь
+// (повторная попытка по решению администратора). Доступна только для paid + failed:
+// клиент уже заплатил, но трек не получил — справедливо запустить генерацию заново.
+func (o *Order) Regenerate() error {
+	if o.paymentStatus != PaymentStatusPaid {
+		return ErrOrderNotPaid
+	}
+	if o.generationStatus != GenerationStatusFailed {
+		return ErrInvalidGenerationTransition
+	}
+	o.generationStatus = GenerationStatusQueued
+	o.assignedAccountID = nil
+	o.failureReason = ""
+	o.touch()
+	return nil
+}
+
 // RequeueForRetry возвращает заказ в очередь после неуспешной попытки на конкретном
 // аккаунте (например, аккаунт ушёл в Cooldown), снимая привязку к аккаунту.
 func (o *Order) RequeueForRetry() error {

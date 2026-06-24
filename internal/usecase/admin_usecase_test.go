@@ -309,3 +309,40 @@ func TestAdminUseCase_RefundOrder_RobokassaFailure(t *testing.T) {
 			unchanged.PaymentStatus())
 	}
 }
+
+func TestAdminUseCase_RegenerateOrder(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	_ = o.MarkPaid()
+	_ = o.Enqueue()
+	_ = o.StartProcessing(uuid.New())
+	_ = o.Fail("в пуле нет аккаунтов")
+	orders.save(o)
+
+	q := &mockQueue{}
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithQueue(q)
+
+	if err := uc.RegenerateOrder(context.Background(), o.ID()); err != nil {
+		t.Fatalf("RegenerateOrder: %v", err)
+	}
+
+	got, _ := orders.GetByID(context.Background(), o.ID())
+	if got.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("ожидали queued, получили %q", got.GenerationStatus())
+	}
+	if len(q.genCalls) != 1 || q.genCalls[0] != o.ID() {
+		t.Errorf("должна встать ровно одна задача генерации для заказа, получили %+v", q.genCalls)
+	}
+}
+
+func TestAdminUseCase_RegenerateOrder_NotFailed(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	_ = o.MarkPaid() // paid, но не failed
+	orders.save(o)
+
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithQueue(&mockQueue{})
+	if err := uc.RegenerateOrder(context.Background(), o.ID()); err == nil {
+		t.Error("перегенерация не-failed заказа должна вернуть ошибку")
+	}
+}

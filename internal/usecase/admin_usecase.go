@@ -35,7 +35,14 @@ type AdminUseCase struct {
 	rk            Refunder
 	categoryCache categoryCacheInvalidator
 	notifier      notify.Notifier
+	queue         domain.QueuePublisher // nil → перегенерация недоступна
 	log           *slog.Logger
+}
+
+// WithQueue включает перегенерацию заказов (постановку задачи генерации в очередь).
+func (uc *AdminUseCase) WithQueue(q domain.QueuePublisher) *AdminUseCase {
+	uc.queue = q
+	return uc
 }
 
 // NewAdminUseCase создаёт AdminUseCase.
@@ -168,6 +175,30 @@ func (uc *AdminUseCase) RefundOrder(ctx context.Context, orderID uuid.UUID) erro
 	}
 
 	uc.log.Info("возврат платежа выполнен", "order_id", orderID, "amount", outSum)
+	return nil
+}
+
+// RegenerateOrder повторно ставит оплаченный, но упавший заказ в очередь генерации.
+// Нужен, когда клиент заплатил, а генерация сорвалась (например, был пуст пул
+// аккаунтов или провайдер вернул ошибку) — чтобы не оставлять клиента без трека.
+func (uc *AdminUseCase) RegenerateOrder(ctx context.Context, orderID uuid.UUID) error {
+	if uc.queue == nil {
+		return fmt.Errorf("очередь генерации недоступна")
+	}
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("получение заказа для перегенерации: %w", err)
+	}
+	if err := order.Regenerate(); err != nil {
+		return fmt.Errorf("перегенерация недоступна: %w", err)
+	}
+	if err := uc.orderRepo.Update(ctx, order); err != nil {
+		return fmt.Errorf("сохранение заказа: %w", err)
+	}
+	if err := uc.queue.EnqueueGenerationTask(ctx, orderID); err != nil {
+		return fmt.Errorf("постановка задачи генерации: %w", err)
+	}
+	uc.log.Info("admin: заказ отправлен на перегенерацию", "order_id", orderID)
 	return nil
 }
 
