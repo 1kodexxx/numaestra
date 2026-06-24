@@ -247,6 +247,15 @@ func TestLoad_RobokassaIsTestRejected_NonDev(t *testing.T) {
 	}
 }
 
+func TestLoad_PublicAppURLRequiredWhenSMTP_NonDev(t *testing.T) {
+	setValidNonDevEnv(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("PUBLIC_APP_URL", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидали ошибку: PUBLIC_APP_URL обязателен при SMTP_HOST в non-dev")
+	}
+}
+
 func TestGetBoolEnv_Variants(t *testing.T) {
 	cases := map[string]bool{
 		"1": true, "true": true, "TRUE": true, "yes": true,

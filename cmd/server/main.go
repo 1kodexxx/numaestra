@@ -160,8 +160,9 @@ func run(ctx context.Context) error {
 			cfg.Notify.SMTPPassword,
 			cfg.Notify.FromAddress,
 			cfg.Notify.FromName,
+			cfg.Notify.PublicAppURL,
 		)
-		log.Info("SMTP-нотификатор активен", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort)
+		log.Info("SMTP-нотификатор активен", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort, "public_url", cfg.Notify.PublicAppURL)
 	} else {
 		notifier = notify.NewLogNotifier(log)
 		log.Warn("SMTP_HOST не задан — уведомления только в лог (заглушка)")

@@ -28,6 +28,8 @@ x-app-env: &app-env
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-}
   SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Numaestra}
+  # Абсолютный URL сайта для ссылок в письмах (обязателен при SMTP в prod).
+  PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
   # В dev с пустым ключом используется небезопасный дев-ключ (предупреждение в логе).
   # В prod обязателен: openssl rand -hex 32
   SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}

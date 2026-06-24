@@ -112,6 +112,10 @@ type NotifyConfig struct {
 	SMTPPassword string // SMTP_PASSWORD
 	FromAddress  string // SMTP_FROM_ADDRESS, например noreply@numaestra.ru
 	FromName     string // SMTP_FROM_NAME, например Numaestra
+	// PublicAppURL — публичный URL сайта для ссылок в письмах (без слэша на конце).
+	// Обязателен при включённом SMTP: относительные /status?... ломаются на
+	// click-tracking Rusender и других ESP.
+	PublicAppURL string // PUBLIC_APP_URL, например https://numaestra.ru
 }
 
 // PricingConfig задаёт серверную цену заказа. Цена НЕ принимается от клиента —
@@ -177,6 +181,7 @@ func Load() (*Config, error) {
 			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 			FromAddress:  getEnv("SMTP_FROM_ADDRESS", ""),
 			FromName:     getEnv("SMTP_FROM_NAME", "Numaestra"),
+			PublicAppURL: strings.TrimRight(getEnv("PUBLIC_APP_URL", ""), "/"),
 		},
 		AdminToken:           getEnv("ADMIN_TOKEN", ""),
 		AdminLogin:           getEnv("ADMIN_LOGIN", ""),
@@ -230,6 +235,9 @@ func Load() (*Config, error) {
 		}
 		if cfg.Robokassa.IsTest {
 			return nil, fmt.Errorf("ROBOKASSA_IS_TEST=true недопустим в окружении %q (платежи уйдут в тестовый режим и не будут зачислены)", cfg.Env)
+		}
+		if cfg.Notify.SMTPHost != "" && cfg.Notify.PublicAppURL == "" {
+			return nil, fmt.Errorf("PUBLIC_APP_URL обязателен в окружении %q при включённом SMTP_HOST (ссылки в письмах должны быть абсолютными)", cfg.Env)
 		}
 	}
 
