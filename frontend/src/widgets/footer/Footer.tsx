@@ -121,6 +121,7 @@ export function Footer() {
             <div>
               <ColTitle>Сервис</ColTitle>
               <FootLink to="/">Каталог категорий</FootLink>
+              <FootLink to="/how-it-works">Как это работает</FootLink>
               <FootLink to="/reviews">Отзывы</FootLink>
               <FootLink to="/status">Мой заказ</FootLink>
             </div>

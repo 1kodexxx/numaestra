@@ -1,8 +1,42 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { BrandMark } from '@shared/ui'
 
+/* Текстовая ссылка навбара с подсветкой активного маршрута. */
+function NavTextLink({ to, label, active }: { to: string; label: string; active: boolean }) {
+  return (
+    <Link
+      to={to}
+      className="state-layer"
+      style={{
+        textDecoration: 'none',
+        fontSize: '13px',
+        fontWeight: 600,
+        color: active ? '#00e5c0' : 'rgba(255,255,255,0.7)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        height: '38px',
+        padding: '0 12px',
+        borderRadius: '20px',
+        transition: 'color 0.15s',
+      }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = '#fff' }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.7)' }}
+    >
+      {label}
+    </Link>
+  )
+}
+
 export function Navbar() {
   const { pathname } = useLocation()
+  const [wide, setWide] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 640 : true))
+
+  useEffect(() => {
+    const fn = () => setWide(window.innerWidth >= 640)
+    window.addEventListener('resize', fn)
+    return () => window.removeEventListener('resize', fn)
+  }, [])
 
   return (
     <nav
@@ -28,6 +62,14 @@ export function Navbar() {
       </Link>
 
       <div style={{ flex: 1 }} />
+
+      {/* Вторичные ссылки — на мобильных скрыты (доступны в футере). */}
+      {wide && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginRight: '8px' }}>
+          <NavTextLink to="/how-it-works" label="Как это работает" active={pathname === '/how-it-works'} />
+          <NavTextLink to="/reviews" label="Отзывы" active={pathname === '/reviews'} />
+        </div>
+      )}
 
       <Link
         to="/status"
