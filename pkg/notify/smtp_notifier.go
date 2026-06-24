@@ -21,13 +21,19 @@ type SmtpNotifier struct {
 	password     string
 	from         string
 	fromName     string
+	replyTo      string
 	publicAppURL string // абсолютный URL сайта для ссылок в письмах
 	dialPlain    func(addr string) (*smtp.Client, error)
 }
 
 // NewSmtpNotifier создаёт SMTP-отправщик уведомлений.
 // publicAppURL — публичный адрес сайта без завершающего слэша (https://numaestra.ru).
-func NewSmtpNotifier(host string, port int, user, password, from, fromName, publicAppURL string) *SmtpNotifier {
+// replyTo — адрес для ответов клиента (пустой → support@домен отправителя).
+func NewSmtpNotifier(host string, port int, user, password, from, fromName, replyTo, publicAppURL string) *SmtpNotifier {
+	rt := strings.TrimSpace(replyTo)
+	if rt == "" {
+		rt = defaultReplyTo(from)
+	}
 	return &SmtpNotifier{
 		host:         host,
 		port:         port,
@@ -35,6 +41,7 @@ func NewSmtpNotifier(host string, port int, user, password, from, fromName, publ
 		password:     password,
 		from:         from,
 		fromName:     fromName,
+		replyTo:      rt,
 		publicAppURL: strings.TrimRight(publicAppURL, "/"),
 	}
 }
@@ -45,8 +52,9 @@ func (n *SmtpNotifier) NotifyOrderComplete(_ context.Context, notif OrderComplet
 	}
 
 	subject := "Ваша песня готова — Numaestra"
-	body := n.buildBody(notif)
-	return n.send(notif.Email, subject, body)
+	htmlBody := n.buildBody(notif)
+	textBody := n.buildPlainBody(notif)
+	return n.send(notif.Email, subject, textBody, htmlBody)
 }
 
 func (n *SmtpNotifier) NotifyAdminFeedback(_ context.Context, notif AdminFeedbackNotification) error {
@@ -55,12 +63,13 @@ func (n *SmtpNotifier) NotifyAdminFeedback(_ context.Context, notif AdminFeedbac
 	}
 
 	subject := "Сообщение по вашему заказу — Numaestra"
-	body := n.buildFeedbackBody(notif)
-	return n.send(notif.Email, subject, body)
+	htmlBody := n.buildFeedbackBody(notif)
+	textBody := n.buildPlainFeedbackBody(notif)
+	return n.send(notif.Email, subject, textBody, htmlBody)
 }
 
-func (n *SmtpNotifier) send(to, subject, htmlBody string) error {
-	msg := buildMIMEMessage(n.from, n.fromName, to, subject, htmlBody)
+func (n *SmtpNotifier) send(to, subject, textBody, htmlBody string) error {
+	msg := buildMIMEMessage(n.from, n.fromName, to, n.replyTo, subject, textBody, htmlBody)
 
 	addr := fmt.Sprintf("%s:%d", n.host, n.port)
 	auth := smtp.PlainAuth("", n.user, n.password, n.host)
@@ -163,8 +172,8 @@ func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ваша песня готова — Numaestra</title>
 </head>
-<body style="margin:0;padding:0;background:#080808;color:#ffffff;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#080808">
+<body style="margin:0;padding:0;background:#f3f4f6;color:#111111;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#f3f4f6">
     <tr>
       <td align="center" style="padding:40px 16px">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%%;background:#0f0f0f;border:1px solid rgba(255,255,255,0.07);border-radius:20px;overflow:hidden">
@@ -298,19 +307,29 @@ func (n *SmtpNotifier) orderStatusURL(orderID, accessToken string) string {
 	return n.publicAppURL + path
 }
 
-func buildMIMEMessage(from, fromName, to, subject, htmlBody string) string {
-	displayFrom := from
-	if fromName != "" {
-		displayFrom = fmt.Sprintf("%s <%s>", fromName, from)
+func (n *SmtpNotifier) buildPlainBody(notif OrderCompleteNotification) string {
+	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Здравствуйте!\n\nВаша персональная песня в Numaestra готова — %d версии трека.\n\n", notif.TracksCount)
+	fmt.Fprintf(&b, "Слушать на сайте:\n%s\n\n", statusURL)
+	if len(notif.TrackURLs) > 0 {
+		b.WriteString("Прямые ссылки на треки:\n")
+		for i, u := range notif.TrackURLs {
+			fmt.Fprintf(&b, "  Вариант %d: %s\n", i+1, u)
+		}
+		b.WriteString("\n")
 	}
+	b.WriteString("—\nNumaestra · персональные песни на заказ\n")
+	if n.publicAppURL != "" {
+		fmt.Fprintf(&b, "%s\n", n.publicAppURL)
+	}
+	return b.String()
+}
 
-	var sb strings.Builder
-	sb.WriteString("From: " + displayFrom + "\r\n")
-	sb.WriteString("To: " + to + "\r\n")
-	sb.WriteString("Subject: " + subject + "\r\n")
-	sb.WriteString("MIME-Version: 1.0\r\n")
-	sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
-	sb.WriteString("\r\n")
-	sb.WriteString(htmlBody)
-	return sb.String()
+func (n *SmtpNotifier) buildPlainFeedbackBody(notif AdminFeedbackNotification) string {
+	return fmt.Sprintf(
+		"Сообщение по вашему заказу #%s в Numaestra:\n\n%s\n\n—\nNumaestra\n",
+		notif.OrderID,
+		notif.Message,
+	)
 }

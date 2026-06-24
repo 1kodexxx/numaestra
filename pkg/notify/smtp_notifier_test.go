@@ -117,7 +117,7 @@ func closedAddr(t *testing.T) string {
 
 func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 	// Проверяем что пустой email — не ошибка.
-	n := NewSmtpNotifier("localhost", 587, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier("localhost", 587, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	err := n.NotifyOrderComplete(context.Background(), OrderCompleteNotification{Email: ""})
 	if err != nil {
 		t.Fatalf("пустой email должен тихо пропускаться, got error: %v", err)
@@ -131,15 +131,24 @@ func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 	}
 
 	// Проверяем содержимое MIME-сообщения.
-	msg := buildMIMEMessage("from@numaestra.ru", "Numaestra", notif.Email, "Ваша песня готова 🎵", "<html>body</html>")
-	if !strings.Contains(msg, "From: Numaestra <from@numaestra.ru>") {
-		t.Errorf("ожидался заголовок From с именем, получили:\n%s", msg)
+	msg := buildMIMEMessage("from@numaestra.ru", "Numaestra", notif.Email, "support@numaestra.ru", "Ваша песня готова — Numaestra", "plain", "<html>body</html>")
+	if !strings.Contains(msg, "From:") {
+		t.Errorf("ожидался заголовок From, получили:\n%s", msg)
+	}
+	if !strings.Contains(msg, "from@numaestra.ru") {
+		t.Errorf("ожидался адрес отправителя, получили:\n%s", msg)
 	}
 	if !strings.Contains(msg, "To: user@example.com") {
 		t.Errorf("ожидался заголовок To, получили:\n%s", msg)
 	}
-	if !strings.Contains(msg, "Content-Type: text/html; charset=utf-8") {
-		t.Errorf("ожидался Content-Type html, получили:\n%s", msg)
+	if !strings.Contains(msg, "Reply-To: support@numaestra.ru") {
+		t.Errorf("ожидался Reply-To, получили:\n%s", msg)
+	}
+	if !strings.Contains(msg, "multipart/alternative") {
+		t.Errorf("ожидался multipart/alternative, получили:\n%s", msg)
+	}
+	if !strings.Contains(msg, "text/plain") || !strings.Contains(msg, "text/html") {
+		t.Errorf("ожидались text/plain и text/html, получили:\n%s", msg)
 	}
 
 	// Проверяем HTML-тело письма.
@@ -162,7 +171,7 @@ func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 
 func TestSendSTARTTLS_DialFails(t *testing.T) {
 	addr := closedAddr(t)
-	n := NewSmtpNotifier("testhost", 587, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier("testhost", 587, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	err := n.sendSTARTTLS(addr, smtp.PlainAuth("", "u", "p", "testhost"), "to@test.com", "msg")
 	if err == nil {
 		t.Fatal("ожидали ошибку при подключении к закрытому серверу")
@@ -175,7 +184,7 @@ func TestSendSTARTTLS_DialFails(t *testing.T) {
 func TestSendSTARTTLS_StartTLSFails(t *testing.T) {
 	// Plain-сервер не поддерживает STARTTLS — клиент получит 250 вместо ожидаемых 220.
 	addr, _ := fakeSmtpServer(t)
-	n := NewSmtpNotifier("testhost", 587, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier("testhost", 587, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	err := n.sendSTARTTLS(addr, smtp.PlainAuth("", "u", "p", "testhost"), "to@test.com", "msg")
 	if err == nil {
 		t.Fatal("ожидали ошибку STARTTLS при подключении к plain-серверу")
@@ -189,7 +198,7 @@ func TestSendSTARTTLS_StartTLSFails(t *testing.T) {
 
 func TestSendImplicitTLS_DialFails(t *testing.T) {
 	addr := closedAddr(t)
-	n := NewSmtpNotifier("testhost", 465, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier("testhost", 465, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	err := n.sendImplicitTLS(addr, smtp.PlainAuth("", "u", "p", "testhost"), "to@test.com", "msg")
 	if err == nil {
 		t.Fatal("ожидали ошибку при подключении к закрытому серверу")
@@ -211,7 +220,7 @@ func TestDeliverMessage_Success(t *testing.T) {
 	}
 	defer client.Quit() //nolint:errcheck
 
-	n := NewSmtpNotifier(host, 587, "user@test.com", "pass", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier(host, 587, "user@test.com", "pass", "from@test.com", "Test", "", "https://numaestra.ru")
 	auth := smtp.PlainAuth("", "user@test.com", "pass", host)
 	if err := n.deliverMessage(client, auth, "to@test.com", "Subject: hi\r\n\r\nhello world"); err != nil {
 		t.Fatalf("deliverMessage: %v", err)
@@ -233,7 +242,7 @@ func TestDeliverMessage_AuthFails(t *testing.T) {
 	}
 	defer client.Quit() //nolint:errcheck
 
-	n := NewSmtpNotifier(host, 587, "bad", "creds", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier(host, 587, "bad", "creds", "from@test.com", "Test", "", "https://numaestra.ru")
 	auth := smtp.PlainAuth("", "bad", "creds", host)
 	err = n.deliverMessage(client, auth, "to@test.com", "msg")
 	if err == nil {
@@ -254,7 +263,7 @@ func TestDeliverMessage_RcptFails(t *testing.T) {
 	}
 	defer client.Quit() //nolint:errcheck
 
-	n := NewSmtpNotifier(host, 587, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier(host, 587, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	auth := smtp.PlainAuth("", "u", "p", host)
 	err = n.deliverMessage(client, auth, "unknown@test.com", "msg")
 	if err == nil {
@@ -273,7 +282,7 @@ func TestNotifyOrderComplete_STARTTLS_Success(t *testing.T) {
 	addr, received := fakeSmtpServer(t)
 	host, _, _ := net.SplitHostPort(addr)
 
-	n := NewSmtpNotifier(host, 587, "user@test.com", "pass", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier(host, 587, "user@test.com", "pass", "from@test.com", "Test", "", "https://numaestra.ru")
 	// Игнорируем сконструированный addr (127.0.0.1:587) и подключаемся к fake-серверу.
 	n.dialPlain = func(_ string) (*smtp.Client, error) { return smtp.Dial(addr) }
 
@@ -298,7 +307,7 @@ func TestNotifyOrderComplete_STARTTLS_DialFails(t *testing.T) {
 	addr := closedAddr(t)
 	host, _, _ := net.SplitHostPort(addr)
 
-	n := NewSmtpNotifier(host, 587, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier(host, 587, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	err := n.NotifyOrderComplete(context.Background(), OrderCompleteNotification{
 		Email: "customer@example.com",
 	})
@@ -312,7 +321,7 @@ func TestNotifyOrderComplete_ImplicitTLS_DialFails(t *testing.T) {
 	addr := closedAddr(t)
 	host, _, _ := net.SplitHostPort(addr)
 
-	n := NewSmtpNotifier(host, 465, "u", "p", "from@test.com", "Test", "https://numaestra.ru")
+	n := NewSmtpNotifier(host, 465, "u", "p", "from@test.com", "Test", "", "https://numaestra.ru")
 	err := n.NotifyOrderComplete(context.Background(), OrderCompleteNotification{
 		Email: "customer@example.com",
 	})

@@ -160,6 +160,7 @@ func run(ctx context.Context) error {
 			cfg.Notify.SMTPPassword,
 			cfg.Notify.FromAddress,
 			cfg.Notify.FromName,
+			cfg.Notify.ReplyTo,
 			cfg.Notify.PublicAppURL,
 		)
 		log.Info("SMTP-нотификатор активен", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort, "public_url", cfg.Notify.PublicAppURL)

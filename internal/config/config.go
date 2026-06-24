@@ -112,6 +112,7 @@ type NotifyConfig struct {
 	SMTPPassword string // SMTP_PASSWORD
 	FromAddress  string // SMTP_FROM_ADDRESS, например noreply@numaestra.ru
 	FromName     string // SMTP_FROM_NAME, например Numaestra
+	ReplyTo      string // SMTP_REPLY_TO, например support@numaestra.ru
 	// PublicAppURL — публичный URL сайта для ссылок в письмах (без слэша на конце).
 	// Обязателен при включённом SMTP: относительные /status?... ломаются на
 	// click-tracking Rusender и других ESP.
@@ -181,6 +182,7 @@ func Load() (*Config, error) {
 			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 			FromAddress:  getEnv("SMTP_FROM_ADDRESS", ""),
 			FromName:     getEnv("SMTP_FROM_NAME", "Numaestra"),
+			ReplyTo:      getEnv("SMTP_REPLY_TO", ""),
 			PublicAppURL: strings.TrimRight(getEnv("PUBLIC_APP_URL", ""), "/"),
 		},
 		AdminToken:           getEnv("ADMIN_TOKEN", ""),
