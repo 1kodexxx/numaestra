@@ -11,7 +11,7 @@ const LOCAL_COVERS = new Set<string>([
   "breakup",
   "corporate",
   "doctor",
-  "collegue",
+  "farewell",
   "father",
 ]);
 
