@@ -72,6 +72,7 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Get("/", h.ListAccounts)
 		r.Post("/", h.AddAccount)
 		r.Patch("/{id}", h.SetAccountStatus)
+		r.Post("/{id}/reset", h.ResetAccount)
 	})
 
 	r.Route("/orders", func(r chi.Router) {
@@ -135,11 +136,15 @@ type accountResponse struct {
 	TokenBalance       int    `json:"token_balance"`
 	MaxConcurrentTasks int    `json:"max_concurrent_tasks"`
 	ConcurrentTasks    int    `json:"concurrent_tasks"`
-	UpdatedAt          string `json:"updated_at"`
+	// CooldownUntil — момент окончания самовосстанавливающейся паузы (Throttle).
+	// Пустая строка — паузы нет. Аккаунт при этом может иметь статус active, но
+	// фактически выпадает из ротации до этого времени, поэтому показываем отдельно.
+	CooldownUntil string `json:"cooldown_until,omitempty"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 func accountToResponse(acc *domain.SunoAccount) accountResponse {
-	return accountResponse{
+	resp := accountResponse{
 		ID:                 acc.ID().String(),
 		Email:              acc.Email(),
 		Status:             string(acc.Status()),
@@ -148,6 +153,10 @@ func accountToResponse(acc *domain.SunoAccount) accountResponse {
 		ConcurrentTasks:    acc.ConcurrentTasks(),
 		UpdatedAt:          acc.UpdatedAt().Format("2006-01-02T15:04:05Z"),
 	}
+	if cu := acc.CooldownUntil(); cu != nil {
+		resp.CooldownUntil = cu.Format("2006-01-02T15:04:05Z")
+	}
+	return resp
 }
 
 type setStatusRequest struct {
@@ -256,6 +265,29 @@ func (h *AdminHandler) SetAccountStatus(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		h.log.Error("admin: ошибка смены статуса аккаунта", "id", id, "error", err)
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResetAccount полностью возвращает зависший аккаунт в пул: статус active,
+// сброс счётчика ошибок и паузы, обнуление занятых слотов.
+// POST /api/v1/admin/accounts/{id}/reset
+func (h *AdminHandler) ResetAccount(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID аккаунта")
+		return
+	}
+
+	if err := h.uc.ResetAccount(r.Context(), id); err != nil {
+		if errors.Is(err, domain.ErrAccountNotFound) {
+			respondError(w, r, http.StatusNotFound, "аккаунт не найден")
+			return
+		}
+		h.log.Error("admin: ошибка сброса аккаунта", "id", id, "error", err)
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}

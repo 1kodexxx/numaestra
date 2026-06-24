@@ -60,6 +60,15 @@ export function AdminAccountsPage() {
     }
   }
 
+  async function handleReset(accountId: string) {
+    try {
+      await adminAccountApi.reset(accountId)
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось достать аккаунт')
+    }
+  }
+
   return (
     <div style={{ maxWidth: 880 }}>
       <PageHeader
@@ -107,19 +116,36 @@ export function AdminAccountsPage() {
           {accounts.map((a) => {
             const s = STATUS[a.status]
             const slotsFull = a.concurrent_tasks >= a.max_concurrent_tasks
+            const pausedUntil = a.cooldown_until ? new Date(a.cooldown_until) : null
+            const onPause = pausedUntil != null && pausedUntil.getTime() > Date.now()
+            // «Зависшим» считаем аккаунт, выпавший из ротации: заблокирован, на паузе
+            // или с занятыми слотами при неактивном статусе.
+            const stuck = a.status === 'banned' || a.status === 'cooldown' || onPause || (a.status !== 'active' && a.concurrent_tasks > 0)
             return (
               <Panel key={a.id} style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: '15px', fontWeight: 700, color: A.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.email}</div>
-                  <div style={{ fontSize: '13px', color: A.txt2, marginTop: '5px', display: 'flex', gap: '14px' }}>
-                    <span>🪙 Токены: <b style={{ color: A.txt }}>{a.token_balance}</b></span>
+                  <div style={{ fontSize: '13px', color: A.txt2, marginTop: '5px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                    <span title="Локальный счётчик-ограничитель пула, а не реальный баланс провайдера TTAPI. Реальные кредиты — в кабинете TTAPI.">
+                      🪙 Лимитер: <b style={{ color: A.txt }}>{a.token_balance.toLocaleString('ru-RU')}</b>
+                    </span>
                     <span style={{ color: slotsFull ? '#fbbf24' : A.txt2 }}>
                       ⚙️ Слоты: <b style={{ color: slotsFull ? '#fbbf24' : A.txt }}>{a.concurrent_tasks}/{a.max_concurrent_tasks}</b>
                     </span>
+                    {onPause && pausedUntil && (
+                      <span style={{ color: '#fbbf24' }}>
+                        ⏸️ Пауза до <b>{pausedUntil.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</b>
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
                   <StatusBadge label={s.label} tone={s.tone} dot />
+                  {stuck && (
+                    <Button variant="filled" onClick={() => handleReset(a.id)} style={{ padding: '8px 14px', fontSize: '13px' }}>
+                      Достать
+                    </Button>
+                  )}
                   <Select value="" onChange={(v) => v && handleStatusChange(a.id, v as AccountStatus)} style={{ padding: '8px 12px', fontSize: '13px' }}>
                     <option value="">Сменить статус…</option>
                     {STATUS_OPTIONS.filter((o) => o !== a.status).map((o) => (

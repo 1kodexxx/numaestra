@@ -308,6 +308,9 @@ func (r *wOrderRepo) CountAll(_ context.Context) (int, error) { return 0, nil }
 func (r *wOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }
+func (r *wOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
 
 var _ domain.OrderRepository = (*wOrderRepo)(nil)
 
@@ -358,6 +361,9 @@ func (r *wAccountRepo) ListByStatus(_ context.Context, _ domain.AccountStatus) (
 }
 func (r *wAccountRepo) List(_ context.Context) ([]*domain.SunoAccount, error) { return nil, nil }
 func (r *wAccountRepo) SetStatus(_ context.Context, _ uuid.UUID, _ domain.AccountStatus) error {
+	return nil
+}
+func (r *wAccountRepo) ResetAccount(_ context.Context, _ uuid.UUID, _ bool) error {
 	return nil
 }
 

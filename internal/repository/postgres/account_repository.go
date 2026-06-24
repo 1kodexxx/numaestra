@@ -255,3 +255,28 @@ func (r *AccountRepository) SetStatus(ctx context.Context, id uuid.UUID, status 
 	}
 	return nil
 }
+
+// ResetAccount возвращает аккаунт в рабочее состояние (Admin API «достать
+// зависший аккаунт»): статус active, сбрасывает failure_count и снимает паузу.
+// При releaseSlots=true дополнительно обнуляет concurrent_tasks — для «утёкших»
+// после краша воркера слотов.
+func (r *AccountRepository) ResetAccount(ctx context.Context, id uuid.UUID, releaseSlots bool) error {
+	now := time.Now().UTC()
+	query := `
+		UPDATE suno_accounts
+		SET status = 'active',
+		    failure_count = 0,
+		    cooldown_until = NULL,
+		    concurrent_tasks = CASE WHEN $2 THEN 0 ELSE concurrent_tasks END,
+		    updated_at = $3
+		WHERE id = $1
+	`
+	cmd, err := r.conn(ctx).Exec(ctx, query, id, releaseSlots, now)
+	if err != nil {
+		return fmt.Errorf("reset account: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrAccountNotFound
+	}
+	return nil
+}

@@ -35,6 +35,8 @@ type inMemOrderRepo struct {
 	listAllErr             error
 	stuckOrders            []*domain.Order
 	listStuckErr           error
+	stuckQueuedOrders      []*domain.Order
+	listStuckQueuedErr     error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -193,6 +195,13 @@ func (r *inMemOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]
 	return r.stuckOrders, nil
 }
 
+func (r *inMemOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	if r.listStuckQueuedErr != nil {
+		return nil, r.listStuckQueuedErr
+	}
+	return r.stuckQueuedOrders, nil
+}
+
 func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -320,6 +329,23 @@ func (r *inMemAccountRepo) SetStatus(_ context.Context, id uuid.UUID, status dom
 		return domain.ErrAccountNotFound
 	}
 	snap.Status = status
+	r.accounts[id] = snap
+	return nil
+}
+
+func (r *inMemAccountRepo) ResetAccount(_ context.Context, id uuid.UUID, releaseSlots bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.accounts[id]
+	if !ok {
+		return domain.ErrAccountNotFound
+	}
+	snap.Status = domain.AccountStatusActive
+	snap.FailureCount = 0
+	snap.CooldownUntil = nil
+	if releaseSlots {
+		snap.ConcurrentTasks = 0
+	}
 	r.accounts[id] = snap
 	return nil
 }

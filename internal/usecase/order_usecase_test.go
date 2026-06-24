@@ -737,6 +737,46 @@ func TestRecoverStuckOrders_Empty_NoOp(t *testing.T) {
 	}
 }
 
+// --- RecoverOrphanedQueuedOrders ---
+
+func TestRecoverOrphanedQueuedOrders_Empty_NoOp(t *testing.T) {
+	f := newFixture(t)
+	if err := f.uc.RecoverOrphanedQueuedOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverOrphanedQueuedOrders на пустом списке не должен падать: %v", err)
+	}
+}
+
+func TestRecoverOrphanedQueuedOrders_ListError_Propagates(t *testing.T) {
+	f := newFixture(t)
+	sentinel := errors.New("db down")
+	f.orderRepo.listStuckQueuedErr = sentinel
+	if err := f.uc.RecoverOrphanedQueuedOrders(context.Background()); !errors.Is(err, sentinel) {
+		t.Errorf("ожидали ошибку ListStuckQueued, получили %v", err)
+	}
+}
+
+func TestRecoverOrphanedQueuedOrders_ReenqueuesGenerationTask(t *testing.T) {
+	f := newFixture(t)
+	order := f.queuedOrder(t)
+
+	// Сбрасываем постановки, накопленные при создании/оплате заказа.
+	f.queue.mu.Lock()
+	f.queue.genCalls = nil
+	f.queue.mu.Unlock()
+
+	f.orderRepo.stuckQueuedOrders = []*domain.Order{order}
+
+	if err := f.uc.RecoverOrphanedQueuedOrders(context.Background()); err != nil {
+		t.Fatalf("RecoverOrphanedQueuedOrders: %v", err)
+	}
+
+	f.queue.mu.Lock()
+	defer f.queue.mu.Unlock()
+	if len(f.queue.genCalls) != 1 || f.queue.genCalls[0] != order.ID() {
+		t.Errorf("ожидали повторную постановку задачи генерации для %s, получили %v", order.ID(), f.queue.genCalls)
+	}
+}
+
 func TestRecoverStuckOrders_ListError_Propagates(t *testing.T) {
 	f := newFixture(t)
 	sentinel := errors.New("db down")

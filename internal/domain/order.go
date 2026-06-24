@@ -431,6 +431,12 @@ type OrderRepository interface {
 	// ListStuckProcessing возвращает заказы, застрявшие в статусе processing
 	// дольше порогового времени (recovery после падения пода/воркера).
 	ListStuckProcessing(ctx context.Context, olderThan time.Time) ([]*Order, error)
+
+	// ListStuckQueued возвращает оплаченные заказы, застрявшие в статусе queued
+	// дольше порогового времени: задача генерации потеряна или исчерпала ретраи
+	// (ушла в archived) и заказ навсегда завис в «В очереди». Recovery повторно
+	// ставит для них задачу генерации.
+	ListStuckQueued(ctx context.Context, olderThan time.Time) ([]*Order, error)
 }
 
 // TrackStorage - порт для долгосрочного хранения готовых треков.

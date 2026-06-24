@@ -225,6 +225,21 @@ func (a *SunoAccount) EnterCooldown(duration time.Duration) {
 	a.touch()
 }
 
+// Throttle ставит аккаунт на короткую САМОВОССТАНАВЛИВАЮЩУЮСЯ паузу после
+// транзиентной ошибки провайдера (TTAPI 5xx, сетевой сбой, rate-limit), НЕ выводя
+// его из пула навсегда. В отличие от EnterCooldown/RegisterFailure статус остаётся
+// Active — меняется только cooldownUntil, поэтому по истечении паузы и доменный
+// IsAvailable, и SQL-захват (cooldown_until < NOW()) снова сделают аккаунт
+// доступным без ручного вмешательства администратора.
+//
+// Это ключевая защита пула из одного аккаунта: разовые сбои TTAPI больше не
+// приводят к перманентному бану единственного аккаунта и остановке всех заказов.
+func (a *SunoAccount) Throttle(duration time.Duration) {
+	until := time.Now().UTC().Add(duration)
+	a.cooldownUntil = &until
+	a.touch()
+}
+
 // RegisterFailure увеличивает счётчик ошибок и при превышении порога эскалирует в Banned.
 // Порог приходит снаружи (из политики use-case'а), чтобы домен не зависел от конкретных констант.
 func (a *SunoAccount) RegisterFailure(threshold int) {
@@ -273,6 +288,13 @@ type AccountRepository interface {
 	List(ctx context.Context) ([]*SunoAccount, error)
 	// SetStatus атомарно меняет статус аккаунта (Admin API: активация, блокировка и т.д.).
 	SetStatus(ctx context.Context, id uuid.UUID, status AccountStatus) error
+
+	// ResetAccount возвращает аккаунт в рабочее состояние (Admin API «достать
+	// зависший аккаунт»): статус active, сбрасывает failure_count и снимает паузу
+	// (cooldown_until). Если releaseSlots=true, дополнительно обнуляет
+	// concurrent_tasks — для случаев, когда слот «утёк» после краша воркера и
+	// аккаунт навсегда заняло несуществующей задачей.
+	ResetAccount(ctx context.Context, id uuid.UUID, releaseSlots bool) error
 }
 
 func (a *SunoAccount) Snapshot() SunoAccountSnapshot {

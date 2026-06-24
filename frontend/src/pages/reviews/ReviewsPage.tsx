@@ -4,7 +4,6 @@ import type { PublicReview } from '@entities/review'
 import { Button, TextField, Spinner } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { useSeo } from '@shared/lib/seo'
-import { Footer } from '@widgets/footer'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.08)'
@@ -180,7 +179,6 @@ export function ReviewsPage() {
           </div>
         )}
       </div>
-      <Footer />
     </>
   )
 }

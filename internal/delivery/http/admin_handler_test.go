@@ -184,6 +184,10 @@ func (r *adminOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]
 	return nil, nil
 }
 
+func (r *adminOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
+
 var _ domain.OrderRepository = (*adminOrderRepo)(nil)
 
 type adminAccRepo struct {
@@ -253,6 +257,23 @@ func (r *adminAccRepo) SetStatus(_ context.Context, id uuid.UUID, status domain.
 		return domain.ErrAccountNotFound
 	}
 	s.Status = status
+	r.accs[id] = s
+	return nil
+}
+
+func (r *adminAccRepo) ResetAccount(_ context.Context, id uuid.UUID, releaseSlots bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.accs[id]
+	if !ok {
+		return domain.ErrAccountNotFound
+	}
+	s.Status = domain.AccountStatusActive
+	s.FailureCount = 0
+	s.CooldownUntil = nil
+	if releaseSlots {
+		s.ConcurrentTasks = 0
+	}
 	r.accs[id] = s
 	return nil
 }

@@ -12,6 +12,11 @@ import (
 	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
+// accountInitialTokenBalance — стартовое значение локального счётчика token_balance
+// для аккаунтов, добавляемых через админку. Большое значение, т.к. при единой
+// модели TTAPI это не реальный баланс провайдера, а лишь soft-лимитер пула.
+const accountInitialTokenBalance = 1_000_000
+
 // Refunder — порт инициации возврата платежа. Реализуется *robokassa.Client;
 // интерфейс позволяет заменить реализацию в тестах без HTTP-запросов.
 type Refunder interface {
@@ -76,7 +81,12 @@ func (uc *AdminUseCase) invalidateCategoryCache() {
 // encryptedSession — сессия, зашифрованная перед передачей в API.
 // maxConcurrent <= 0 использует значение по умолчанию (1).
 func (uc *AdminUseCase) AddAccount(ctx context.Context, email, encryptedSession string, maxConcurrent int) (*domain.SunoAccount, error) {
-	acc, err := domain.NewSunoAccount(email, encryptedSession, 100)
+	// token_balance — локальный счётчик-ограничитель, а НЕ реальный баланс провайдера.
+	// При единой модели авторизации TTAPI (общий SUNO_API_KEY) реальные кредиты живут
+	// в кабинете TTAPI; здесь баланс лишь не даёт аккаунту «закончиться» искусственно,
+	// поэтому стартуем с большого значения (иначе аккаунт ушёл бы в out_of_tokens
+	// после сотни заказов на пустом месте).
+	acc, err := domain.NewSunoAccount(email, encryptedSession, accountInitialTokenBalance)
 	if err != nil {
 		return nil, fmt.Errorf("создание аккаунта: %w", err)
 	}
@@ -102,9 +112,20 @@ func (uc *AdminUseCase) ListAccounts(ctx context.Context) ([]*domain.SunoAccount
 }
 
 // SetAccountStatus меняет статус аккаунта (active / cooldown / banned).
+// При активации (active) маршрутизируется через ResetAccount: иначе остаточный
+// failure_count или cooldown_until сделали бы реактивацию хрупкой — первый же
+// сбой снова забанил бы аккаунт, а просроченная пауза не снялась бы.
 func (uc *AdminUseCase) SetAccountStatus(ctx context.Context, id uuid.UUID, status domain.AccountStatus) error {
 	switch status {
-	case domain.AccountStatusActive, domain.AccountStatusCooldown, domain.AccountStatusBanned, domain.AccountStatusOutOfTokens:
+	case domain.AccountStatusActive:
+		// Реактивация без обнуления слотов: счётчик concurrent_tasks может отражать
+		// реально идущие генерации. Для «застрявших» слотов есть отдельный ResetAccount.
+		if err := uc.accountRepo.ResetAccount(ctx, id, false); err != nil {
+			return fmt.Errorf("реактивация аккаунта: %w", err)
+		}
+		uc.log.Info("аккаунт реактивирован вручную", "account_id", id)
+		return nil
+	case domain.AccountStatusCooldown, domain.AccountStatusBanned, domain.AccountStatusOutOfTokens:
 		// допустимые статусы для ручного управления
 	default:
 		return fmt.Errorf("недопустимый статус %q для ручного управления", status)
@@ -113,6 +134,18 @@ func (uc *AdminUseCase) SetAccountStatus(ctx context.Context, id uuid.UUID, stat
 		return fmt.Errorf("смена статуса аккаунта: %w", err)
 	}
 	uc.log.Info("статус аккаунта изменён вручную", "account_id", id, "new_status", status)
+	return nil
+}
+
+// ResetAccount полностью «достаёт» зависший аккаунт: статус active, сброс
+// failure_count и cooldown_until, обнуление concurrent_tasks (освобождение
+// «утёкших» после краша воркера слотов). Это та самая кнопка в админке для
+// аккаунта, который завис с занятыми слотами или ушёл в бан из-за серии сбоев.
+func (uc *AdminUseCase) ResetAccount(ctx context.Context, id uuid.UUID) error {
+	if err := uc.accountRepo.ResetAccount(ctx, id, true); err != nil {
+		return fmt.Errorf("сброс аккаунта: %w", err)
+	}
+	uc.log.Info("аккаунт сброшен и возвращён в пул вручную", "account_id", id)
 	return nil
 }
 

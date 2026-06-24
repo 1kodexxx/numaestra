@@ -199,6 +199,29 @@ func TestAccount_EnterCooldown(t *testing.T) {
 	}
 }
 
+// --- Throttle (самовосстанавливающаяся пауза) ---
+
+func TestAccount_Throttle_KeepsActiveButUnavailable(t *testing.T) {
+	a := newTestAccount(t)
+	a.Throttle(5 * time.Minute)
+
+	// Статус остаётся Active — это принципиально для авто-восстановления через SQL/IsAvailable.
+	if a.Status() != AccountStatusActive {
+		t.Errorf("после Throttle статус должен остаться Active, получили %q", a.Status())
+	}
+	if a.CooldownUntil() == nil {
+		t.Fatal("после Throttle CooldownUntil не должен быть nil")
+	}
+	// Во время паузы аккаунт недоступен...
+	if a.IsAvailable(time.Now().UTC()) {
+		t.Error("во время паузы аккаунт не должен быть доступен")
+	}
+	// ...а после её истечения снова доступен без ручного вмешательства.
+	if !a.IsAvailable(time.Now().UTC().Add(6 * time.Minute)) {
+		t.Error("после истечения паузы аккаунт должен сам вернуться в ротацию")
+	}
+}
+
 func TestAccount_IsAvailable(t *testing.T) {
 	a := newTestAccount(t)
 	now := time.Now().UTC()

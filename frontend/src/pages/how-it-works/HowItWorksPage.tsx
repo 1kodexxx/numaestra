@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
-import { Footer } from '@widgets/footer'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.08)'
@@ -125,7 +124,6 @@ export function HowItWorksPage() {
           </div>
         </div>
       </div>
-      <Footer />
     </>
   )
 }

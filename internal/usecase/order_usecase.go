@@ -336,10 +336,16 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		}
 
 		metrics.SunoAPIErrors.Inc()
-		uc.log.Error("ошибка API Suno", "account", account.Email(), "err", err)
-		// Порядок важен: сначала регистрируем ошибку (она может перевести аккаунт в Banned),
-		// только потом Release — иначе Release выставит Active, а RegisterFailure затрёт его Banned.
-		account.RegisterFailure(3)
+		uc.log.Error("ошибка API Suno — аккаунт переведён в короткую паузу (cooldown), без блокировки",
+			"account", account.Email(), "err", err, "cooldown", providerErrorCooldown)
+		// Транзиентная ошибка провайдера (TTAPI 5xx, сеть, rate-limit) НЕ должна
+		// банить аккаунт: при пуле из одного аккаунта это останавливало бы все
+		// заказы. Ставим короткую самовосстанавливающуюся паузу — по её истечении
+		// аккаунт сам вернётся в ротацию. Заказ откатываем в очередь; Asynq
+		// повторит задачу с backoff. Перманентный бан остаётся только за 401
+		// (ErrProviderSessionExpired выше) — это однозначный сигнал о невалидных
+		// учётных данных, требующий вмешательства администратора.
+		account.Throttle(providerErrorCooldown)
 		account.ReleaseSlot()
 		metrics.ActiveWorkerSlots.Dec()
 		_ = order.RequeueForRetry()
@@ -566,6 +572,18 @@ func (uc *OrderUseCase) GetOrderByToken(ctx context.Context, token string) (*dom
 // 3мин status check) с запасом на медленный S3 и LLM.
 const stuckOrderThreshold = 15 * time.Minute
 
+// stuckQueuedThreshold — время, после которого ОПЛАЧЕННЫЙ заказ в статусе queued
+// считается «осиротевшим»: задача генерации потеряна или исчерпала ретраи. Берём
+// меньше processing-порога: в норме воркер забирает задачу за секунды, поэтому
+// 5 минут простоя в queued — уже аномалия, требующая повторной постановки задачи.
+const stuckQueuedThreshold = 5 * time.Minute
+
+// providerErrorCooldown — длительность самовосстанавливающейся паузы аккаунта
+// после транзиентной ошибки провайдера. Достаточно короткая, чтобы единственный
+// аккаунт быстро вернулся в ротацию, и достаточно длинная, чтобы не молотить
+// упавший TTAPI в цикле.
+const providerErrorCooldown = 60 * time.Second
+
 // RecoverStuckOrders находит заказы, застрявшие в processing после краша пода/воркера,
 // и переводит их обратно в queued, освобождая захваченный слот аккаунта.
 // Операция идемпотентна: повторный вызов для уже восстановленного заказа ничего не сделает.
@@ -586,6 +604,33 @@ func (uc *OrderUseCase) RecoverStuckOrders(ctx context.Context) error {
 				"order_id", order.ID(), "err", err)
 			// Продолжаем с остальными — частичное восстановление лучше полного простоя.
 		}
+	}
+	return nil
+}
+
+// RecoverOrphanedQueuedOrders повторно ставит задачу генерации для оплаченных
+// заказов, надолго застрявших в статусе queued: их Asynq-задача была потеряна
+// (краш Redis/воркера) или исчерпала ретраи и ушла в archived. Без этого заказ
+// навсегда висит в «В очереди». Повторная постановка идемпотентна (TaskID), так
+// что для заказа с ещё живой задачей это no-op.
+func (uc *OrderUseCase) RecoverOrphanedQueuedOrders(ctx context.Context) error {
+	threshold := time.Now().UTC().Add(-stuckQueuedThreshold)
+	orders, err := uc.orderRepo.ListStuckQueued(ctx, threshold)
+	if err != nil {
+		return fmt.Errorf("поиск осиротевших queued-заказов: %w", err)
+	}
+	if len(orders) == 0 {
+		return nil
+	}
+
+	uc.log.Warn("обнаружены осиротевшие заказы в очереди, повторно ставим задачу генерации", "count", len(orders))
+	for _, order := range orders {
+		if err := uc.queue.EnqueueGenerationTask(ctx, order.ID()); err != nil {
+			uc.log.Error("не удалось повторно поставить задачу для осиротевшего заказа",
+				"order_id", order.ID(), "err", err)
+			continue
+		}
+		uc.log.Info("осиротевший queued-заказ повторно поставлен в очередь", "order_id", order.ID())
 	}
 	return nil
 }

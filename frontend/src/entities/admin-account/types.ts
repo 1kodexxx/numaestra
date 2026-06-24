@@ -7,6 +7,8 @@ export interface AdminAccount {
   token_balance: number
   max_concurrent_tasks: number
   concurrent_tasks: number
+  /** Момент окончания самовосстанавливающейся паузы (Throttle). Пусто — паузы нет. */
+  cooldown_until?: string
   updated_at: string
 }
 

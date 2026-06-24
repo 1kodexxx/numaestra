@@ -223,6 +223,9 @@ func run(ctx context.Context) error {
 					if err := orderUC.RecoverStuckOrders(ctx); err != nil {
 						log.Error("ошибка восстановления застрявших заказов", "err", err)
 					}
+					if err := orderUC.RecoverOrphanedQueuedOrders(ctx); err != nil {
+						log.Error("ошибка восстановления осиротевших queued-заказов", "err", err)
+					}
 				}
 			}
 		}()

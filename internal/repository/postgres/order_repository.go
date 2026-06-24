@@ -447,17 +447,31 @@ func (r *OrderRepository) Stats(ctx context.Context) (domain.OrderStats, error) 
 // порогового времени. Используется фоновым recovery-процессом для детектирования
 // заказов, брошенных после краша пода/воркера.
 func (r *OrderRepository) ListStuckProcessing(ctx context.Context, olderThan time.Time) ([]*domain.Order, error) {
+	return r.listStuckByCondition(ctx, "generation_status = 'processing'", olderThan)
+}
+
+// ListStuckQueued возвращает оплаченные заказы, застрявшие в статусе queued дольше
+// порогового времени: их Asynq-задача потеряна или исчерпала ретраи. Фильтр
+// payment_status='paid' исключает неоплаченные заказы, которым генерация не положена.
+func (r *OrderRepository) ListStuckQueued(ctx context.Context, olderThan time.Time) ([]*domain.Order, error) {
+	return r.listStuckByCondition(ctx, "generation_status = 'queued' AND payment_status = 'paid'", olderThan)
+}
+
+// listStuckByCondition — общая выборка застрявших заказов по статусному условию
+// (condition подставляется из доверенных литералов вызывающих методов, не из
+// пользовательского ввода) и порогу времени по updated_at.
+func (r *OrderRepository) listStuckByCondition(ctx context.Context, condition string, olderThan time.Time) ([]*domain.Order, error) {
 	query := `
 		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt,
 		       amount_kopecks, currency, payment_status, generation_status, assigned_account_id,
 		       failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
 		FROM orders
-		WHERE generation_status = 'processing' AND updated_at < $1
+		WHERE ` + condition + ` AND updated_at < $1
 		ORDER BY updated_at ASC
 	`
 	rows, err := r.conn(ctx).Query(ctx, query, olderThan)
 	if err != nil {
-		return nil, fmt.Errorf("list stuck processing orders: %w", err)
+		return nil, fmt.Errorf("list stuck orders: %w", err)
 	}
 	defer rows.Close()
 
