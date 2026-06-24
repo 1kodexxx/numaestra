@@ -22,8 +22,8 @@ func TestHTTPClient_CreateMusicTask_Success(t *testing.T) {
 			t.Errorf("ожидали TT-API-KEY=secret, получили %q", k)
 		}
 		body, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(body), `"prompt":"песня про лето"`) {
-			t.Errorf("тело не содержит описание: %s", body)
+		if !strings.Contains(string(body), `"gpt_description_prompt":"песня про лето"`) {
+			t.Errorf("тело не содержит gpt_description_prompt: %s", body)
 		}
 		if !strings.Contains(string(body), `"mv":"chirp-v5"`) {
 			t.Errorf("тело не содержит mv chirp-v5: %s", body)

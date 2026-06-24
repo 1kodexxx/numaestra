@@ -94,11 +94,14 @@ func NewClient(baseURL, apiKey string) APIClient {
 // --- DTO внешнего API TTAPI (camelCase согласно docs.ttapi.io) ---
 
 type createMusicRequest struct {
-	Custom       bool   `json:"custom"`
-	Instrumental bool   `json:"instrumental"`
-	Mv           string `json:"mv"`
-	Prompt       string `json:"prompt"`
-	Tags         string `json:"tags,omitempty"`
+	Custom bool   `json:"custom"`
+	Mv     string `json:"mv"`
+	// Inspiration Mode (custom=false): gpt_description_prompt — описание для AI.
+	// Custom Mode (custom=true): prompt — готовые тексты песни.
+	GptDescriptionPrompt string `json:"gpt_description_prompt,omitempty"`
+	Prompt               string `json:"prompt,omitempty"`
+	Instrumental         bool   `json:"instrumental"`
+	Tags                 string `json:"tags,omitempty"`
 }
 
 type createMusicResponse struct {
@@ -129,11 +132,11 @@ type musicResult struct {
 // AI самостоятельно пишет слова и музыку по описанию в поле prompt.
 func (c *httpClient) CreateMusicTask(ctx context.Context, in MusicInput) (string, error) {
 	body, err := json.Marshal(createMusicRequest{
-		Custom:       false, // Inspiration Mode: AI генерирует текст из описания
-		Instrumental: in.Instrumental,
-		Mv:           "chirp-v5",
-		Prompt:       in.Description,
-		Tags:         in.Tags,
+		Custom:               false, // Inspiration Mode: AI генерирует текст из описания
+		Mv:                   "chirp-v5",
+		GptDescriptionPrompt: in.Description,
+		Instrumental:         in.Instrumental,
+		Tags:                 in.Tags,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal create task: %w", err)
