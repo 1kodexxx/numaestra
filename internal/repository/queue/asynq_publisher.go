@@ -12,6 +12,10 @@ import (
 	"github.com/numaestra/numaestra/internal/domain"
 )
 
+// queuesWithGenTasks — очереди, в которых может находиться задача генерации.
+// Inspector.RunTask требует явного имени очереди, поэтому проверяем все возможные.
+var queuesWithGenTasks = []string{"generation", "default"}
+
 // Имена задач Asynq. Хранятся здесь, а не в domain: эта деталь инфраструктуры очреедей.
 const (
 	TaskTypeGenerateTrack = "suno:generate"
@@ -33,12 +37,13 @@ type StatusCheckTaskPayload struct {
 
 // AsynqPublisher - реализация domain.QueuePublisher поверх клиента Asynq.
 type AsynqPublisher struct {
-	client *asynq.Client
+	client    *asynq.Client
+	redisConn asynq.RedisConnOpt // нужен Inspector для rescue задач из retry
 }
 
 // NewAsynqPublisher создаёт публикатор задач на основе сконфигурированного клиента Asynq.
-func NewAsynqPublisher(client *asynq.Client) *AsynqPublisher {
-	return &AsynqPublisher{client: client}
+func NewAsynqPublisher(client *asynq.Client, redisConn asynq.RedisConnOpt) *AsynqPublisher {
+	return &AsynqPublisher{client: client, redisConn: redisConn}
 }
 
 // Проверка на этапе компиляции, что AsynqPublisher реализует контракт домена.
@@ -62,11 +67,37 @@ func (p *AsynqPublisher) EnqueueGenerationTask(ctx context.Context, orderID uuid
 	}
 	if _, err := p.client.EnqueueContext(ctx, task, opts...); err != nil {
 		if errors.Is(err, asynq.ErrTaskIDConflict) {
-			return nil
+			// Задача с таким ID уже существует в Asynq (pending, retry или scheduled).
+			// При нормальной работе (дубль вебхука) это ожидаемо — молча игнорируем.
+			// При recovery (задача застряла в retry с длинным backoff) мы хотим
+			// запустить её немедленно, не дожидаясь таймаута backoff. Inspector.RunTask
+			// перекладывает задачу из retry/scheduled → pending без изменения payload
+			// и счётчика попыток.
+			return p.rescueFromRetry("generate:" + orderID.String())
 		}
 		return fmt.Errorf("постановка задачи генерации в очередь: %w", err)
 	}
 	return nil
+}
+
+// rescueFromRetry немедленно активирует задачу из retry/scheduled, если она там есть.
+// Используется когда задача с данным ID уже существует, но застряла в backoff.
+// Проверяет все возможные очереди — Inspector.RunTask требует знать имя очереди явно.
+// Если задача в pending/active — RunTask вернёт ошибку; это нормально, значит она
+// уже будет обработана скоро. Возвращаем nil во всех случаях: вызывающей стороне
+// достаточно знать, что задача "есть и будет обработана".
+func (p *AsynqPublisher) rescueFromRetry(taskID string) error {
+	if p.redisConn == nil {
+		return nil
+	}
+	inspector := asynq.NewInspector(p.redisConn)
+	defer inspector.Close() //nolint:errcheck
+	for _, q := range queuesWithGenTasks {
+		if err := inspector.RunTask(q, taskID); err == nil {
+			return nil // задача переведена в pending, воркер возьмёт её немедленно
+		}
+	}
+	return nil // задача уже в pending/active или не найдена — в любом случае не блокируем
 }
 
 func (p *AsynqPublisher) EnqueueStatusCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string) error {

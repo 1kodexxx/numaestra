@@ -13,9 +13,10 @@ import (
 func newTestPublisher(t *testing.T) *AsynqPublisher {
 	t.Helper()
 	mini := miniredis.RunT(t)
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mini.Addr()})
+	redisOpt := asynq.RedisClientOpt{Addr: mini.Addr()}
+	client := asynq.NewClient(redisOpt)
 	t.Cleanup(func() { client.Close() })
-	return NewAsynqPublisher(client)
+	return NewAsynqPublisher(client, redisOpt)
 }
 
 // Проверяем сериализацию/десериализацию payload — это контракт между
@@ -50,9 +51,10 @@ func TestStatusCheckTaskPayload_RoundTrip(t *testing.T) {
 
 func TestPublisher_ImplementsInterface(t *testing.T) {
 	// Конструктор не должен паниковать с валидным клиентом.
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: "localhost:6379"})
+	redisOpt := asynq.RedisClientOpt{Addr: "localhost:6379"}
+	client := asynq.NewClient(redisOpt)
 	defer client.Close()
-	p := NewAsynqPublisher(client)
+	p := NewAsynqPublisher(client, redisOpt)
 	if p == nil {
 		t.Fatal("publisher не должен быть nil")
 	}
@@ -92,9 +94,10 @@ func TestEnqueueStatusCheckTask_Success(t *testing.T) {
 
 func TestEnqueueGenerationTask_RedisDown_ReturnsError(t *testing.T) {
 	mini := miniredis.RunT(t)
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mini.Addr()})
+	redisOpt := asynq.RedisClientOpt{Addr: mini.Addr()}
+	client := asynq.NewClient(redisOpt)
 	defer client.Close()
-	p := NewAsynqPublisher(client)
+	p := NewAsynqPublisher(client, redisOpt)
 
 	mini.Close() // симулируем потерю соединения с Redis
 
@@ -105,9 +108,10 @@ func TestEnqueueGenerationTask_RedisDown_ReturnsError(t *testing.T) {
 
 func TestEnqueueStatusCheckTask_RedisDown_ReturnsError(t *testing.T) {
 	mini := miniredis.RunT(t)
-	client := asynq.NewClient(asynq.RedisClientOpt{Addr: mini.Addr()})
+	redisOpt := asynq.RedisClientOpt{Addr: mini.Addr()}
+	client := asynq.NewClient(redisOpt)
 	defer client.Close()
-	p := NewAsynqPublisher(client)
+	p := NewAsynqPublisher(client, redisOpt)
 
 	mini.Close() // симулируем потерю соединения с Redis
 

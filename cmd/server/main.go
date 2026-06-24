@@ -127,7 +127,9 @@ func run(ctx context.Context) error {
 	accountRepo := postgres.NewAccountRepository(pgPool, sessionCipher)
 	orderRepo := postgres.NewOrderRepository(pgPool)
 	txManager := postgres.NewTxManager(pgPool)
-	queuePublisher := queue.NewAsynqPublisher(asynqClient)
+	// redisOpt передаётся издателю для Inspector.RunTask: при конфликте TaskID
+	// (задача застряла в retry с backoff) издатель немедленно активирует её.
+	queuePublisher := queue.NewAsynqPublisher(asynqClient, redisOpt)
 
 	// === НОВЫЙ БЛОК ДЛЯ UI (Server-Driven UI) ===
 	categoryRepo := postgres.NewCategoryRepository(pgPool)
