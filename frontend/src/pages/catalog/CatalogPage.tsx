@@ -1240,7 +1240,7 @@ export function CatalogPage() {
   const gridCols = isMobile
     ? "repeat(2, 1fr)"
     : "repeat(auto-fill, minmax(150px, 1fr))";
-  const popular = categories.slice(0, 8);
+  const popular = categories.slice(0, 10);
 
   // Конструктор промпта — непрозрачный полноэкранный оверлей поверх всего.
   const constructorOverlay = briefOpen && (
