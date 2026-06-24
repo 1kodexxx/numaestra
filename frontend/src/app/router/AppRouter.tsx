@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { CatalogPage } from '@pages/catalog'
 import { CategoryPage } from '@pages/category'
 import { ExampleDetailPage } from '@pages/examples'
+import { ReviewsPage } from '@pages/reviews'
 import { StatusPage } from '@pages/status'
 import { LegalPage } from '@pages/legal'
 import { NotFoundPage } from '@pages/not-found'
@@ -10,6 +11,7 @@ import {
   AdminLoginPage,
   AdminDashboardPage,
   AdminExamplesPage,
+  AdminReviewsPage,
   AdminCategoriesPage,
   AdminCategoryEditPage,
   AdminOrdersPage,
@@ -24,6 +26,7 @@ export function AppRouter() {
       <Route path="/" element={<CatalogPage />} />
       <Route path="/category/:id" element={<CategoryPage />} />
       <Route path="/examples/:id" element={<ExampleDetailPage />} />
+      <Route path="/reviews" element={<ReviewsPage />} />
       <Route path="/status" element={<StatusPage />} />
       <Route path="/order/success" element={<Navigate to="/status" replace />} />
       <Route path="/legal/:slug" element={<LegalPage />} />
@@ -36,6 +39,7 @@ export function AppRouter() {
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="categories/:id" element={<AdminCategoryEditPage />} />
           <Route path="examples" element={<AdminExamplesPage />} />
+          <Route path="reviews" element={<AdminReviewsPage />} />
           <Route path="orders" element={<AdminOrdersPage />} />
           <Route path="orders/:id" element={<AdminOrderDetailPage />} />
           <Route path="accounts" element={<AdminAccountsPage />} />

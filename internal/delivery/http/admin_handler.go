@@ -29,6 +29,7 @@ type CoverUploader interface {
 type AdminHandler struct {
 	uc        *usecase.AdminUseCase
 	exampleUC *usecase.ExampleUseCase // nil → роуты примеров не регистрируются
+	reviewUC  *usecase.ReviewUseCase  // nil → роуты отзывов не регистрируются
 	stats     *usecase.StatsUseCase   // nil → роут статистики не регистрируется
 	uploader  CoverUploader           // nil, если S3 не настроено
 	log       *slog.Logger
@@ -48,6 +49,12 @@ func (h *AdminHandler) WithCoverUploader(up CoverUploader) *AdminHandler {
 // WithExamples включает админский CRUD примеров готовых работ.
 func (h *AdminHandler) WithExamples(uc *usecase.ExampleUseCase) *AdminHandler {
 	h.exampleUC = uc
+	return h
+}
+
+// WithReviews включает админскую модерацию отзывов (ответ, скрытие, удаление).
+func (h *AdminHandler) WithReviews(uc *usecase.ReviewUseCase) *AdminHandler {
+	h.reviewUC = uc
 	return h
 }
 
@@ -93,6 +100,15 @@ func (h *AdminHandler) Routes() chi.Router {
 			r.Put("/{id}", h.UpdateExample)
 			r.Delete("/{id}", h.DeleteExample)
 			r.Post("/{id}/cover", h.UploadExampleCover)
+		})
+	}
+
+	if h.reviewUC != nil {
+		r.Route("/reviews", func(r chi.Router) {
+			r.Get("/", h.ListReviews)
+			r.Post("/{id}/reply", h.ReplyReview)
+			r.Patch("/{id}", h.SetReviewPublished)
+			r.Delete("/{id}", h.DeleteReview)
 		})
 	}
 

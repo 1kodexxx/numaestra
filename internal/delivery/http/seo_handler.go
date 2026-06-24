@@ -66,6 +66,7 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 	}
 
 	add(base+"/", "1.0", "weekly")
+	add(base+"/reviews", "0.6", "weekly")
 
 	if cats, err := h.promptUC.GetAllCategories(r.Context()); err != nil {
 		h.log.Error("sitemap: не удалось загрузить категории", "err", err)

@@ -138,6 +138,9 @@ func run(ctx context.Context) error {
 	exampleUC := usecase.NewExampleUseCase(exampleRepo, log)
 	statsUC := usecase.NewStatsUseCase(orderRepo, accountRepo, categoryRepo, exampleRepo, log)
 
+	reviewRepo := postgres.NewReviewRepository(pgPool)
+	reviewUC := usecase.NewReviewUseCase(reviewRepo, log)
+
 	sunoClient := suno.NewClientWithBreaker(cfg.Suno.APIURL, cfg.Suno.APIKey)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
@@ -263,8 +266,10 @@ func run(ctx context.Context) error {
 		WithRedis(rdb)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
 	exampleHandler := apphttp.NewExampleHandler(exampleUC, log)
+	reviewHandler := apphttp.NewReviewHandler(reviewUC, log)
 	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log), log).
 		WithExamples(exampleUC).
+		WithReviews(reviewUC).
 		WithStats(statsUC)
 	if cfg.S3.AccessKey != "" && cfg.S3.SecretKey != "" {
 		adminHandler = adminHandler.WithCoverUploader(s3Client)
@@ -297,7 +302,7 @@ func run(ctx context.Context) error {
 	}
 	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log)
 
-	router := newRouter(log, orderHandler, categoryHandler, exampleHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
+	router := newRouter(log, orderHandler, categoryHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -343,6 +348,7 @@ func newRouter(
 	orderHandler *apphttp.OrderHandler,
 	categoryHandler *apphttp.CategoryHandler,
 	exampleHandler *apphttp.ExampleHandler,
+	reviewHandler *apphttp.ReviewHandler,
 	adminHandler *apphttp.AdminHandler,
 	adminAuthHandler *apphttp.AdminAuthHandler,
 	seoHandler *apphttp.SeoHandler,
@@ -385,6 +391,7 @@ func newRouter(
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
+	r.Mount("/api/v1/reviews", reviewHandler.Routes())
 
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		// /login и /logout — публичные, регистрируем напрямую чтобы избежать

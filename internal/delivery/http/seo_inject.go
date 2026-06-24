@@ -134,6 +134,13 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 			canonical:   baseURL + "/examples",
 			body:        `<main><h1>Примеры готовых работ</h1><p>Послушайте, какие песни Numaestra создаёт под разные поводы.</p></main>`,
 		}
+	case path == "/reviews":
+		return seoData{
+			title:       "Отзывы о Numaestra — что говорят клиенты",
+			description: "Реальные отзывы людей, заказавших персональную песню в Numaestra. Оставьте свой отзыв — без регистрации.",
+			canonical:   baseURL + "/reviews",
+			body:        `<main><h1>Отзывы о Numaestra</h1><p>Что говорят люди, заказавшие персональную песню. Поделитесь и вы — регистрация не нужна.</p></main>`,
+		}
 	case strings.HasPrefix(path, "/admin"), strings.HasPrefix(path, "/status"):
 		// Служебные экраны не индексируем.
 		return seoData{noindex: true}
