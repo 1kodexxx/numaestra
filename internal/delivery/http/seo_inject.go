@@ -122,13 +122,20 @@ func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
 		out = strings.Replace(out, "</head>", head.String()+"</head>", 1)
 	}
 
-	// Серверный контент внутри #root — React заменит его при монтировании.
+	// Серверный контент внутри #root: краулеры читают его из HTML-исходника, а
+	// визуально он скрыт off-screen (visually-hidden) — поэтому не мелькает у
+	// пользователя перед монтированием React, который заменяет содержимое #root.
 	if data.body != "" {
-		out = reRootEmpty.ReplaceAllLiteralString(out, `<div id="root">`+data.body+`</div>`)
+		wrapped := `<div id="seo-prerender" style="` + srOnlyStyle + `">` + data.body + `</div>`
+		out = reRootEmpty.ReplaceAllLiteralString(out, `<div id="root">`+wrapped+`</div>`)
 	}
 
 	return out
 }
+
+// srOnlyStyle прячет элемент визуально, оставляя его в DOM и доступным для
+// поисковых краулеров и скринридеров (стандартный приём «visually-hidden»).
+const srOnlyStyle = "position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"
 
 // dataFor вычисляет SEO под конкретный маршрут.
 func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData {
