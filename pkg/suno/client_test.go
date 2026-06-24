@@ -12,24 +12,27 @@ import (
 
 func TestHTTPClient_CreateMusicTask_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/task" {
+		if r.URL.Path != "/suno/v1/music" {
 			t.Errorf("неверный путь: %s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
 			t.Errorf("ожидали POST, получили %s", r.Method)
 		}
-		if k := r.Header.Get("x-api-key"); k != "secret" {
-			t.Errorf("ожидали x-api-key=secret, получили %q", k)
+		if k := r.Header.Get("TT-API-KEY"); k != "secret" {
+			t.Errorf("ожидали TT-API-KEY=secret, получили %q", k)
 		}
 		body, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(body), `"gpt_description_prompt":"песня про лето"`) {
+		if !strings.Contains(string(body), `"prompt":"песня про лето"`) {
 			t.Errorf("тело не содержит описание: %s", body)
 		}
-		if !strings.Contains(string(body), `"task_type":"music"`) {
-			t.Errorf("тело не содержит task_type music: %s", body)
+		if !strings.Contains(string(body), `"mv":"chirp-v5"`) {
+			t.Errorf("тело не содержит mv chirp-v5: %s", body)
+		}
+		if !strings.Contains(string(body), `"custom":false`) {
+			t.Errorf("тело не содержит custom=false: %s", body)
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"code":202,"data":{"task_id":"task-123","status":"pending"}}`))
+		_, _ = w.Write([]byte(`{"status":"SUCCESS","message":"success","data":{"jobId":"job-123"}}`))
 	}))
 	defer srv.Close()
 
@@ -38,8 +41,8 @@ func TestHTTPClient_CreateMusicTask_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateMusicTask упал: %v", err)
 	}
-	if id != "task-123" {
-		t.Errorf("ожидали task-123, получили %q", id)
+	if id != "job-123" {
+		t.Errorf("ожидали job-123, получили %q", id)
 	}
 }
 
@@ -65,36 +68,44 @@ func TestHTTPClient_CreateMusicTask_ErrorMapping(t *testing.T) {
 	}
 }
 
-func TestHTTPClient_CreateMusicTask_EmptyTaskID(t *testing.T) {
+func TestHTTPClient_CreateMusicTask_EmptyJobID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"code":202,"data":{"task_id":"","status":"pending"}}`))
+		_, _ = w.Write([]byte(`{"status":"SUCCESS","message":"success","data":{"jobId":""}}`))
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "k")
 	if _, err := c.CreateMusicTask(context.Background(), MusicInput{Description: "x"}); err == nil {
-		t.Fatal("ожидали ошибку при пустом task_id")
+		t.Fatal("ожидали ошибку при пустом jobId")
 	}
 }
 
 func TestHTTPClient_GetTask_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/task/task-123" {
+		if r.URL.Path != "/suno/v2/fetch" {
 			t.Errorf("неверный путь: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("jobId") != "job-123" {
+			t.Errorf("неверный jobId: %s", r.URL.Query().Get("jobId"))
 		}
 		if r.Method != http.MethodGet {
 			t.Errorf("ожидали GET, получили %s", r.Method)
 		}
-		_, _ = w.Write([]byte(`{"code":200,"data":{"task_id":"task-123","status":"success","error":null,
-			"output":{"task_type":"music","status":"completed","fail_reason":null,"result":[
-				{"id":"clip-1","audio_url":"https://cdn/clip-1.mp3","metadata":{"duration":120}},
-				{"id":"clip-2","audio_url":"https://cdn/clip-2.mp3","metadata":{"duration":118}}
-			]}}}`))
+		_, _ = w.Write([]byte(`{
+			"status":"SUCCESS","message":"success",
+			"data":{
+				"jobId":"job-123",
+				"musics":[
+					{"musicId":"clip-1","audioUrl":"https://cdn/clip-1.mp3","duration":120},
+					{"musicId":"clip-2","audioUrl":"https://cdn/clip-2.mp3","duration":118}
+				]
+			}
+		}`))
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "secret")
-	task, err := c.GetTask(context.Background(), "task-123")
+	task, err := c.GetTask(context.Background(), "job-123")
 	if err != nil {
 		t.Fatalf("GetTask упал: %v", err)
 	}
@@ -111,8 +122,7 @@ func TestHTTPClient_GetTask_Success(t *testing.T) {
 
 func TestHTTPClient_GetTask_Running(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"code":200,"data":{"task_id":"t","status":"running",
-			"output":{"task_type":"music","status":"processing","progress":"50%","result":null}}}`))
+		_, _ = w.Write([]byte(`{"status":"ON_QUEUE","message":"processing","data":{"jobId":"t","musics":null}}`))
 	}))
 	defer srv.Close()
 
@@ -131,9 +141,7 @@ func TestHTTPClient_GetTask_Running(t *testing.T) {
 
 func TestHTTPClient_GetTask_Failure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"code":200,"data":{"task_id":"t","status":"failure",
-			"error":"Upstream provider returned an error",
-			"output":{"task_type":"music","status":"failed","fail_reason":"moderation failed","result":null}}}`))
+		_, _ = w.Write([]byte(`{"status":"FAILED","message":"moderation failed","data":{"jobId":"t","musics":null}}`))
 	}))
 	defer srv.Close()
 
@@ -145,7 +153,6 @@ func TestHTTPClient_GetTask_Failure(t *testing.T) {
 	if task.Status != StatusFailure {
 		t.Errorf("ожидали failure, получили %q", task.Status)
 	}
-	// fail_reason приоритетнее общего error.
 	if task.FailReason != "moderation failed" {
 		t.Errorf("ожидали 'moderation failed', получили %q", task.FailReason)
 	}
@@ -172,10 +179,10 @@ func TestHTTPClient_GetTask_EmptyID(t *testing.T) {
 
 func TestHTTPClient_NoAPIKey_OmitsHeader(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("x-api-key") != "" {
-			t.Errorf("при пустом ключе заголовок x-api-key не должен ставиться")
+		if r.Header.Get("TT-API-KEY") != "" {
+			t.Errorf("при пустом ключе заголовок TT-API-KEY не должен ставиться")
 		}
-		_, _ = w.Write([]byte(`{"code":202,"data":{"task_id":"t","status":"pending"}}`))
+		_, _ = w.Write([]byte(`{"status":"SUCCESS","message":"success","data":{"jobId":"t"}}`))
 	}))
 	defer srv.Close()
 

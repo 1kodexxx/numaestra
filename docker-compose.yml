@@ -11,7 +11,7 @@ x-app-env: &app-env
   ROBOKASSA_PASS1: ${ROBOKASSA_PASS1:-test_pass1}
   ROBOKASSA_PASS2: ${ROBOKASSA_PASS2:-test_pass2}
   ROBOKASSA_IS_TEST: ${ROBOKASSA_IS_TEST:-true}
-  SUNO_API_URL: ${SUNO_API_URL:-https://api.custom-suno.local}
+  SUNO_API_URL: ${SUNO_API_URL:-https://api.ttapi.io}
   SUNO_API_KEY: ${SUNO_API_KEY:-}
   S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
   S3_REGION: ${S3_REGION:-us-east-1}

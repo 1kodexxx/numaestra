@@ -1,9 +1,9 @@
 // pkg/suno/client.go
 //
-// Клиент Sunor.cc Suno API (https://docs.sunor.cc). Модель асинхронная: создаём
-// задачу (POST /api/v1/task) → получаем task_id → опрашиваем её (GET
-// /api/v1/task/{id}), пока статус не станет терминальным. Авторизация — заголовок
-// x-api-key (один ключ на аккаунт, без cookie-сессий).
+// Клиент TTAPI для генерации музыки через Suno (https://docs.ttapi.io/api/en/suno).
+// Модель асинхронная: создаём задачу (POST /suno/v1/music) → получаем jobId →
+// опрашиваем (GET /suno/v2/fetch?jobId=...), пока статус не станет терминальным.
+// Авторизация — заголовок TT-API-KEY.
 package suno
 
 import (
@@ -15,47 +15,47 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Терминальные и промежуточные статусы задачи Sunor (поле data.status).
+// Терминальные и промежуточные статусы задачи (нормализованные из TTAPI).
 const (
 	StatusPending = "pending" // принята, ждёт обработки
 	StatusRunning = "running" // обрабатывается провайдером
-	StatusSuccess = "success" // готово, output.result заполнен
+	StatusSuccess = "success" // готово, Clips заполнены
 	StatusFailure = "failure" // ошибка; кредиты возвращены
 	StatusTimeout = "timeout" // таймаут; кредиты возвращены
 )
 
-// Доменно-значимые ошибки API. Вызывающий код различает их через errors.Is,
-// чтобы по-разному реагировать (вывести аккаунт из ротации, не списывать ретрай и т.п.).
+// Доменно-значимые ошибки API.
 var (
-	// ErrInvalidAPIKey — 401: ключ отсутствует или недействителен. Аккаунт нужно
-	// немедленно вывести из ротации до обновления ключа.
+	// ErrInvalidAPIKey — 401: ключ отсутствует или недействителен.
 	ErrInvalidAPIKey = errors.New("suno: неверный или отсутствующий API-ключ (401)")
-	// ErrInsufficientCredits — 402: на балансе ключа недостаточно кредитов.
+	// ErrInsufficientCredits — 402: на балансе недостаточно кредитов.
 	ErrInsufficientCredits = errors.New("suno: недостаточно кредитов на балансе (402)")
-	// ErrRateLimited — 429: превышен лимит запросов (по умолчанию 120 req/мин на ключ).
+	// ErrRateLimited — 429: превышен лимит запросов.
 	ErrRateLimited = errors.New("suno: превышен лимит запросов (429)")
-	// ErrTaskNotFound — 404: задача не найдена (неверный id или чужой аккаунт).
+	// ErrTaskNotFound — 404: задача не найдена.
 	ErrTaskNotFound = errors.New("suno: задача не найдена (404)")
 )
 
-// APIClient — порт клиента Sunor для адаптера провайдера.
+// APIClient — порт клиента для адаптера провайдера.
 type APIClient interface {
-	// CreateMusicTask создаёт задачу генерации музыки и возвращает её task_id.
+	// CreateMusicTask создаёт задачу генерации музыки и возвращает jobId.
 	CreateMusicTask(ctx context.Context, in MusicInput) (taskID string, err error)
 	// GetTask возвращает текущее состояние задачи: статус и (по готовности) клипы.
 	GetTask(ctx context.Context, taskID string) (Task, error)
 }
 
-// MusicInput — параметры генерации. Используется Inspiration Mode Sunor:
-// gpt_description_prompt свободным текстом, провайдер сам пишет текст и музыку.
+// MusicInput — параметры генерации.
+// При Instrumental=false используется Inspiration Mode TTAPI (custom=false):
+// Description — свободный текст, AI сам пишет текст и музыку.
 type MusicInput struct {
-	Description  string // gpt_description_prompt — описание/бриф будущей песни
-	Tags         string // input.tags — стиль/жанр через запятую (опционально)
-	Instrumental bool   // make_instrumental — песня без вокала
+	Description  string // prompt — описание/бриф будущей песни
+	Tags         string // tags — стиль/жанр через запятую (опционально)
+	Instrumental bool   // instrumental — песня без вокала
 }
 
 // Task — провайдеро-нейтральное представление состояния задачи.
@@ -79,8 +79,8 @@ type httpClient struct {
 	client  *http.Client
 }
 
-// NewClient создаёт клиент Sunor. baseURL — корень API (например, https://sunor.cc),
-// к нему добавляется /api/v1/...; apiKey уходит в заголовок x-api-key.
+// NewClient создаёт клиент TTAPI. baseURL — корень API (например, https://api.ttapi.io);
+// apiKey уходит в заголовок TT-API-KEY.
 func NewClient(baseURL, apiKey string) APIClient {
 	return &httpClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -91,109 +91,103 @@ func NewClient(baseURL, apiKey string) APIClient {
 	}
 }
 
-// --- DTO внешнего API (snake_case согласно docs.sunor.cc) ---
+// --- DTO внешнего API TTAPI (camelCase согласно docs.ttapi.io) ---
 
-type createTaskRequest struct {
-	Model    string         `json:"model"`
-	TaskType string         `json:"task_type"`
-	Input    musicInputBody `json:"input"`
+type createMusicRequest struct {
+	Custom       bool   `json:"custom"`
+	Instrumental bool   `json:"instrumental"`
+	Mv           string `json:"mv"`
+	Prompt       string `json:"prompt"`
+	Tags         string `json:"tags,omitempty"`
 }
 
-type musicInputBody struct {
-	GptDescriptionPrompt string `json:"gpt_description_prompt"`
-	Tags                 string `json:"tags,omitempty"`
-	MakeInstrumental     bool   `json:"make_instrumental"`
-}
-
-type createTaskResponse struct {
-	Code int `json:"code"`
-	Data struct {
-		TaskID string `json:"task_id"`
-		Status string `json:"status"`
+type createMusicResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Data    struct {
+		JobID string `json:"jobId"`
 	} `json:"data"`
 }
 
-type getTaskResponse struct {
-	Code int `json:"code"`
-	Data struct {
-		TaskID string          `json:"task_id"`
-		Status string          `json:"status"`
-		Error  json.RawMessage `json:"error"`
-		Output struct {
-			FailReason *string      `json:"fail_reason"`
-			Result     []clipResult `json:"result"`
-		} `json:"output"`
+type fetchResultResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Data    struct {
+		JobID  string        `json:"jobId"`
+		Musics []musicResult `json:"musics"`
 	} `json:"data"`
 }
 
-type clipResult struct {
-	ID       string `json:"id"`
-	AudioURL string `json:"audio_url"`
-	Metadata struct {
-		Duration float64 `json:"duration"`
-	} `json:"metadata"`
+type musicResult struct {
+	MusicID  string `json:"musicId"`
+	AudioURL string `json:"audioUrl"`
+	// Duration приходит как строка ("11.44"), а не число — особенность TTAPI.
+	Duration json.Number `json:"duration"`
 }
 
-// CreateMusicTask отправляет POST /api/v1/task в Inspiration Mode.
+// CreateMusicTask отправляет POST /suno/v1/music в Inspiration Mode (custom=false):
+// AI самостоятельно пишет слова и музыку по описанию в поле prompt.
 func (c *httpClient) CreateMusicTask(ctx context.Context, in MusicInput) (string, error) {
-	body, err := json.Marshal(createTaskRequest{
-		Model:    "suno",
-		TaskType: "music",
-		Input: musicInputBody{
-			GptDescriptionPrompt: in.Description,
-			Tags:                 in.Tags,
-			MakeInstrumental:     in.Instrumental,
-		},
+	body, err := json.Marshal(createMusicRequest{
+		Custom:       false, // Inspiration Mode: AI генерирует текст из описания
+		Instrumental: in.Instrumental,
+		Mv:           "chirp-v5",
+		Prompt:       in.Description,
+		Tags:         in.Tags,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal create task: %w", err)
 	}
 
-	raw, err := c.do(ctx, http.MethodPost, "/api/v1/task", bytes.NewReader(body))
+	raw, err := c.do(ctx, http.MethodPost, "/suno/v1/music", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 
-	var resp createTaskResponse
+	var resp createMusicResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", fmt.Errorf("decode create task: %w", err)
 	}
-	if resp.Data.TaskID == "" {
-		return "", fmt.Errorf("suno: пустой task_id в ответе")
+	if resp.Data.JobID == "" {
+		return "", fmt.Errorf("suno: пустой jobId в ответе: %s", string(raw))
 	}
-	return resp.Data.TaskID, nil
+	return resp.Data.JobID, nil
 }
 
-// GetTask опрашивает GET /api/v1/task/{taskID}.
+// GetTask опрашивает GET /suno/v2/fetch?jobId={taskID}.
+// TTAPI статусы: ON_QUEUE → running, SUCCESS → success, FAILED → failure.
 func (c *httpClient) GetTask(ctx context.Context, taskID string) (Task, error) {
 	if taskID == "" {
 		return Task{}, fmt.Errorf("suno: пустой task id")
 	}
 
-	raw, err := c.do(ctx, http.MethodGet, "/api/v1/task/"+url.PathEscape(taskID), nil)
+	raw, err := c.do(ctx, http.MethodGet, "/suno/v2/fetch?jobId="+url.QueryEscape(taskID), nil)
 	if err != nil {
 		return Task{}, err
 	}
 
-	var resp getTaskResponse
+	var resp fetchResultResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return Task{}, fmt.Errorf("decode get task: %w", err)
 	}
 
-	task := Task{
-		ID:         resp.Data.TaskID,
-		Status:     resp.Data.Status,
-		FailReason: failReason(resp.Data.Output.FailReason, resp.Data.Error),
-	}
-	for _, r := range resp.Data.Output.Result {
-		task.Clips = append(task.Clips, Clip{
-			ID:          r.ID,
-			AudioURL:    r.AudioURL,
-			DurationSec: int(r.Metadata.Duration),
-		})
-	}
-	if task.ID == "" {
-		task.ID = taskID
+	task := Task{ID: taskID}
+	switch resp.Status {
+	case "SUCCESS":
+		task.Status = StatusSuccess
+		for _, m := range resp.Data.Musics {
+			dur, _ := strconv.ParseFloat(m.Duration.String(), 64)
+			task.Clips = append(task.Clips, Clip{
+				ID:          m.MusicID,
+				AudioURL:    m.AudioURL,
+				DurationSec: int(dur),
+			})
+		}
+	case "FAILED":
+		task.Status = StatusFailure
+		task.FailReason = resp.Message
+	default: // ON_QUEUE и другие промежуточные
+		task.Status = StatusRunning
 	}
 	return task, nil
 }
@@ -208,7 +202,7 @@ func (c *httpClient) do(ctx context.Context, method, path string, body io.Reader
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if c.apiKey != "" {
-		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("TT-API-KEY", c.apiKey)
 	}
 
 	resp, err := c.client.Do(req)
@@ -232,25 +226,8 @@ func (c *httpClient) do(ctx context.Context, method, path string, body io.Reader
 	if err != nil {
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
-	// Создание задачи отвечает 200/202, опрос — 200. Любой иной 2xx считаем успехом.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("suno api error: status %d, body: %s", resp.StatusCode, string(raw))
 	}
 	return raw, nil
-}
-
-// failReason извлекает человекочитаемую причину сбоя: сначала output.fail_reason,
-// затем data.error (строка либо произвольный JSON).
-func failReason(failReason *string, rawError json.RawMessage) string {
-	if failReason != nil && *failReason != "" {
-		return *failReason
-	}
-	if len(rawError) == 0 || string(rawError) == "null" {
-		return ""
-	}
-	var s string
-	if err := json.Unmarshal(rawError, &s); err == nil {
-		return s
-	}
-	return string(rawError)
 }
