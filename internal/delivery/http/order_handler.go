@@ -84,6 +84,15 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Post("/", h.CreateOrder)
 	})
 
+	// Публичная страница «поделиться песней» — без X-Access-Token. ID заказа
+	// (UUID, непредсказуем) играет роль capability-ссылки, как принято для
+	// share-ссылок (Google Docs, Spotify и т.п.). Отдаёт только треки —
+	// никаких email/phone/brief, чтобы шеринг не раскрывал личные данные.
+	r.Group(func(r chi.Router) {
+		r.Use(clientLimiter)
+		r.Get("/{id}/share", h.GetPublicShare)
+	})
+
 	r.Group(func(r chi.Router) {
 		r.Use(IPAllowlist(h.webhookAllowedNets))
 		r.Use(webhookLimiter)
@@ -352,6 +361,50 @@ func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"payment_url": h.buildPaymentURL(order)})
+}
+
+type PublicShareResponse struct {
+	ID     string          `json:"id"`
+	Tracks []TrackResponse `json:"tracks"`
+}
+
+// GetPublicShare отдаёт минимальный публичный вид завершённого заказа — только
+// треки, без email/phone/brief/токена. Доступ без X-Access-Token: ID заказа
+// (непредсказуемый UUID) сам по себе выступает capability-ссылкой для шеринга.
+// GET /api/v1/orders/{id}/share
+func (h *OrderHandler) GetPublicShare(w http.ResponseWriter, r *http.Request) {
+	idParam := chi.URLParam(r, "id")
+	orderID, err := uuid.Parse(idParam)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	order, err := h.uc.GetOrder(r.Context(), orderID)
+	if err != nil {
+		respondError(w, r, http.StatusNotFound, "песня не найдена")
+		return
+	}
+	// До завершения генерации публичной страницы не существует — не раскрываем
+	// сам факт существования заказа в промежуточных статусах.
+	if order.GenerationStatus() != domain.GenerationStatusCompleted {
+		respondError(w, r, http.StatusNotFound, "песня не найдена")
+		return
+	}
+
+	var tracks []TrackResponse
+	for _, t := range order.Tracks() {
+		tracks = append(tracks, TrackResponse{
+			Index:       t.Index,
+			AudioURL:    t.AudioURL,
+			DurationSec: t.DurationSec,
+		})
+	}
+
+	respondJSON(w, http.StatusOK, PublicShareResponse{
+		ID:     order.ID().String(),
+		Tracks: tracks,
+	})
 }
 
 type OrderSummaryResponse struct {

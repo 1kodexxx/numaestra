@@ -14,9 +14,10 @@ type withBreaker struct {
 
 // NewClientWithBreaker создаёт Suno APIClient с защитой circuit breaker.
 // 5 последовательных ошибок → размыкание на 30 секунд.
-func NewClientWithBreaker(baseURL, apiKey string) APIClient {
+// model — параметр mv TTAPI (пустая строка → DefaultModel, chirp-v5-5).
+func NewClientWithBreaker(baseURL, apiKey, model string) APIClient {
 	return &withBreaker{
-		inner:   NewClient(baseURL, apiKey),
+		inner:   NewClient(baseURL, apiKey, model),
 		breaker: circuitbreaker.New("suno", 5, 30*time.Second),
 	}
 }

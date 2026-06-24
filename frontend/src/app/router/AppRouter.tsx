@@ -4,6 +4,7 @@ import { CategoryPage } from '@pages/category'
 import { ExampleDetailPage } from '@pages/examples'
 import { ReviewsPage } from '@pages/reviews'
 import { HowItWorksPage } from '@pages/how-it-works'
+import { SharePage } from '@pages/share'
 import { StatusPage } from '@pages/status'
 import { LegalPage } from '@pages/legal'
 import { NotFoundPage } from '@pages/not-found'
@@ -29,6 +30,7 @@ export function AppRouter() {
       <Route path="/examples/:id" element={<ExampleDetailPage />} />
       <Route path="/reviews" element={<ReviewsPage />} />
       <Route path="/how-it-works" element={<HowItWorksPage />} />
+      <Route path="/s/:id" element={<SharePage />} />
       <Route path="/status" element={<StatusPage />} />
       <Route path="/order/success" element={<Navigate to="/status" replace />} />
       <Route path="/legal/:slug" element={<LegalPage />} />

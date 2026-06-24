@@ -312,6 +312,73 @@ func TestHandler_GetPaymentURL_TokenForDifferentOrder(t *testing.T) {
 	}
 }
 
+func TestHandler_GetPublicShare_Success(t *testing.T) {
+	h, router, repo := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(uuid.New())
+	_ = order.Complete([]domain.Track{{ID: uuid.New(), Index: 1, AudioURL: "https://cdn/a.mp3", DurationSec: 120}})
+	_ = repo.Update(context.Background(), order)
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/share", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp PublicShareResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Tracks) != 1 || resp.Tracks[0].AudioURL != "https://cdn/a.mp3" {
+		t.Errorf("ожидали 1 трек с правильным URL, получили %+v", resp.Tracks)
+	}
+	if strings.Contains(rec.Body.String(), "user@example.com") || strings.Contains(rec.Body.String(), "Бриф") {
+		t.Error("публичный ответ не должен содержать email или brief")
+	}
+}
+
+func TestHandler_GetPublicShare_NoTokenNeeded(t *testing.T) {
+	h, router, repo := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(uuid.New())
+	_ = order.Complete([]domain.Track{{ID: uuid.New(), Index: 1, AudioURL: "https://cdn/a.mp3", DurationSec: 120}})
+	_ = repo.Update(context.Background(), order)
+
+	// Никакого X-Access-Token не передаём — публичный доступ должен работать.
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/share", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200 без токена, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_GetPublicShare_NotCompletedHidden(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/share", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("незавершённый заказ не должен быть доступен публично, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_GetPublicShare_NotFound(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/"+uuid.NewString()+"/share", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404 для несуществующего заказа, получили %d", rec.Code)
+	}
+}
+
 func TestHandler_ListOrders_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	order := mustCreate(t, h, "user@example.com", "", "Бриф")

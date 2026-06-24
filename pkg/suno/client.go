@@ -29,6 +29,14 @@ const (
 	StatusTimeout = "timeout" // таймаут; кредиты возвращены
 )
 
+// Идентификаторы моделей Suno в TTAPI (параметр mv).
+// Документация: https://docs.ttapi.io/api/en/suno/suno_music
+const (
+	ModelV5      = "chirp-v5"   // Suno v5
+	ModelV55     = "chirp-v5-5" // Suno v5.5 — текущая топовая модель TTAPI
+	DefaultModel = ModelV55     // модель по умолчанию для продакшена
+)
+
 // Доменно-значимые ошибки API.
 var (
 	// ErrInvalidAPIKey — 401: ключ отсутствует или недействителен.
@@ -76,15 +84,21 @@ type Clip struct {
 type httpClient struct {
 	baseURL string
 	apiKey  string
+	mv      string // модель Suno (mv), например chirp-v5-5
 	client  *http.Client
 }
 
 // NewClient создаёт клиент TTAPI. baseURL — корень API (например, https://api.ttapi.io);
-// apiKey уходит в заголовок TT-API-KEY.
-func NewClient(baseURL, apiKey string) APIClient {
+// apiKey уходит в заголовок TT-API-KEY. model — параметр mv (пустая строка → DefaultModel).
+func NewClient(baseURL, apiKey, model string) APIClient {
+	mv := model
+	if mv == "" {
+		mv = DefaultModel
+	}
 	return &httpClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
+		mv:      mv,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -133,7 +147,7 @@ type musicResult struct {
 func (c *httpClient) CreateMusicTask(ctx context.Context, in MusicInput) (string, error) {
 	body, err := json.Marshal(createMusicRequest{
 		Custom:               false, // Inspiration Mode: AI генерирует текст из описания
-		Mv:                   "chirp-v5",
+		Mv:                   c.mv,
 		GptDescriptionPrompt: in.Description,
 		Instrumental:         in.Instrumental,
 		Tags:                 in.Tags,

@@ -143,7 +143,7 @@ func run(ctx context.Context) error {
 	reviewRepo := postgres.NewReviewRepository(pgPool)
 	reviewUC := usecase.NewReviewUseCase(reviewRepo, log)
 
-	sunoClient := suno.NewClientWithBreaker(cfg.Suno.APIURL, cfg.Suno.APIKey)
+	sunoClient := suno.NewClientWithBreaker(cfg.Suno.APIURL, cfg.Suno.APIKey, cfg.Suno.Model)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
 	llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)

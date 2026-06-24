@@ -13,6 +13,7 @@ x-app-env: &app-env
   ROBOKASSA_IS_TEST: ${ROBOKASSA_IS_TEST:-true}
   SUNO_API_URL: ${SUNO_API_URL:-https://api.ttapi.io}
   SUNO_API_KEY: ${SUNO_API_KEY:-}
+  SUNO_MODEL: ${SUNO_MODEL:-chirp-v5-5}
   S3_ENDPOINT: ${S3_ENDPOINT:-https://s3.amazonaws.com}
   S3_REGION: ${S3_REGION:-us-east-1}
   S3_BUCKET: ${S3_BUCKET:-numaestra-tracks}

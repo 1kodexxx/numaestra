@@ -143,3 +143,18 @@ func TestSEOInjector_EscapesAndJSONLDSafe(t *testing.T) {
 		t.Error("пользовательские данные должны экранироваться")
 	}
 }
+
+func TestSEOInjector_ShareSong(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	html := inj.Render(context.Background(), "/s/8e250afe-894e-4d70-8a64-54bdc474117a", "https://numaestra.ru")
+
+	if !strings.Contains(html, "Мне сделали песню в Numaestra") {
+		t.Error("страница шеринга должна иметь своё og:title")
+	}
+	if !strings.Contains(html, `<meta name="robots" content="noindex, nofollow" />`) {
+		t.Error("страница шеринга должна быть noindex")
+	}
+	if !strings.Contains(html, `href="https://numaestra.ru/s/8e250afe-894e-4d70-8a64-54bdc474117a"`) {
+		t.Error("canonical должен указывать на конкретную ссылку шеринга")
+	}
+}

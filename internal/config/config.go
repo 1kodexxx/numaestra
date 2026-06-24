@@ -85,6 +85,9 @@ type RobokassaConfig struct {
 type SunoConfig struct {
 	APIURL string
 	APIKey string
+	// Model — параметр mv TTAPI (chirp-v5-5 = Suno v5.5). Пустое значение в коде
+	// клиента заменяется на DefaultModel.
+	Model string
 }
 
 type S3Config struct {
@@ -150,6 +153,7 @@ func Load() (*Config, error) {
 		Suno: SunoConfig{
 			APIURL: getEnv("SUNO_API_URL", "https://sunor.cc"),
 			APIKey: getEnv("SUNO_API_KEY", ""),
+			Model:  getEnv("SUNO_MODEL", "chirp-v5-5"),
 		},
 		S3: S3Config{
 			Endpoint:  getEnv("S3_ENDPOINT", "https://s3.amazonaws.com"),

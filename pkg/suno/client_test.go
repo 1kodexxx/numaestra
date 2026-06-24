@@ -25,8 +25,8 @@ func TestHTTPClient_CreateMusicTask_Success(t *testing.T) {
 		if !strings.Contains(string(body), `"gpt_description_prompt":"песня про лето"`) {
 			t.Errorf("тело не содержит gpt_description_prompt: %s", body)
 		}
-		if !strings.Contains(string(body), `"mv":"chirp-v5"`) {
-			t.Errorf("тело не содержит mv chirp-v5: %s", body)
+		if !strings.Contains(string(body), `"mv":"chirp-v5-5"`) {
+			t.Errorf("тело не содержит mv chirp-v5-5: %s", body)
 		}
 		if !strings.Contains(string(body), `"custom":false`) {
 			t.Errorf("тело не содержит custom=false: %s", body)
@@ -36,13 +36,30 @@ func TestHTTPClient_CreateMusicTask_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "secret")
+	c := NewClient(srv.URL, "secret", "")
 	id, err := c.CreateMusicTask(context.Background(), MusicInput{Description: "песня про лето"})
 	if err != nil {
 		t.Fatalf("CreateMusicTask упал: %v", err)
 	}
 	if id != "job-123" {
 		t.Errorf("ожидали job-123, получили %q", id)
+	}
+}
+
+func TestHTTPClient_CreateMusicTask_CustomModel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"mv":"chirp-v5"`) {
+			t.Errorf("ожидали явный mv chirp-v5, получили: %s", body)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"SUCCESS","message":"success","data":{"jobId":"job-1"}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "secret", ModelV5)
+	if _, err := c.CreateMusicTask(context.Background(), MusicInput{Description: "test"}); err != nil {
+		t.Fatalf("CreateMusicTask: %v", err)
 	}
 }
 
@@ -59,7 +76,7 @@ func TestHTTPClient_CreateMusicTask_ErrorMapping(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(tc.status)
 		}))
-		c := NewClient(srv.URL, "k")
+		c := NewClient(srv.URL, "k", "")
 		_, err := c.CreateMusicTask(context.Background(), MusicInput{Description: "x"})
 		if !errors.Is(err, tc.want) {
 			t.Errorf("статус %d: ожидали %v, получили %v", tc.status, tc.want, err)
@@ -74,7 +91,7 @@ func TestHTTPClient_CreateMusicTask_EmptyJobID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "k")
+	c := NewClient(srv.URL, "k", "")
 	if _, err := c.CreateMusicTask(context.Background(), MusicInput{Description: "x"}); err == nil {
 		t.Fatal("ожидали ошибку при пустом jobId")
 	}
@@ -104,7 +121,7 @@ func TestHTTPClient_GetTask_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "secret")
+	c := NewClient(srv.URL, "secret", "")
 	task, err := c.GetTask(context.Background(), "job-123")
 	if err != nil {
 		t.Fatalf("GetTask упал: %v", err)
@@ -126,7 +143,7 @@ func TestHTTPClient_GetTask_Running(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "k")
+	c := NewClient(srv.URL, "k", "")
 	task, err := c.GetTask(context.Background(), "t")
 	if err != nil {
 		t.Fatalf("GetTask упал: %v", err)
@@ -145,7 +162,7 @@ func TestHTTPClient_GetTask_Failure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "k")
+	c := NewClient(srv.URL, "k", "")
 	task, err := c.GetTask(context.Background(), "t")
 	if err != nil {
 		t.Fatalf("GetTask упал: %v", err)
@@ -164,14 +181,14 @@ func TestHTTPClient_GetTask_NotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "k")
+	c := NewClient(srv.URL, "k", "")
 	if _, err := c.GetTask(context.Background(), "missing"); !errors.Is(err, ErrTaskNotFound) {
 		t.Errorf("ожидали ErrTaskNotFound, получили %v", err)
 	}
 }
 
 func TestHTTPClient_GetTask_EmptyID(t *testing.T) {
-	c := NewClient("http://unused", "k")
+	c := NewClient("http://unused", "k", "")
 	if _, err := c.GetTask(context.Background(), ""); err == nil {
 		t.Fatal("пустой taskID должен давать ошибку")
 	}
@@ -186,7 +203,7 @@ func TestHTTPClient_NoAPIKey_OmitsHeader(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "")
+	c := NewClient(srv.URL, "", "")
 	if _, err := c.CreateMusicTask(context.Background(), MusicInput{Description: "x"}); err != nil {
 		t.Fatalf("CreateMusicTask упал: %v", err)
 	}
@@ -196,7 +213,7 @@ func TestHTTPClient_NetworkError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	srv.Close() // следующий запрос вернёт сетевую ошибку
 
-	c := NewClient(srv.URL, "k")
+	c := NewClient(srv.URL, "k", "")
 	if _, err := c.GetTask(context.Background(), "t"); err == nil {
 		t.Fatal("ожидали сетевую ошибку при закрытом сервере")
 	}
@@ -208,7 +225,7 @@ func TestHTTPClient_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "k")
+	c := NewClient(srv.URL, "k", "")
 	if _, err := c.GetTask(context.Background(), "t"); err == nil {
 		t.Fatal("ожидали ошибку декодирования невалидного JSON")
 	}

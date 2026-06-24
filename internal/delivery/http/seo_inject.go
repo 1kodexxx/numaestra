@@ -168,6 +168,16 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 			canonical:   baseURL + "/how-it-works",
 			body:        `<main><h1>Как это работает</h1><p>От идеи до готовой песни за 6 шагов: выбор повода, бриф, контакты, оплата, генерация нейросетью и 4 готовые версии за 10 минут.</p></main>`,
 		}
+	case strings.HasPrefix(path, "/s/"):
+		// Публичная страница «поделиться песней». noindex — это не контент для
+		// поиска, а capability-ссылка конкретного пользователя; но title/OG
+		// нужны для красивого превью при шеринге в Telegram/VK/WhatsApp.
+		return seoData{
+			title:       "Мне сделали песню в Numaestra 🎵",
+			description: "Послушайте персональную песню, созданную нейросетью в Numaestra — AI-студии песен на заказ.",
+			canonical:   baseURL + path,
+			noindex:     true,
+		}
 	case strings.HasPrefix(path, "/admin"), strings.HasPrefix(path, "/status"):
 		// Служебные экраны не индексируем.
 		return seoData{noindex: true}

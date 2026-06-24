@@ -346,10 +346,15 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
         </div>
       )}
 
-      {/* Share */}
+      {/* Share — публичная ссылка на песню, БЕЗ access_token: текущий URL может
+          содержать токен в query (?order_id=&token=), а делиться им нельзя —
+          получатель получил бы доступ к управлению заказом владельца. */}
       {gs === 'completed' && (
         <div style={{ marginBottom: '16px' }}>
-          <ShareBar url={window.location.href} text="Послушайте песню, которую мне сделали в Numaestra 🎵" />
+          <ShareBar
+            url={`${window.location.origin}/s/${order.id}`}
+            text="Послушайте песню, которую мне сделали в Numaestra 🎵"
+          />
         </div>
       )}
 

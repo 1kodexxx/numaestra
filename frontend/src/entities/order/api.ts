@@ -1,5 +1,5 @@
 import { apiFetch } from '@shared/api'
-import type { CreateOrderResponse, OrderDetail, OrderSummary } from './types'
+import type { CreateOrderResponse, OrderDetail, OrderSummary, Track } from './types'
 
 export interface CreateOrderPayload {
   email: string
@@ -24,6 +24,11 @@ export const orderApi = {
   // Заново получить ссылку на оплату для неоплаченного заказа (повторная оплата).
   paymentUrl(id: string, accessToken?: string) {
     return apiFetch<{ payment_url: string }>(`/orders/${id}/payment-url`, { accessToken })
+  },
+
+  // Публичная карточка завершённой песни для шеринга — без токена.
+  getPublicShare(id: string) {
+    return apiFetch<{ id: string; tracks: Track[] }>(`/orders/${id}/share`)
   },
 
   // Список заказов владельца (по email/phone заказа, чей токен передан).

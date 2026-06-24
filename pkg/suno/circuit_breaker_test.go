@@ -101,5 +101,5 @@ func TestWithBreaker_OpensAfterThresholdErrors(t *testing.T) {
 }
 
 func TestNewClientWithBreaker_ImplementsAPIClient(t *testing.T) {
-	var _ = NewClientWithBreaker("http://localhost", "key")
+	var _ = NewClientWithBreaker("http://localhost", "key", "")
 }
