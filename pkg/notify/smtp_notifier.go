@@ -15,14 +15,14 @@ import (
 // Поддерживает Mailgun, Yandex 360, SendGrid, RuSender и любой другой провайдер с SMTP-доступом.
 // Соединение устанавливается по TLS на порту 465 (implicit TLS) или через STARTTLS на 587.
 type SmtpNotifier struct {
-	host          string
-	port          int
-	user          string
-	password      string
-	from          string
-	fromName      string
-	publicAppURL  string // абсолютный URL сайта для ссылок в письмах
-	dialPlain     func(addr string) (*smtp.Client, error)
+	host         string
+	port         int
+	user         string
+	password     string
+	from         string
+	fromName     string
+	publicAppURL string // абсолютный URL сайта для ссылок в письмах
+	dialPlain    func(addr string) (*smtp.Client, error)
 }
 
 // NewSmtpNotifier создаёт SMTP-отправщик уведомлений.
