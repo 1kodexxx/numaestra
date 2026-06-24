@@ -3,7 +3,12 @@ import { orderApi } from '@entities/order'
 import { orderStorage } from '@shared/lib/storage'
 import type { OrderDetail } from '@entities/order'
 
-const POLL_INTERVAL_MS = 10_000
+// В E2E-сборке можно ускорить через VITE_POLL_INTERVAL_MS (см. npm run build:e2e).
+const POLL_INTERVAL_MS =
+  typeof import.meta.env.VITE_POLL_INTERVAL_MS === 'string' &&
+  import.meta.env.VITE_POLL_INTERVAL_MS !== ''
+    ? Number(import.meta.env.VITE_POLL_INTERVAL_MS)
+    : 10_000
 
 interface State {
   order: OrderDetail | null

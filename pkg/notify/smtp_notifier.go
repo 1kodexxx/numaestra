@@ -292,15 +292,13 @@ func (n *SmtpNotifier) buildFeedbackBody(notif AdminFeedbackNotification) string
 }
 
 // orderStatusURL формирует абсолютную ссылку на страницу статуса заказа.
-// Относительные /status?... ломаются на click-tracking RuSender (редирект на
-// clicks.senderclick.net/status → 404).
+// UUID в path переживает click-tracking RuSender лучше, чем order_id в query
+// (трекер часто обрезает query → фронт падал на старый заказ из localStorage).
 func (n *SmtpNotifier) orderStatusURL(orderID, accessToken string) string {
-	q := url.Values{}
-	q.Set("order_id", orderID)
+	path := "/status/" + orderID
 	if accessToken != "" {
-		q.Set("token", accessToken)
+		path += "?token=" + url.QueryEscape(accessToken)
 	}
-	path := "/status?" + q.Encode()
 	if n.publicAppURL == "" {
 		return path
 	}

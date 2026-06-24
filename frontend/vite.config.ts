@@ -23,6 +23,7 @@ export default defineConfig({
       '@features': src('features'),
       '@entities': src('entities'),
       '@shared':   src('shared'),
+      '@test':     src('test'),
     },
   },
 
@@ -44,5 +45,6 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/setupTests.ts'],
+    exclude: ['**/node_modules/**', '**/e2e/**'],
   },
 })

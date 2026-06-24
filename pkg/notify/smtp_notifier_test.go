@@ -156,8 +156,8 @@ func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 	if !strings.Contains(body, "test-ord") {
 		t.Error("тело письма должно содержать короткий OrderID")
 	}
-	if !strings.Contains(body, "https://numaestra.ru/status?order_id=test-order-123") {
-		t.Error("тело письма должно содержать абсолютную ссылку на статус заказа")
+	if !strings.Contains(body, "https://numaestra.ru/status/test-order-123") {
+		t.Error("тело письма должно содержать абсолютную ссылку на статус заказа (uuid в path)")
 	}
 	if !strings.Contains(body, "track1.mp3") {
 		t.Error("тело письма должно содержать ссылку на трек")

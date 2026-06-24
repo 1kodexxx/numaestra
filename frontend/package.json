@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:e2e": "cross-env VITE_POLL_INTERVAL_MS=400 tsc -b && cross-env VITE_POLL_INTERVAL_MS=400 vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:all": "npm run test && npm run test:e2e"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -27,6 +30,8 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "@playwright/test": "^1.51.1",
+    "cross-env": "^7.0.3",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.1",
     "typescript": "^5.6.3",

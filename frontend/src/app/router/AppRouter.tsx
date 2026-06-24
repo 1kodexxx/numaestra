@@ -31,6 +31,7 @@ export function AppRouter() {
       <Route path="/reviews" element={<ReviewsPage />} />
       <Route path="/how-it-works" element={<HowItWorksPage />} />
       <Route path="/s/:id" element={<SharePage />} />
+      <Route path="/status/:orderId" element={<StatusPage />} />
       <Route path="/status" element={<StatusPage />} />
       <Route path="/order/success" element={<Navigate to="/status" replace />} />
       <Route path="/legal/:slug" element={<LegalPage />} />

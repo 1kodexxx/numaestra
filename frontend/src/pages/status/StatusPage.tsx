@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
@@ -18,17 +18,23 @@ const TEXT3  = 'rgba(255,255,255,0.25)'
 const BORDER = 'rgba(255,255,255,0.07)'
 
 export function StatusPage() {
+  const { orderId: pathOrderId } = useParams<{ orderId?: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  const urlId    = searchParams.get('order_id')
+  const queryOrderId = searchParams.get('order_id')
   const urlToken = searchParams.get('token')
+  const orderIdFromUrl = queryOrderId ?? pathOrderId ?? null
 
   useEffect(() => {
-    if (urlId && urlToken) orderStorage.saveOrder(urlId, urlToken)
-  }, [urlId, urlToken])
+    if (orderIdFromUrl && urlToken) orderStorage.saveOrder(orderIdFromUrl, urlToken)
+  }, [orderIdFromUrl, urlToken])
 
-  const initId   = urlId ?? orderStorage.getOrderId()
+  // Click-tracking в письмах (RuSender) иногда съедает order_id из query.
+  // Если token есть, а id нет — не подставляем старый заказ из localStorage.
+  const brokenEmailLink = Boolean(urlToken && !orderIdFromUrl)
+
+  const initId = orderIdFromUrl ?? (brokenEmailLink ? null : orderStorage.getOrderId())
   const [input,  setInput]  = useState(initId ?? '')
   const [active, setActive] = useState<string | null>(initId)
 
@@ -52,9 +58,11 @@ export function StatusPage() {
           <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '8px' }}>Статус заказа</div>
           <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '28px' }}>Введите ID вашего заказа</div>
 
-          {error && (
+          {(error || brokenEmailLink) && (
             <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444', marginBottom: '16px' }}>
-              {error}
+              {brokenEmailLink
+                ? 'Ссылка из письма открылась некорректно. Скопируйте ID заказа из письма или вставьте полную ссылку ещё раз.'
+                : error}
             </div>
           )}
 
