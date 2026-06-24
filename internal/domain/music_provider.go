@@ -34,9 +34,9 @@ type MusicProvider interface {
 // MusicGenerationRequest - данные, достаточные для запроса генерации, независимо
 // от того, какой конкретный провайдер стоит за MusicProvider.
 type MusicGenerationRequest struct {
-	Brief        string // один промпт (legacy / fallback)
+	Brief        string   // один промпт (legacy / fallback)
 	Briefs       []string // разные тексты: по одной Suno-задаче на элемент → 2 клипа
-	Style        string // жанр/настроение, если выделено отдельно от brief
+	Style        string   // жанр/настроение, если выделено отдельно от brief
 	Instrumental bool
 	TrackCount   int // сколько версий запросить (см. DefaultTrackCount)
 }
