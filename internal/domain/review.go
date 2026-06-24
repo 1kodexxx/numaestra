@@ -28,6 +28,9 @@ type ReviewRepository interface {
 	ListPublished(ctx context.Context, limit, offset int) ([]*Review, error)
 	// CountPublished возвращает число опубликованных отзывов (для пагинации/рейтинга).
 	CountPublished(ctx context.Context) (int, error)
+	// RatingStats возвращает количество и среднюю оценку опубликованных отзывов
+	// (для AggregateRating в JSON-LD). При отсутствии отзывов avg = 0.
+	RatingStats(ctx context.Context) (count int, avg float64, err error)
 	// ListAll возвращает все отзывы (включая скрытые) для админки, новые первыми.
 	ListAll(ctx context.Context, limit, offset int) ([]*Review, error)
 	// Update перезаписывает изменяемые поля (ответ, публикация); ErrReviewNotFound, если нет.

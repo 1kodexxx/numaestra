@@ -300,7 +300,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("чтение index.html для SEO-инъекции: %w", err)
 	}
-	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log)
+	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log).
+		WithReviews(reviewUC)
 
 	router := newRouter(log, orderHandler, categoryHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 

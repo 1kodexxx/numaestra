@@ -45,6 +45,33 @@ func TestSEOInjector_Home(t *testing.T) {
 	}
 }
 
+type stubRater struct {
+	count int
+	avg   float64
+}
+
+func (s stubRater) RatingStats(context.Context) (int, float64, error) { return s.count, s.avg, nil }
+
+func TestSEOInjector_HomeAggregateRating(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{}).WithReviews(stubRater{count: 12, avg: 4.83})
+	html := inj.Render(context.Background(), "/", "https://numaestra.ru")
+
+	for _, w := range []string{`"@type":"AggregateRating"`, `"ratingValue":"4.8"`, `"reviewCount":"12"`, `"bestRating":"5"`} {
+		if !strings.Contains(html, w) {
+			t.Errorf("ожидали %q в JSON-LD главной", w)
+		}
+	}
+}
+
+func TestSEOInjector_HomeNoRatingWhenEmpty(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{}).WithReviews(stubRater{count: 0})
+	html := inj.Render(context.Background(), "/", "https://numaestra.ru")
+
+	if strings.Contains(html, "AggregateRating") {
+		t.Error("без отзывов AggregateRating не должен добавляться")
+	}
+}
+
 func TestSEOInjector_Category(t *testing.T) {
 	cat := domain.RestoreCategory(domain.CategorySnapshot{
 		ID: "wedding", Title: "Свадьба", Description: "Песня на вашу свадьбу",

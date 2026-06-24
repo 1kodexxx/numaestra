@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/numaestra/numaestra/internal/usecase"
@@ -37,9 +38,15 @@ func requestBaseURL(r *http.Request) string {
 //
 // Динамические категории (из БД) работают сразу: данные берутся из usecase в
 // момент запроса, без пересборки фронтенда.
+// reviewRater отдаёт агрегат опубликованных отзывов для AggregateRating в JSON-LD.
+type reviewRater interface {
+	RatingStats(ctx context.Context) (count int, avg float64, err error)
+}
+
 type SEOInjector struct {
 	template    string
 	promptUC    usecase.PromptBuilder
+	rater       reviewRater // nil → AggregateRating не добавляется
 	priceRubles string
 	log         *slog.Logger
 }
@@ -51,6 +58,12 @@ func NewSEOInjector(indexHTML []byte, promptUC usecase.PromptBuilder, priceKopec
 		priceRubles: fmt.Sprintf("%d", priceKopecks/100),
 		log:         log,
 	}
+}
+
+// WithReviews включает AggregateRating (средняя оценка отзывов) в Organization-разметку на главной.
+func (s *SEOInjector) WithReviews(r reviewRater) *SEOInjector {
+	s.rater = r
+	return s
 }
 
 const seoSiteName = "Numaestra"
@@ -152,7 +165,7 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 func (s *SEOInjector) homeData(ctx context.Context, baseURL string) seoData {
 	d := seoData{
 		canonical: baseURL + "/",
-		jsonLD:    s.organizationJSONLD(baseURL),
+		jsonLD:    s.organizationJSONLD(ctx, baseURL),
 	}
 
 	var b strings.Builder
@@ -200,15 +213,29 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 	}
 }
 
-func (s *SEOInjector) organizationJSONLD(baseURL string) string {
-	return mustJSON(map[string]any{
+func (s *SEOInjector) organizationJSONLD(ctx context.Context, baseURL string) string {
+	org := map[string]any{
 		"@context":    "https://schema.org",
 		"@type":       "Organization",
 		"name":        seoSiteName,
 		"url":         baseURL + "/",
 		"logo":        baseURL + "/favicon.svg",
 		"description": "AI-студия персональных песен на заказ.",
-	})
+	}
+	// AggregateRating — звёзды в выдаче. Добавляем только при наличии отзывов
+	// (reviewCount ≥ 1), иначе разметка невалидна.
+	if s.rater != nil {
+		if count, avg, err := s.rater.RatingStats(ctx); err == nil && count > 0 {
+			org["aggregateRating"] = map[string]any{
+				"@type":       "AggregateRating",
+				"ratingValue": fmt.Sprintf("%.1f", avg),
+				"reviewCount": strconv.Itoa(count),
+				"bestRating":  "5",
+				"worstRating": "1",
+			}
+		}
+	}
+	return mustJSON(org)
 }
 
 func (s *SEOInjector) productJSONLD(title, desc, url string) string {

@@ -58,6 +58,12 @@ func (uc *ReviewUseCase) ListPublished(ctx context.Context, page, perPage int) (
 	return reviews, total, nil
 }
 
+// RatingStats возвращает число и среднюю оценку опубликованных отзывов
+// (для AggregateRating в JSON-LD на главной).
+func (uc *ReviewUseCase) RatingStats(ctx context.Context) (int, float64, error) {
+	return uc.repo.RatingStats(ctx)
+}
+
 // ListAll возвращает все отзывы (включая скрытые) для админки.
 func (uc *ReviewUseCase) ListAll(ctx context.Context, page, perPage int) ([]*domain.Review, error) {
 	limit, offset := normPage(page, perPage, 50, 100)

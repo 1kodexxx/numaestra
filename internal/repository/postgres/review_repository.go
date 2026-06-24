@@ -88,6 +88,16 @@ func (r *ReviewRepository) CountPublished(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (r *ReviewRepository) RatingStats(ctx context.Context) (int, float64, error) {
+	var count int
+	var avg float64
+	err := r.db.QueryRow(ctx, "SELECT COUNT(*), COALESCE(AVG(rating), 0) FROM reviews WHERE is_published = TRUE").Scan(&count, &avg)
+	if err != nil {
+		return 0, 0, fmt.Errorf("rating stats: %w", err)
+	}
+	return count, avg, nil
+}
+
 func (r *ReviewRepository) ListAll(ctx context.Context, limit, offset int) ([]*domain.Review, error) {
 	return r.listReviews(ctx, "", limit, offset)
 }

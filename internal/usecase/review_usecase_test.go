@@ -43,6 +43,20 @@ func (r *inMemReviewRepo) CountPublished(_ context.Context) (int, error) {
 	}
 	return n, nil
 }
+func (r *inMemReviewRepo) RatingStats(_ context.Context) (int, float64, error) {
+	count, sum := 0, 0
+	for _, it := range r.items {
+		if it.IsPublished() {
+			count++
+			sum += it.Rating()
+		}
+	}
+	if count == 0 {
+		return 0, 0, nil
+	}
+	return count, float64(sum) / float64(count), nil
+}
+
 func (r *inMemReviewRepo) ListAll(_ context.Context, _, _ int) ([]*domain.Review, error) {
 	return r.items, nil
 }

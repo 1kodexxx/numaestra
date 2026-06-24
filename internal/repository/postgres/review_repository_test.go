@@ -96,6 +96,21 @@ func TestReviewRepository_CountPublished(t *testing.T) {
 	}
 }
 
+func TestReviewRepository_RatingStats(t *testing.T) {
+	mock, _ := pgxmock.NewPool()
+	defer mock.Close()
+	mock.ExpectQuery("AVG\\(rating\\)").WillReturnRows(pgxmock.NewRows([]string{"count", "avg"}).AddRow(12, 4.75))
+
+	repo := NewReviewRepository(mock)
+	count, avg, err := repo.RatingStats(context.Background())
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if count != 12 || avg != 4.75 {
+		t.Errorf("ожидали count=12 avg=4.75, получили count=%d avg=%v", count, avg)
+	}
+}
+
 func TestReviewRepository_ListAll_Success(t *testing.T) {
 	mock, _ := pgxmock.NewPool()
 	defer mock.Close()
