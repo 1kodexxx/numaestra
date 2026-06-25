@@ -175,6 +175,17 @@ func TestHandler_CreateOrder_MissingConsent(t *testing.T) {
 	}
 }
 
+func TestHandler_CreateOrder_InvalidConsentVersion(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+	body := `{"email":"user@example.com","brief":"Песня","consent_doc_version":"2020-01-01"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
 // --- Webhook ---
 
 func TestHandler_Webhook_Success(t *testing.T) {

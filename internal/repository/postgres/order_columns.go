@@ -10,4 +10,5 @@ const orderSelectColumns = `
 	assigned_account_id, failure_reason, access_token,
 	COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at,
 	consent_given_at, COALESCE(consent_doc_version, '') AS consent_doc_version,
+	share_revoked_at,
 	created_at, updated_at, paid_at, completed_at`

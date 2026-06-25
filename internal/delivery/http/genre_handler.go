@@ -3,8 +3,10 @@ package apphttp
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/numaestra/numaestra/internal/usecase"
 )
@@ -12,15 +14,21 @@ import (
 type GenreHandler struct {
 	genreUC *usecase.GenreUseCase
 	log     *slog.Logger
+	rdb     *redis.Client
 }
 
 func NewGenreHandler(genreUC *usecase.GenreUseCase, log *slog.Logger) *GenreHandler {
 	return &GenreHandler{genreUC: genreUC, log: log}
 }
 
+func (h *GenreHandler) WithRedis(rdb *redis.Client) *GenreHandler {
+	h.rdb = rdb
+	return h
+}
+
 func (h *GenreHandler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Use(RateLimiter(20, 40))
+	r.Use(APIRateLimiter(h.rdb, 120, time.Minute, 20, 40))
 	r.Get("/", h.List)
 	return r
 }

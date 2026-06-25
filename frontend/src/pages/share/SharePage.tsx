@@ -62,6 +62,12 @@ export function SharePage() {
 
         {tracks && tracks.length > 0 && <MusicPlayer tracks={tracks} />}
 
+        {tracks && tracks.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: TEXT2, fontSize: '14px' }}>
+            Треки для этой ссылки пока недоступны.
+          </div>
+        )}
+
         <div style={{ textAlign: 'center', marginTop: '32px' }}>
           <Button size="lg" onClick={() => navigate('/')}>Заказать свою песню →</Button>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.32)', marginTop: '10px' }}>

@@ -36,4 +36,18 @@ export const orderApi = {
   list(accessToken?: string) {
     return apiFetch<OrderSummary[]>('/orders/', { accessToken })
   },
+
+  revokeShare(id: string, accessToken?: string) {
+    return apiFetch<{ share_revoked: boolean }>(`/orders/${id}/share/revoke`, {
+      method: 'POST',
+      accessToken,
+    })
+  },
+
+  restoreShare(id: string, accessToken?: string) {
+    return apiFetch<{ share_revoked: boolean }>(`/orders/${id}/share/restore`, {
+      method: 'POST',
+      accessToken,
+    })
+  },
 }

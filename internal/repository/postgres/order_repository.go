@@ -105,10 +105,10 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
 		query := `
 			UPDATE orders
-			SET payment_status = $1, generation_status = $2, generation_phase = $3, generation_progress = $4, tracks_ready = $5, assigned_account_id = $6, failure_reason = $7, updated_at = $8, paid_at = $9, completed_at = $10
-			WHERE id = $11
+			SET payment_status = $1, generation_status = $2, generation_phase = $3, generation_progress = $4, tracks_ready = $5, assigned_account_id = $6, failure_reason = $7, share_revoked_at = $8, updated_at = $9, paid_at = $10, completed_at = $11
+			WHERE id = $12
 		`
-		cmd, err := db.Exec(ctx, query, snap.PaymentStatus, snap.GenerationStatus, snap.GenerationPhase, snap.GenerationProgress, snap.TracksReady, snap.AssignedAccountID, snap.FailureReason, snap.UpdatedAt, snap.PaidAt, snap.CompletedAt, snap.ID)
+		cmd, err := db.Exec(ctx, query, snap.PaymentStatus, snap.GenerationStatus, snap.GenerationPhase, snap.GenerationProgress, snap.TracksReady, snap.AssignedAccountID, snap.FailureReason, snap.ShareRevokedAt, snap.UpdatedAt, snap.PaidAt, snap.CompletedAt, snap.ID)
 		if err != nil {
 			return fmt.Errorf("update order: %w", err)
 		}

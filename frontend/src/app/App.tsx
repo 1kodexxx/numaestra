@@ -12,7 +12,6 @@ function useStructuredData() {
   const { price_kopecks } = usePublicConfig()
 
   useEffect(() => {
-    if (document.getElementById('ld-json')) return
     const origin = window.location.origin
     const priceRub = String(Math.round(price_kopecks / 100))
     const data = [
@@ -42,11 +41,12 @@ function useStructuredData() {
         offers: { '@type': 'Offer', price: priceRub, priceCurrency: 'RUB' },
       },
     ]
-    const s = document.createElement('script')
+    const el = document.getElementById('ld-json') as HTMLScriptElement | null
+    const s = el ?? document.createElement('script')
     s.id = 'ld-json'
     s.type = 'application/ld+json'
     s.text = JSON.stringify(data)
-    document.head.appendChild(s)
+    if (!el) document.head.appendChild(s)
   }, [price_kopecks])
 }
 

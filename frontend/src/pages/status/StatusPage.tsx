@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
@@ -39,6 +39,8 @@ export function StatusPage() {
   const [active, setActive] = useState<string | null>(initId)
 
   const { order, loading, error } = usePollOrderStatus(active)
+
+  const justPaid = searchParams.get('paid') === '1'
 
   useSeo({ title: 'Статус заказа', description: 'Отслеживайте создание вашей персональной песни.', noindex: true })
 
@@ -89,6 +91,7 @@ export function StatusPage() {
     <div style={{ maxWidth: 680, margin: '0 auto', padding: '40px 24px 60px' }}>
       <OrderCard
         order={order}
+        justPaid={justPaid}
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
       />
@@ -195,7 +198,7 @@ function OrdersOverview({ currentId, onSelect }: { currentId: string; onSelect: 
 const STEPS   = ['Оплата', 'Очередь', 'Создание', 'Готово']
 const STEPKEYS = ['paid', 'queued', 'processing', 'completed'] as const
 
-function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: () => void; onBack: () => void }) {
+function OrderCard({ order, justPaid, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
 
@@ -205,7 +208,7 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
 
   if (ps === 'pending')         { icon = '💳'; title = 'Ожидание оплаты';    sub = 'После оплаты начнём создавать песню' }
   else if (gs === 'completed')  { icon = '🎵'; title = 'Ваша песня готова!'; sub = 'Все версии доступны для прослушивания' }
-  else if (gs === 'failed')     { icon = '💔'; title = 'Ошибка генерации';   sub = 'Свяжитесь с нами — мы поможем' }
+  else if (gs === 'failed')     { icon = '💔'; title = 'Ошибка генерации';   sub = 'Мы уже видим проблему — напишите нам, и мы поможем' }
   else if (gs === 'processing') { icon = '🎹'; title = 'Создаём песню';      sub = 'AI-студия работает над вашим треком...' }
   else if (gs === 'queued')     { icon = '⏱'; title = 'В очереди';          sub = 'Скоро начнём создание' }
 
@@ -229,6 +232,14 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
 
   return (
     <div className="fade-in">
+      {justPaid && (
+        <div style={{
+          background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.25)',
+          borderRadius: '14px', padding: '14px 18px', marginBottom: '14px', fontSize: '14px', color: ACCENT,
+        }}>
+          Оплата принята — начинаем создавать вашу песню. Статус обновится автоматически.
+        </div>
+      )}
       {/* Header */}
       <div style={{
         background: '#0f0f0f', border: `1px solid ${BORDER}`,
@@ -252,7 +263,12 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
           <div style={{ fontSize: '52px', lineHeight: 1, position: 'relative' }}>{icon}</div>
         </div>
         <div style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '8px' }}>{title}</div>
-        <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '32px' }}>{sub}</div>
+        <div style={{ fontSize: '14px', color: TEXT2, marginBottom: gs === 'failed' ? '12px' : '32px' }}>{sub}</div>
+        {gs === 'failed' && (
+          <Link to="/legal/contacts" style={{ display: 'inline-block', fontSize: '14px', color: ACCENT, marginBottom: '24px', textDecoration: 'none' }}>
+            Связаться с поддержкой →
+          </Link>
+        )}
 
         {/* Steps */}
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0 }}>
@@ -394,12 +410,7 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
           содержать токен в query (?order_id=&token=), а делиться им нельзя —
           получатель получил бы доступ к управлению заказом владельца. */}
       {gs === 'completed' && (
-        <div style={{ marginBottom: '16px' }}>
-          <ShareBar
-            url={`${window.location.origin}/s/${order.id}`}
-            text="Послушайте песню, которую мне сделали в Numaestra 🎵"
-          />
-        </div>
+        <ShareSection orderId={order.id} shareRevoked={order.share_revoked ?? false} />
       )}
 
       {/* Actions */}
@@ -407,6 +418,90 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
         <div style={{ display: 'flex', gap: '10px' }}>
           <Button variant="outlined" size="lg" fullWidth onClick={onClear}>Новый заказ</Button>
           <Button size="lg" fullWidth onClick={onBack}>На главную</Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ShareSection({ orderId, shareRevoked: initialRevoked }: { orderId: string; shareRevoked: boolean }) {
+  const [shareRevoked, setShareRevoked] = useState(initialRevoked)
+  const [shareBusy, setShareBusy] = useState(false)
+  const [shareError, setShareError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setShareRevoked(initialRevoked)
+  }, [initialRevoked])
+
+  async function toggleShare(revoke: boolean) {
+    setShareError(null)
+    setShareBusy(true)
+    try {
+      const token = orderStorage.getAccessToken() ?? undefined
+      const res = revoke
+        ? await orderApi.revokeShare(orderId, token)
+        : await orderApi.restoreShare(orderId, token)
+      setShareRevoked(res.share_revoked)
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Не удалось изменить доступ к ссылке')
+    } finally {
+      setShareBusy(false)
+    }
+  }
+
+  const shareUrl = `${window.location.origin}/s/${orderId}`
+
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      {!shareRevoked ? (
+        <>
+          <ShareBar
+            url={shareUrl}
+            text="Послушайте песню, которую мне сделали в Numaestra 🎵"
+          />
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <button
+              type="button"
+              onClick={() => toggleShare(true)}
+              disabled={shareBusy}
+              style={{
+                background: 'transparent', border: `1px solid ${BORDER}`, borderRadius: '10px',
+                padding: '8px 14px', fontSize: '12px', color: TEXT2, cursor: shareBusy ? 'wait' : 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              {shareBusy ? 'Сохраняем…' : 'Отозвать публичную ссылку'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+          borderRadius: '14px', padding: '16px 18px', fontSize: '13px', color: '#fbbf24', textAlign: 'center',
+        }}>
+          <div style={{ marginBottom: '10px' }}>
+            Публичная ссылка отозвана — по адресу <code style={{ fontSize: '12px' }}>/s/{orderId.slice(0, 8)}…</code> песню больше не открыть.
+          </div>
+          <button
+            type="button"
+            onClick={() => toggleShare(false)}
+            disabled={shareBusy}
+            style={{
+              background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.25)',
+              borderRadius: '10px', padding: '8px 14px', fontSize: '12px', color: ACCENT,
+              cursor: shareBusy ? 'wait' : 'pointer', fontFamily: 'inherit', fontWeight: 600,
+            }}
+          >
+            {shareBusy ? 'Сохраняем…' : 'Восстановить доступ'}
+          </button>
+        </div>
+      )}
+      {shareError && (
+        <div style={{
+          marginTop: '10px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+          borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ef4444', textAlign: 'center',
+        }}>
+          {shareError}
         </div>
       )}
     </div>

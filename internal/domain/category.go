@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // jsonMarshal — псевдоним для удобства, чтобы не импортировать encoding/json в каждом методе.
@@ -14,6 +15,7 @@ var (
 	ErrCategoryNotFound      = errors.New("категория не найдена")
 	ErrCategoryAlreadyExists = errors.New("категория с таким id уже существует")
 	ErrQuestionNotFound      = errors.New("вопрос не найден")
+	ErrMissingQuizAnswers    = errors.New("не заполнены обязательные поля квиза")
 )
 
 // CategoryRepository определяет контракт для работы с хранилищем категорий.
@@ -191,6 +193,19 @@ func (c *Category) CoverImageURL() string      { return c.coverImageURL }
 func (c *Category) SeoTags() []string          { return c.seoTags }
 func (c *Category) BasePromptTemplate() string { return c.basePromptTemplate }
 func (c *Category) Questions() []Question      { return c.questions }
+
+// ValidateQuizAnswers проверяет, что все обязательные вопросы квиза заполнены.
+func ValidateQuizAnswers(questions []Question, answers map[string]string) error {
+	for _, q := range questions {
+		if !q.IsRequired {
+			continue
+		}
+		if strings.TrimSpace(answers[q.MappingKey]) == "" {
+			return fmt.Errorf("%w: %s", ErrMissingQuizAnswers, q.QuestionText)
+		}
+	}
+	return nil
+}
 
 // MarshalJSON реализует кастомную сериализацию для публичного API:
 // возвращает плоскую структуру с JSON-тегами, не раскрывая basePromptTemplate.

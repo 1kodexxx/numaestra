@@ -217,6 +217,14 @@ func setValidNonDevEnv(t *testing.T) {
 	t.Setenv("SESSION_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 }
 
+func TestLoad_InvalidAppMode(t *testing.T) {
+	t.Setenv("APP_MODE", "bogus")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("ожидали ошибку при неверном APP_MODE")
+	}
+}
+
 func TestLoad_NonDev_Success(t *testing.T) {
 	setValidNonDevEnv(t)
 	if _, err := Load(); err != nil {

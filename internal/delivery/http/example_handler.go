@@ -3,8 +3,10 @@ package apphttp
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/numaestra/numaestra/internal/usecase"
 )
@@ -13,15 +15,21 @@ import (
 type ExampleHandler struct {
 	uc  *usecase.ExampleUseCase
 	log *slog.Logger
+	rdb *redis.Client
 }
 
 func NewExampleHandler(uc *usecase.ExampleUseCase, log *slog.Logger) *ExampleHandler {
 	return &ExampleHandler{uc: uc, log: log}
 }
 
+func (h *ExampleHandler) WithRedis(rdb *redis.Client) *ExampleHandler {
+	h.rdb = rdb
+	return h
+}
+
 func (h *ExampleHandler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Use(RateLimiter(10, 20))
+	r.Use(APIRateLimiter(h.rdb, 120, time.Minute, 10, 20))
 	r.Get("/", h.HandleGetActive)
 	return r
 }

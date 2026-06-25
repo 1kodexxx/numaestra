@@ -275,10 +275,10 @@ func run(ctx context.Context) error {
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
 		WithIdempotency(idempotency.NewStore(rdb)).
 		WithRedis(rdb)
-	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
-	genreHandler := apphttp.NewGenreHandler(genreUC, log)
-	exampleHandler := apphttp.NewExampleHandler(exampleUC, log)
-	reviewHandler := apphttp.NewReviewHandler(reviewUC, log)
+	categoryHandler := apphttp.NewCategoryHandler(promptUC, log).WithRedis(rdb)
+	genreHandler := apphttp.NewGenreHandler(genreUC, log).WithRedis(rdb)
+	exampleHandler := apphttp.NewExampleHandler(exampleUC, log).WithRedis(rdb)
+	reviewHandler := apphttp.NewReviewHandler(reviewUC, log).WithRedis(rdb)
 	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log).WithQueue(queuePublisher).WithStorage(s3Client), log).
 		WithGenres(genreUC).
 		WithExamples(exampleUC).

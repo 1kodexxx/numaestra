@@ -301,6 +301,14 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// APIRateLimiter — распределённый лимит при наличии Redis, иначе in-memory fallback.
+func APIRateLimiter(rdb *redis.Client, limit int, window time.Duration, fallbackRPS float64, fallbackBurst int) func(http.Handler) http.Handler {
+	if rdb != nil {
+		return DistributedRateLimiter(rdb, limit, window)
+	}
+	return RateLimiter(fallbackRPS, fallbackBurst)
+}
+
 // DistributedRateLimiter возвращает middleware, ограничивающее число запросов
 // с одного IP через Redis (фиксированное окно). В отличие от RateLimiter,
 // работает корректно при нескольких репликах — лимит shared, не per-instance.

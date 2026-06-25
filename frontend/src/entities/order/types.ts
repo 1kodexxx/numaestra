@@ -31,6 +31,7 @@ export interface OrderDetail {
   generation_phase?: string
   generation_progress?: number
   tracks_ready?: number
+  share_revoked?: boolean
 }
 
 // Элемент ответа GET /api/v1/orders/ (список заказов владельца по токену)

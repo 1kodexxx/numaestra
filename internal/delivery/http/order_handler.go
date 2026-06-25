@@ -105,6 +105,8 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Get("/{id}/payment-url", h.GetPaymentURL)
+		r.Post("/{id}/share/revoke", h.RevokeShare)
+		r.Post("/{id}/share/restore", h.RestoreShare)
 	})
 
 	return r
@@ -193,6 +195,14 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, usecase.ErrInvalidPhone) {
 			respondError(w, r, http.StatusBadRequest, "некорректный формат телефона")
+			return
+		}
+		if errors.Is(err, domain.ErrCategoryNotFound) {
+			respondError(w, r, http.StatusBadRequest, "категория не найдена")
+			return
+		}
+		if errors.Is(err, domain.ErrMissingQuizAnswers) {
+			respondError(w, r, http.StatusBadRequest, "не заполнены обязательные поля квиза")
 			return
 		}
 		h.log.Error("ошибка создания заказа", "err", err)
@@ -303,7 +313,8 @@ type OrderDetailResponse struct {
 	Tracks             []TrackResponse `json:"tracks,omitempty"`
 	// PaidAt — момент оплаты (RFC3339), якорь для прогресс-бара генерации на
 	// фронте. Пусто, пока заказ не оплачен.
-	PaidAt string `json:"paid_at,omitempty"`
+	PaidAt       string `json:"paid_at,omitempty"`
+	ShareRevoked bool   `json:"share_revoked"`
 }
 
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +365,7 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		TracksReady:        order.TracksReady(),
 		Tracks:             tracks,
 		PaidAt:             paidAt,
+		ShareRevoked:       order.ShareRevoked(),
 	})
 }
 
@@ -426,6 +438,10 @@ func (h *OrderHandler) GetPublicShare(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusNotFound, "песня не найдена")
 		return
 	}
+	if order.ShareRevoked() {
+		respondError(w, r, http.StatusNotFound, "песня не найдена")
+		return
+	}
 
 	var tracks []TrackResponse
 	for _, t := range order.Tracks() {
@@ -440,6 +456,48 @@ func (h *OrderHandler) GetPublicShare(w http.ResponseWriter, r *http.Request) {
 		ID:     order.ID().String(),
 		Tracks: tracks,
 	})
+}
+
+// RevokeShare отзывает публичную ссылку /s/{id} без смены UUID заказа.
+// POST /api/v1/orders/{id}/share/revoke
+func (h *OrderHandler) RevokeShare(w http.ResponseWriter, r *http.Request) {
+	h.setShareRevoked(w, r, true)
+}
+
+// RestoreShare снова открывает публичную share-ссылку.
+// POST /api/v1/orders/{id}/share/restore
+func (h *OrderHandler) RestoreShare(w http.ResponseWriter, r *http.Request) {
+	h.setShareRevoked(w, r, false)
+}
+
+func (h *OrderHandler) setShareRevoked(w http.ResponseWriter, r *http.Request, revoked bool) {
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
+
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	if err := h.uc.SetShareRevoked(r.Context(), owner, orderID, revoked); err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrOrderAccessDenied) {
+			respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
+			return
+		}
+		if errors.Is(err, domain.ErrShareNotAvailable) {
+			respondError(w, r, http.StatusConflict, "публичная ссылка доступна только для готовых песен")
+			return
+		}
+		h.log.Error("ошибка изменения share-ссылки", "order_id", orderID, "revoked", revoked, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]bool{"share_revoked": revoked})
 }
 
 type OrderSummaryResponse struct {

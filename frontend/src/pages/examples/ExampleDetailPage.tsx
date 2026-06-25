@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { EXAMPLE_SONGS } from '@shared/data/examples'
+import { exampleApi } from '@entities/example'
+import { EXAMPLE_SONGS, type ExampleSong } from '@shared/data/examples'
 import { MusicPlayer } from '@widgets/player'
 import { Button, Spinner } from '@shared/ui'
 import { synthDemoTrack, hashStr } from '@shared/lib/demoAudio'
@@ -26,8 +27,34 @@ export function ExampleDetailPage() {
   const navigate = useNavigate()
   const { price_label } = usePublicConfig()
 
-  const example = EXAMPLE_SONGS.find((e) => e.id === id)
+  const [example, setExample] = useState<ExampleSong | null>(null)
+  const [loadingExample, setLoadingExample] = useState(true)
   const [tracks, setTracks] = useState<Track[] | null>(null)
+
+  useEffect(() => {
+    if (!id) return
+    setLoadingExample(true)
+    exampleApi
+      .list()
+      .then((items) => {
+        const fromApi = items.find((e) => e.id === id)
+        if (fromApi) {
+          setExample({
+            id: fromApi.id,
+            title: fromApi.title,
+            category: fromApi.category,
+            description: fromApi.description,
+            mood: fromApi.mood,
+            audioUrl: fromApi.audio_url,
+            coverUrl: fromApi.cover_url,
+          })
+        } else {
+          setExample(EXAMPLE_SONGS.find((e) => e.id === id) ?? null)
+        }
+      })
+      .catch(() => setExample(EXAMPLE_SONGS.find((e) => e.id === id) ?? null))
+      .finally(() => setLoadingExample(false))
+  }, [id])
 
   // Если у примера есть реальная запись — играем её одним треком. Иначе
   // синтезируем приятное демо-звучание (плеер не молчит). Очищаем blob-URL при размонтировании.
@@ -59,6 +86,14 @@ export function ExampleDetailPage() {
       ? `${example.description} Закажите похожую песню — 4 версии за 10 минут.`
       : undefined,
   })
+
+  if (loadingExample) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100dvh - 60px)' }}>
+        <Spinner />
+      </div>
+    )
+  }
 
   if (!example) {
     return (

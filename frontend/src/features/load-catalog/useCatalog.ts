@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { categoryApi } from '@entities/category'
 import type { Category } from '@entities/category'
 
@@ -9,10 +9,14 @@ interface State {
 }
 
 export function useCatalog() {
+  const [reloadKey, setReloadKey] = useState(0)
   const [state, setState] = useState<State>({ categories: [], loading: true, error: null })
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), [])
 
   useEffect(() => {
     let cancelled = false
+    setState((s) => ({ ...s, loading: true, error: null }))
     categoryApi
       .list()
       .then((categories) => {
@@ -22,7 +26,7 @@ export function useCatalog() {
         if (!cancelled) setState({ categories: [], loading: false, error: err.message })
       })
     return () => { cancelled = true }
-  }, [])
+  }, [reloadKey])
 
-  return state
+  return { ...state, reload }
 }

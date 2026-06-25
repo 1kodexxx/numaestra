@@ -22,7 +22,7 @@ var orderCols = []string{
 	"amount_kopecks", "currency", "payment_status", "generation_status", "generation_phase", "generation_progress", "tracks_ready",
 	"assigned_account_id",
 	"failure_reason", "access_token", "admin_feedback", "admin_feedback_at",
-	"consent_given_at", "consent_doc_version",
+	"consent_given_at", "consent_doc_version", "share_revoked_at",
 	"created_at", "updated_at", "paid_at", "completed_at",
 }
 
@@ -34,7 +34,7 @@ func orderRowValues(id uuid.UUID, invoice int64) []any {
 		int64(200000), "RUB", domain.PaymentStatusPaid, domain.GenerationStatusCompleted,
 		domain.GenerationPhaseCompleted, 100, 4,
 		(*uuid.UUID)(nil),
-		"", "tok", "", (*time.Time)(nil), (*time.Time)(nil), "",
+		"", "tok", "", (*time.Time)(nil), (*time.Time)(nil), "", (*time.Time)(nil),
 		now, now, (*time.Time)(nil), (*time.Time)(nil),
 	}
 }
@@ -303,7 +303,7 @@ func TestOrderRepository_Update_NotFound(t *testing.T) {
 
 	// Update оборачивается в транзакцию (runAtomic). RowsAffected=0 → откат и ErrOrderNotFound.
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(11)...).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
+	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(12)...).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
 	mock.ExpectRollback()
 
 	repo := NewOrderRepository(mock)

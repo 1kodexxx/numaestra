@@ -62,6 +62,7 @@ var (
 	ErrInvalidPaymentTransition    = errors.New("недопустимый переход статуса оплаты")
 	ErrOrderUnauthorized           = errors.New("неверный или отсутствующий токен доступа")
 	ErrOrderAccessDenied           = errors.New("нет доступа к этому заказу")
+	ErrShareNotAvailable           = errors.New("публичная ссылка доступна только для завершённых заказов")
 )
 
 // Track - один из сгенерированных вариантов песни (обычно 4 версии на заказ).
@@ -121,6 +122,8 @@ type Order struct {
 
 	consentGivenAt    *time.Time
 	consentDocVersion string
+
+	shareRevokedAt *time.Time
 
 	createdAt   time.Time
 	updatedAt   time.Time
@@ -207,6 +210,7 @@ type OrderSnapshot struct {
 	AdminFeedbackAt    *time.Time
 	ConsentGivenAt     *time.Time
 	ConsentDocVersion  string
+	ShareRevokedAt     *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	PaidAt             *time.Time
@@ -228,6 +232,7 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		adminFeedbackAt:   s.AdminFeedbackAt,
 		consentGivenAt:    s.ConsentGivenAt,
 		consentDocVersion: s.ConsentDocVersion,
+		shareRevokedAt:    s.ShareRevokedAt,
 		createdAt:         s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 	}
 }
@@ -256,6 +261,8 @@ func (o *Order) AdminFeedback() string              { return o.adminFeedback }
 func (o *Order) AdminFeedbackAt() *time.Time        { return o.adminFeedbackAt }
 func (o *Order) ConsentGivenAt() *time.Time         { return o.consentGivenAt }
 func (o *Order) ConsentDocVersion() string          { return o.consentDocVersion }
+func (o *Order) ShareRevoked() bool                   { return o.shareRevokedAt != nil }
+func (o *Order) ShareRevokedAt() *time.Time           { return o.shareRevokedAt }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
@@ -447,6 +454,27 @@ func (o *Order) RequeueForRetry() error {
 	return nil
 }
 
+// RevokeShare отзывает публичную share-ссылку (/s/{id}). Доступно только для завершённых заказов.
+func (o *Order) RevokeShare() error {
+	if o.generationStatus != GenerationStatusCompleted {
+		return ErrShareNotAvailable
+	}
+	now := time.Now().UTC()
+	o.shareRevokedAt = &now
+	o.touch()
+	return nil
+}
+
+// RestoreShare снова открывает публичную share-ссылку.
+func (o *Order) RestoreShare() error {
+	if o.generationStatus != GenerationStatusCompleted {
+		return ErrShareNotAvailable
+	}
+	o.shareRevokedAt = nil
+	o.touch()
+	return nil
+}
+
 func (o *Order) touch() {
 	o.updatedAt = time.Now().UTC()
 }
@@ -486,6 +514,7 @@ func (o *Order) Snapshot() OrderSnapshot {
 		AdminFeedbackAt:    o.adminFeedbackAt,
 		ConsentGivenAt:     o.consentGivenAt,
 		ConsentDocVersion:  o.consentDocVersion,
+		ShareRevokedAt:     o.shareRevokedAt,
 		CreatedAt:          o.createdAt,
 		UpdatedAt:          o.updatedAt,
 		PaidAt:             o.paidAt,

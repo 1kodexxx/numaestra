@@ -135,7 +135,7 @@ func TestCategoryHandler_GetWizard_Found(t *testing.T) {
 }
 
 func TestCategoryHandler_GetWizard_NotFound(t *testing.T) {
-	h := newTestCategoryHandler(&stubPromptBuilder{wizardErr: errors.New("not found")})
+	h := newTestCategoryHandler(&stubPromptBuilder{wizardErr: domain.ErrCategoryNotFound})
 	router := categoryTestRouter(h)
 
 	r := httptest.NewRequest(http.MethodGet, "/categories/ghost/wizard", nil)

@@ -7,6 +7,7 @@ import { HowItWorksPage } from '@pages/how-it-works'
 import { SharePage } from '@pages/share'
 import { StatusPage } from '@pages/status'
 import { LegalPage } from '@pages/legal'
+import { OrderSuccessPage, OrderFailPage } from '@pages/payment'
 import { NotFoundPage } from '@pages/not-found'
 import {
   AdminRoot,
@@ -34,7 +35,8 @@ export function AppRouter() {
       <Route path="/s/:id" element={<SharePage />} />
       <Route path="/status/:orderId" element={<StatusPage />} />
       <Route path="/status" element={<StatusPage />} />
-      <Route path="/order/success" element={<Navigate to="/status" replace />} />
+      <Route path="/order/success" element={<OrderSuccessPage />} />
+      <Route path="/order/fail" element={<OrderFailPage />} />
       <Route path="/legal/:slug" element={<LegalPage />} />
 
       <Route path="/admin" element={<AdminRoot />}>

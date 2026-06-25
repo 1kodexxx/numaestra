@@ -131,6 +131,7 @@ export function Footer() {
               <FootLink to="/legal/privacy">
                 Политика конфиденциальности
               </FootLink>
+              <FootLink to="/legal/consent">Согласие на обработку ПДн</FootLink>
               <FootLink to="/legal/refund">Политика возврата</FootLink>
               <FootLink to="/legal/copyright">Права на треки</FootLink>
             </div>

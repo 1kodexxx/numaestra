@@ -1,17 +1,22 @@
 package apphttp
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
+	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
 
 type CategoryHandler struct {
 	promptUC usecase.PromptBuilder
 	log      *slog.Logger
+	rdb      *redis.Client
 }
 
 func NewCategoryHandler(promptUC usecase.PromptBuilder, log *slog.Logger) *CategoryHandler {
@@ -21,12 +26,16 @@ func NewCategoryHandler(promptUC usecase.PromptBuilder, log *slog.Logger) *Categ
 	}
 }
 
+func (h *CategoryHandler) WithRedis(rdb *redis.Client) *CategoryHandler {
+	h.rdb = rdb
+	return h
+}
+
 // Возвращает chi.Router для монтирования в main.go
 func (h *CategoryHandler) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	// Те же лимиты, что и для клиентских маршрутов заказов.
-	r.Use(RateLimiter(10, 20))
+	r.Use(APIRateLimiter(h.rdb, 120, time.Minute, 10, 20))
 
 	r.Get("/", h.HandleGetAll)
 	r.Get("/{id}/wizard", h.HandleGetWizard)
@@ -51,8 +60,12 @@ func (h *CategoryHandler) HandleGetWizard(w http.ResponseWriter, r *http.Request
 	id := chi.URLParam(r, "id")
 	category, err := h.promptUC.GetCategoryWizard(r.Context(), id)
 	if err != nil {
+		if errors.Is(err, domain.ErrCategoryNotFound) {
+			respondError(w, r, http.StatusNotFound, "категория не найдена")
+			return
+		}
 		h.log.Error("ошибка при получении визарда категории", "category_id", id, "error", err)
-		respondError(w, r, http.StatusNotFound, "категория не найдена")
+		respondError(w, r, http.StatusInternalServerError, "не удалось загрузить категорию")
 		return
 	}
 

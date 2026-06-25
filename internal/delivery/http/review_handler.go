@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
@@ -16,17 +18,23 @@ import (
 type ReviewHandler struct {
 	uc  *usecase.ReviewUseCase
 	log *slog.Logger
+	rdb *redis.Client
 }
 
 func NewReviewHandler(uc *usecase.ReviewUseCase, log *slog.Logger) *ReviewHandler {
 	return &ReviewHandler{uc: uc, log: log}
 }
 
+func (h *ReviewHandler) WithRedis(rdb *redis.Client) *ReviewHandler {
+	h.rdb = rdb
+	return h
+}
+
 func (h *ReviewHandler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.With(RateLimiter(10, 20)).Get("/", h.List)
+	r.With(APIRateLimiter(h.rdb, 120, time.Minute, 10, 20)).Get("/", h.List)
 	// Создание отзыва жёстче ограничено по частоте — защита от спама без регистрации.
-	r.With(RateLimiter(1, 3)).Post("/", h.Create)
+	r.With(APIRateLimiter(h.rdb, 10, time.Minute, 1, 3)).Post("/", h.Create)
 	return r
 }
 

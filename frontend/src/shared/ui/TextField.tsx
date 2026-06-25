@@ -84,6 +84,8 @@ export function TextField({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             autoFocus={autoFocus}
+            autoComplete={autoComplete}
+            required={required}
             disabled={disabled}
             style={fieldStyle}
           />
@@ -98,7 +100,9 @@ export function TextField({
             onBlur={() => setFocused(false)}
             autoFocus={autoFocus}
             autoComplete={autoComplete}
+            required={required}
             disabled={disabled}
+            aria-required={required || undefined}
             style={fieldStyle}
           />
         )}

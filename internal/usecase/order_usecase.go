@@ -154,18 +154,22 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 		return nil, fmt.Errorf("получение invoice_id: %w", err)
 	}
 
-	// Если передана категория и ответы квиза — строим готовый Suno-промпт
-	// из шаблона категории. Иначе sunoPrompt остаётся пустым, и воркер
-	// использует сырой brief (обратная совместимость).
+	// Если передана категория — проверяем квиз и строим Suno-промпт на сервере.
 	var sunoPrompt string
-	if categoryID != "" && len(answers) > 0 {
+	if categoryID != "" {
+		cat, err := uc.promptUC.GetCategoryWizard(ctx, categoryID)
+		if err != nil {
+			if errors.Is(err, domain.ErrCategoryNotFound) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("загрузка категории: %w", err)
+		}
+		if err := domain.ValidateQuizAnswers(cat.Questions(), answers); err != nil {
+			return nil, err
+		}
 		sunoPrompt, err = uc.promptUC.BuildFinalPrompt(ctx, categoryID, answers)
 		if err != nil {
-			// Не фатально: категория могла быть удалена. Продолжаем с пустым промптом.
-			uc.log.Warn("не удалось построить промпт по категории, используем brief",
-				"category_id", categoryID, "err", err)
-			sunoPrompt = ""
-			categoryID = ""
+			return nil, fmt.Errorf("построение промпта: %w", err)
 		}
 	}
 
@@ -585,6 +589,22 @@ func (uc *OrderUseCase) GetOrderForCustomer(ctx context.Context, owner *domain.O
 		return nil, domain.ErrOrderAccessDenied
 	}
 	return target, nil
+}
+
+// SetShareRevoked включает или отключает публичную share-ссылку заказа владельцем.
+func (uc *OrderUseCase) SetShareRevoked(ctx context.Context, owner *domain.Order, orderID uuid.UUID, revoked bool) error {
+	order, err := uc.GetOrderForCustomer(ctx, owner, orderID)
+	if err != nil {
+		return err
+	}
+	if revoked {
+		if err := order.RevokeShare(); err != nil {
+			return err
+		}
+	} else if err := order.RestoreShare(); err != nil {
+		return err
+	}
+	return uc.orderRepo.Update(ctx, order)
 }
 
 // ==========================================

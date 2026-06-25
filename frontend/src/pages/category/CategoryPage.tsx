@@ -220,8 +220,11 @@ export function CategoryPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isMobile, isDesktop } = useBreakpoint();
-  const { categories } = useCatalog();
+  const { categories, loading: catalogLoading } = useCatalog();
   const [wizard, setWizard] = useState<WizardData | null>(null);
+  const [wizardLoading, setWizardLoading] = useState(true);
+  const [wizardError, setWizardError] = useState<string | null>(null);
+  const [quizError, setQuizError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({}); // text / select / radio
   const [tagSel, setTagSel] = useState<Record<string, string[]>>({}); // tags (multi)
   const [customText, setCustomText] = useState("");
@@ -230,6 +233,7 @@ export function CategoryPage() {
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
   const category = categories.find((c) => c.id === id);
+  const categoryMissing = !catalogLoading && categories.length > 0 && !category;
 
   useSeo({
     title: category
@@ -246,10 +250,20 @@ export function CategoryPage() {
     setTagSel({});
     setCustomText("");
     setExtraNotes("");
+    setWizardError(null);
+    setQuizError(null);
+    setWizardLoading(true);
     categoryApi
       .wizard(id)
-      .then(setWizard)
-      .catch(() => {});
+      .then((w) => {
+        setWizard(w);
+        setWizardError(null);
+      })
+      .catch((err: Error) => {
+        setWizard(null);
+        setWizardError(err.message || "Не удалось загрузить форму");
+      })
+      .finally(() => setWizardLoading(false));
   }, [id]);
 
   // Итоговая карта ответов: одиночные + мультивыбор (склеенный запятой).
@@ -283,6 +297,26 @@ export function CategoryPage() {
     });
   }
 
+  function validateQuiz(): string | null {
+    if (!wizard) return "Форма категории ещё загружается";
+    for (const q of wizard.questions) {
+      if (!q.is_required) continue;
+      const val = mergedAnswers[q.mapping_key];
+      if (!val?.trim()) return `Заполните обязательное поле: ${q.question_text}`;
+    }
+    return null;
+  }
+
+  function openContact() {
+    const err = validateQuiz();
+    if (err) {
+      setQuizError(err);
+      return;
+    }
+    setQuizError(null);
+    setShowContact(true);
+  }
+
   async function handleOrder(email: string, phone: string) {
     await submit({
       email,
@@ -296,6 +330,19 @@ export function CategoryPage() {
 
   const topCats = categories.slice(0, 8);
   const icon = "🎵";
+
+  if (categoryMissing) {
+    return (
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "64px 24px", textAlign: "center" }}>
+        <div style={{ fontSize: "48px", marginBottom: "16px" }}>🔍</div>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, marginBottom: "8px" }}>Категория не найдена</h1>
+        <p style={{ fontSize: "14px", color: TEXT2, marginBottom: "24px" }}>
+          Возможно, ссылка устарела. Выберите другую категорию на главной.
+        </p>
+        <Button size="lg" onClick={() => navigate("/")}>На главную →</Button>
+      </div>
+    );
+  }
 
   /* ── контент конструктора (общий для мобайла и десктопа) ── */
   const formBody = (
@@ -388,6 +435,26 @@ export function CategoryPage() {
 
       {/* questions */}
       <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        {wizardError && (
+          <div style={{
+            padding: "14px 16px", borderRadius: "12px",
+            background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
+            fontSize: "13px", color: "#f87171",
+          }}>
+            {wizardError}
+            <button
+              type="button"
+              onClick={() => {
+                setWizardLoading(true);
+                setWizardError(null);
+                categoryApi.wizard(id).then(setWizard).catch((e: Error) => setWizardError(e.message)).finally(() => setWizardLoading(false));
+              }}
+              style={{ display: "block", marginTop: "8px", background: "none", border: "none", color: ACCENT, cursor: "pointer", fontSize: "13px", padding: 0 }}
+            >
+              Повторить загрузку
+            </button>
+          </div>
+        )}
         {wizard
           ? wizard.questions.map((q) => (
               <QuestionField
@@ -401,7 +468,8 @@ export function CategoryPage() {
                 onToggleTag={(v) => toggleTag(q.mapping_key, v, q.config?.max_select)}
               />
             ))
-          : Array.from({ length: 6 }, (_, i) => (
+          : wizardLoading
+            ? Array.from({ length: 6 }, (_, i) => (
               <div
                 key={i}
                 className="skeleton"
@@ -411,9 +479,12 @@ export function CategoryPage() {
                   opacity: 1 - i * 0.12,
                 }}
               />
-            ))}
+            ))
+            : null}
 
         {/* universal extras */}
+        {wizard && (
+        <>
         <TextField
           label="Свой текст песни (по желанию)"
           value={customText}
@@ -468,6 +539,8 @@ export function CategoryPage() {
             {preview}
           </pre>
         </div>
+        </>
+        )}
       </div>
     </>
   );
@@ -480,7 +553,12 @@ export function CategoryPage() {
         background: SURFACE,
       }}
     >
-      <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
+      {quizError && (
+        <div style={{ fontSize: "12px", color: "#f87171", marginBottom: "10px", textAlign: "center" }}>
+          {quizError}
+        </div>
+      )}
+      <Button size="lg" fullWidth disabled={!wizard || wizardLoading} onClick={openContact}>
         Заказать песню — {publicConfig.price_label} →
       </Button>
     </div>

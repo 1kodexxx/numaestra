@@ -123,7 +123,7 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 		&questionsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("category %q not found", id)
+		return nil, domain.ErrCategoryNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query category by id: %w", err)

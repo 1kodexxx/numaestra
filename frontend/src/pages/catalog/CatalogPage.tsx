@@ -1136,7 +1136,7 @@ function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
 /* ─── main ─── */
 export function CatalogPage() {
   const publicConfig = usePublicConfig();
-  const { categories, loading } = useCatalog();
+  const { categories, loading, error, reload } = useCatalog();
   const navigate = useNavigate();
   const { isMobile, isShort } = useBreakpoint();
   const [briefOpen, setBriefOpen] = useState(false);
@@ -1345,6 +1345,24 @@ export function CatalogPage() {
           </div>
 
           {/* Search → конструктор */}
+          {error && (
+            <div
+              style={{
+                margin: isMobile ? "16px 0" : "22px 0",
+                padding: "16px 20px",
+                borderRadius: "16px",
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: "14px", color: "#f87171", marginBottom: "12px" }}>
+                Не удалось загрузить категории: {error}
+              </div>
+              <Button size="sm" onClick={reload}>Повторить</Button>
+            </div>
+          )}
+
           <div
             style={{
               padding: isMobile ? "16px 0 6px" : "22px 0 10px",
@@ -1360,8 +1378,14 @@ export function CatalogPage() {
             </p>
           </div>
 
+          {!loading && !error && categories.length === 0 && (
+            <div style={{ textAlign: "center", padding: "32px 16px", color: TEXT2, fontSize: "14px" }}>
+              Категории временно недоступны. Попробуйте обновить страницу или воспользуйтесь конструктором выше.
+            </div>
+          )}
+
           {/* Популярное — горизонтальная секция */}
-          {!loading && popular.length > 0 && (
+          {!loading && !error && popular.length > 0 && (
             <div style={{ marginTop: "24px" }}>
               <HSection
                 icon="🔥"

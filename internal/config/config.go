@@ -192,6 +192,12 @@ func Load() (*Config, error) {
 		SessionEncryptionKey: getEnv("SESSION_ENCRYPTION_KEY", ""),
 	}
 
+	switch cfg.Mode {
+	case "all", "api", "worker":
+	default:
+		return nil, fmt.Errorf("APP_MODE должен быть all, api или worker, получили %q", cfg.Mode)
+	}
+
 	if cfg.Postgres.DSN == "" {
 		return nil, fmt.Errorf("POSTGRES_DSN является обязательным параметром")
 	}
