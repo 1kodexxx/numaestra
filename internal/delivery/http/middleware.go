@@ -292,9 +292,15 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	return cl.limiter.Allow()
 }
 
-// clientIP извлекает IP клиента из запроса, учитывая, что RealIP middleware
-// мог уже подставить адрес в RemoteAddr.
+// clientIP извлекает IP клиента. За reverse-proxy (Caddy) в RemoteAddr приходит
+// внутренний адрес прокси — реальный IP берём из X-Real-IP, который Caddy
+// проставляет из {remote_host} (см. deploy/Caddyfile).
 func clientIP(r *http.Request) string {
+	if raw := strings.TrimSpace(r.Header.Get("X-Real-IP")); raw != "" {
+		if ip := net.ParseIP(raw); ip != nil {
+			return ip.String()
+		}
+	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		return host
 	}

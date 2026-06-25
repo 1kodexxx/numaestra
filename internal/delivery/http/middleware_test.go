@@ -219,6 +219,33 @@ func TestIPAllowlist_EmptyDisablesFilter(t *testing.T) {
 	}
 }
 
+func TestIPAllowlist_UsesXRealIPBehindProxy(t *testing.T) {
+	nets, err := ParseCIDRs([]string{"185.59.216.0/24"})
+	if err != nil {
+		t.Fatalf("ParseCIDRs упал: %v", err)
+	}
+	h := IPAllowlist(nets)(okHandler())
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", nil)
+	req.RemoteAddr = "172.18.0.5:40000" // docker-сеть Caddy → app
+	req.Header.Set("X-Real-IP", "185.59.216.10")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("вебхук с X-Real-IP Robokassa должен проходить allowlist, получили %d", rec.Code)
+	}
+}
+
+func TestClientIP_PrefersXRealIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "172.18.0.5:40000"
+	req.Header.Set("X-Real-IP", "185.59.216.65")
+	if got := clientIP(req); got != "185.59.216.65" {
+		t.Errorf("clientIP: got %q, want 185.59.216.65", got)
+	}
+}
+
 func TestParseCIDRs_RejectsInvalid(t *testing.T) {
 	if _, err := ParseCIDRs([]string{"not-an-ip"}); err == nil {
 		t.Error("ожидали ошибку для некорректной записи")
