@@ -312,7 +312,8 @@ func APIRateLimiter(rdb *redis.Client, limit int, window time.Duration, fallback
 // DistributedRateLimiter возвращает middleware, ограничивающее число запросов
 // с одного IP через Redis (фиксированное окно). В отличие от RateLimiter,
 // работает корректно при нескольких репликах — лимит shared, не per-instance.
-// limit — максимум запросов за window. При недоступности Redis пропускает запрос.
+// limit — максимум запросов за window. При сбое Redis включается локальный
+// токен-бакет (fail-closed), чтобы не снимать защиту полностью.
 func DistributedRateLimiter(rdb *redis.Client, limit int, window time.Duration) func(http.Handler) http.Handler {
 	script := redis.NewScript(`
 local key = KEYS[1]
@@ -325,6 +326,17 @@ end
 return count
 `)
 	windowSecs := int64(window.Seconds())
+	if windowSecs <= 0 {
+		windowSecs = 1
+	}
+	// Fallback на локальный лимитер, если Redis недоступен.
+	localFallback := &ipRateLimiter{
+		clients:  make(map[string]*clientLimiter),
+		rate:     rate.Limit(float64(limit) / float64(windowSecs)),
+		burst:    limit,
+		ttl:      3 * time.Minute,
+		lastSwep: time.Now(),
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r)
@@ -332,7 +344,12 @@ return count
 			key := fmt.Sprintf("ratelimit:%s:%d", ip, bucket)
 			count, err := script.Run(r.Context(), rdb, []string{key}, limit, windowSecs).Int()
 			if err != nil {
-				// Redis недоступен — fail open, не блокируем трафик.
+				// Redis недоступен — не снимаем лимит полностью.
+				if !localFallback.allow(ip) {
+					w.Header().Set("Retry-After", "1")
+					respondError(w, r, http.StatusTooManyRequests, "слишком много запросов")
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

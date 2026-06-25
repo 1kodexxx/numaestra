@@ -142,6 +142,8 @@ make frontend-dev     # фронтенд: Vite :3000 с hot-reload, прокси
 make test            # тесты Go
 make test-race       # с детектором гонок
 make lint            # golangci-lint
+make frontend-check  # lint + typecheck + test + build
+make frontend-check-docker # то же в Docker (если локальный Node окружение сломано)
 make frontend-build  # сборка SPA в web/out/ (встраивается в бинарник)
 make frontend-test   # vitest + Testing Library
 ```
@@ -236,7 +238,7 @@ frontend/src/       React SPA (Feature-Sliced Design)
 ```bash
 # Прод: явно указываем базовый файл, чтобы НЕ подхватился dev-override.
 docker compose -f docker-compose.yml --profile proxy up -d        # Caddy + авто Let's Encrypt (TLS на :443)
-docker compose -f docker-compose.yml --profile backup up -d       # ежедневный pg_dump в ./backups/
+docker compose -f docker-compose.yml --profile backup up -d       # ежедневный pg_dump + offsite upload в S3
 docker compose -f docker-compose.yml --profile monitoring up -d   # Prometheus + Alertmanager (только во внутренней сети)
 ```
 
@@ -244,18 +246,21 @@ docker compose -f docker-compose.yml --profile monitoring up -d   # Prometheus +
 фаерволом всё, кроме 80/443 (например, `ufw allow 80,443/tcp && ufw enable`).
 
 - **proxy** — `DOMAIN` и `ACME_EMAIL` в `.env`; конфиг `deploy/Caddyfile`.
-- **backup** — ротация по `BACKUP_RETENTION_DAYS`; восстановление — `deploy/restore-postgres.sh`.
+- **backup** — ротация по `BACKUP_RETENTION_DAYS`, offsite-копия в `BACKUP_S3_BUCKET`; восстановление — `deploy/restore-postgres.sh`.
 - **monitoring** — правила алертов в `deploy/alerts.yml`. Receiver Alertmanager
   настраивается через `.env`, без правки конфигов: задайте `ALERT_EMAIL_TO`
   (письма уйдут через те же `SMTP_*`, что и приложение) и/или `TELEGRAM_BOT_TOKEN`
   + `TELEGRAM_CHAT_ID`. Конфиг рендерится при старте init-сервисом
   `alertmanager-config` (`deploy/render-alertmanager.sh`).
+  Для non-dev деплоя как минимум один канал обязателен: иначе `deploy/deploy.sh`
+  остановит выкладку.
 
 ## ✅ Тестирование
 
 - **Go**: доменные стейт-машины, use-case (in-memory моки), HTTP-хендлеры, middleware,
   адаптеры (`robokassa`, `openai`, `s3`, `suno` через `httptest`), воркер.
   Postgres-репозитории — интеграционные тесты (`make test-integration`, testcontainers).
-- **Frontend**: `make frontend-test` (vitest + Testing Library).
+- **Frontend**: `make frontend-check` (lint + typecheck + vitest + build), либо
+  `make frontend-check-docker` при проблемах с локальным Node.
 - **CI** (`.github/workflows/ci.yml`): на каждый push/PR — build, vet, `-race`-тесты,
-  golangci-lint и отдельный job для typecheck/тестов/сборки фронтенда.
+  golangci-lint и отдельный job для lint/typecheck/тестов/сборки фронтенда.

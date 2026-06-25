@@ -74,7 +74,7 @@ nano .env
 
 ```env
 # Профили compose: proxy = Caddy с авто-TLS. docker compose читает это нативно.
-COMPOSE_PROFILES=proxy
+COMPOSE_PROFILES=proxy,monitoring,backup
 APP_ENV=prod
 ```
 
@@ -152,8 +152,10 @@ curl -fsS https://<ваш-домен>/healthz
 3. **S3**: тестовый объект реально отдаётся по публичной ссылке (200, не 403).
 4. **Тестовый заказ** при `ROBOKASSA_IS_TEST=true` — полный цикл до выдачи трека и письма.
 5. Переключить Robokassa в боевой режим, провести **один реальный платёж** на минимум.
-6. Прописать receiver алертов (`ALERT_EMAIL_TO` и/или Telegram) — профиль `monitoring`
-   подключать на ≥4 ГБ RAM или на отдельном хосте (на 2 ГБ не запускать).
+6. Прописать receiver алертов (`ALERT_EMAIL_TO` и/или Telegram) — без этого `deploy/deploy.sh`
+   остановит non-dev деплой. Профиль `monitoring` подключать на ≥4 ГБ RAM или на отдельном хосте.
+7. Настроить offsite backup (`BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY`, `BACKUP_S3_SECRET_KEY`) —
+   без этого `deploy/deploy.sh` остановит non-dev деплой.
 
 ---
 
