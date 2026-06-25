@@ -1,13 +1,26 @@
 <div align="center">
+  <img src="frontend/public/favicon.svg" alt="Numaestra" width="104" height="104">
 
-# 🎵 Numaestra
+  # Numaestra
 
-**AI-студия персональных песен на заказ.**
-Опишите повод — получите 4 готовые версии трека.
+  ### AI-студия персональных песен на заказ
 
-Go 1.25 · React 18 · PostgreSQL 16 · Redis 7 · Suno · Robokassa · Docker
+  **Опишите повод — получите 4 готовые версии трека за 10 минут.**
+  Один платёж, без подписок.
+
+  <br>
+
+  [![CI](https://github.com/1kodexxx/numaestra/actions/workflows/ci.yml/badge.svg)](https://github.com/1kodexxx/numaestra/actions/workflows/ci.yml)
+  ![Go](https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go&logoColor=white)
+  ![React](https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white)
+  ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript&logoColor=white)
+  ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+  ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)
+  ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
 
 </div>
+
+<br>
 
 ---
 
@@ -264,3 +277,11 @@ docker compose -f docker-compose.yml --profile monitoring up -d   # Prometheus +
   `make frontend-check-docker` при проблемах с локальным Node.
 - **CI** (`.github/workflows/ci.yml`): на каждый push/PR — build, vet, `-race`-тесты,
   golangci-lint и отдельный job для lint/typecheck/тестов/сборки фронтенда.
+
+---
+
+<div align="center">
+
+<sub>🎧 Сделано с заботой о каждой ноте — **Numaestra**</sub>
+
+</div>
