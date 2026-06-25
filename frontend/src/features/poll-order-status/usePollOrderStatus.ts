@@ -4,22 +4,28 @@ import { orderStorage } from '@shared/lib/storage'
 import { ApiError } from '@shared/api'
 import type { OrderDetail } from '@entities/order'
 
-// В E2E-сборке можно ускорить через VITE_POLL_INTERVAL_MS (см. npm run build:e2e).
 const POLL_INTERVAL_MS =
   typeof import.meta.env.VITE_POLL_INTERVAL_MS === 'string' &&
   import.meta.env.VITE_POLL_INTERVAL_MS !== ''
     ? Number(import.meta.env.VITE_POLL_INTERVAL_MS)
     : 10_000
 
+const FAST_POLL_INTERVAL_MS = 2_000
+
 interface State {
   order: OrderDetail | null
   loading: boolean
   error: string | null
-  /** Есть валидный access_token — оплата, список заказов, отзыв share. */
   canManage: boolean
 }
 
-export function usePollOrderStatus(orderId: string | null) {
+export interface PollOrderOptions {
+  /** После SuccessURL Robokassa: быстрый опрос и sync-payment, пока оплата не подтверждена. */
+  confirmPayment?: boolean
+}
+
+export function usePollOrderStatus(orderId: string | null, options?: PollOrderOptions) {
+  const confirmPayment = options?.confirmPayment ?? false
   const [state, setState] = useState<State>({
     order: null,
     loading: !!orderId,
@@ -27,6 +33,9 @@ export function usePollOrderStatus(orderId: string | null) {
     canManage: false,
   })
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const syncStartedRef = useRef(false)
+  const orderRef = useRef<OrderDetail | null>(null)
+  orderRef.current = state.order
 
   const stopPolling = useCallback(() => {
     if (timerRef.current) {
@@ -47,7 +56,6 @@ export function usePollOrderStatus(orderId: string | null) {
         return
       } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
-          // Токен от удалённого или устаревшего заказа — сбрасываем и пробуем публичный статус.
           orderStorage.clear()
         } else {
           const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
@@ -70,17 +78,50 @@ export function usePollOrderStatus(orderId: string | null) {
     }
   }, [stopPolling])
 
+  const startPolling = useCallback((id: string) => {
+    stopPolling()
+    const tick = () => { void fetchOnce(id) }
+    const fast =
+      confirmPayment &&
+      orderRef.current?.payment_status === 'pending' &&
+      orderRef.current?.generation_status !== 'completed' &&
+      orderRef.current?.generation_status !== 'failed'
+    timerRef.current = setInterval(tick, fast ? FAST_POLL_INTERVAL_MS : POLL_INTERVAL_MS)
+  }, [confirmPayment, fetchOnce, stopPolling])
+
   useEffect(() => {
     if (!orderId) {
+      syncStartedRef.current = false
       setState({ order: null, loading: false, error: null, canManage: false })
       return
     }
 
-    fetchOnce(orderId)
-    timerRef.current = setInterval(() => fetchOnce(orderId), POLL_INTERVAL_MS)
+    void (async () => {
+      if (confirmPayment && !syncStartedRef.current) {
+        const token = orderStorage.getAccessToken()
+        if (token) {
+          syncStartedRef.current = true
+          try {
+            await orderApi.syncPayment(orderId, token)
+          } catch {
+            // Вебхук мог уже отработать — продолжаем опрос.
+          }
+        }
+      }
+      await fetchOnce(orderId)
+      startPolling(orderId)
+    })()
 
     return stopPolling
-  }, [orderId, fetchOnce, stopPolling])
+  }, [orderId, confirmPayment, fetchOnce, startPolling, stopPolling])
+
+  // Переключаем интервал с быстрого на обычный после подтверждения оплаты.
+  useEffect(() => {
+    if (!orderId || !state.order) return
+    if (state.order.payment_status !== 'pending') {
+      startPolling(orderId)
+    }
+  }, [orderId, state.order?.payment_status, startPolling])
 
   return state
 }

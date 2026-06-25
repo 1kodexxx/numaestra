@@ -24,6 +24,7 @@ vi.mock('@entities/order', async (importOriginal) => {
       getById: vi.fn(),
       getPublicStatus: vi.fn(),
       paymentUrl: vi.fn(),
+      syncPayment: vi.fn().mockResolvedValue({ synced: false }),
       list: vi.fn(),
     },
   }
@@ -106,6 +107,22 @@ describe('StatusPage', () => {
 
     expect(orderApi.paymentUrl).toHaveBeenCalledWith(ORDER_ID, ACCESS_TOKEN)
     expect(hrefSpy).toHaveBeenCalledWith('https://auth.robokassa.ru/pay/retry')
+  })
+
+  it('после SuccessURL не предлагает повторную оплату при pending', async () => {
+    vi.mocked(orderApi.getById).mockResolvedValue(pendingOrder())
+    orderStorage.saveOrder(ORDER_ID, ACCESS_TOKEN)
+
+    renderWithRouter(<StatusPage />, {
+      route: `/status/${ORDER_ID}?paid=1`,
+      path: '/status/:orderId',
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Подтверждаем оплату')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /Перейти к оплате/ })).not.toBeInTheDocument()
+    expect(orderApi.syncPayment).toHaveBeenCalledWith(ORDER_ID, ACCESS_TOKEN)
   })
 
   it('показывает прогресс генерации после оплаты', async () => {

@@ -2,6 +2,7 @@ package apphttp
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -64,6 +65,12 @@ func IPAllowlist(allowed []*net.IPNet) func(http.Handler) http.Handler {
 					}
 				}
 			}
+			slog.Warn("запрос отклонён IP allowlist",
+				"client_ip", clientIP(r),
+				"remote_addr", r.RemoteAddr,
+				"x_real_ip", r.Header.Get("X-Real-IP"),
+				"path", r.URL.Path,
+			)
 			respondError(w, r, http.StatusForbidden, "доступ запрещён")
 		})
 	}

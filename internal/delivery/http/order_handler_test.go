@@ -38,7 +38,7 @@ func newTestHandler(t *testing.T) (*OrderHandler, http.Handler, *hOrderRepo) {
 	t.Helper()
 	repo := newHOrderRepo()
 	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, notify.NewLogNotifier(discardLogger()), nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
-	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
+	rk := robokassa.New(hMerchant, hPass1, hPass2, "", true)
 	h := NewOrderHandler(uc, discardLogger(), rk, nil)
 	return h, h.Routes(), repo
 }
@@ -628,7 +628,7 @@ func TestParsePagination_NonNumericIgnored(t *testing.T) {
 func TestHandler_WithIdempotency_SecondCallReturnsCached(t *testing.T) {
 	repo := newHOrderRepo()
 	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
-	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
+	rk := robokassa.New(hMerchant, hPass1, hPass2, "", true)
 	store := newFakeStore()
 	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithIdempotency(store)
 	router := h.Routes()
@@ -748,7 +748,7 @@ func TestHandler_ListOrders_ByPhone(t *testing.T) {
 func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 	repo := newHOrderRepo()
 	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
-	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
+	rk := robokassa.New(hMerchant, hPass1, hPass2, "", true)
 	mini := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mini.Addr()})
 	t.Cleanup(func() { rdb.Close() })

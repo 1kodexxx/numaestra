@@ -193,15 +193,6 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 		return fmt.Errorf("поиск заказа по invoice_id: %w", err)
 	}
 
-	// Идемпотентность: Robokassa повторяет доставку ResultURL до получения OK{InvId}.
-	// Повторный вебхук для уже оплаченного заказа — это НЕ ошибка: трактуем как успех,
-	// иначе бесконечные ретраи Robokassa будут получать 500.
-	if order.PaymentStatus() == domain.PaymentStatusPaid {
-		uc.log.Info("повторная доставка вебхука для уже оплаченного заказа — идемпотентно ОК",
-			"order_id", order.ID(), "invoice_id", invoiceID)
-		return nil
-	}
-
 	// Проверка платёжного окна: отклоняем оплату заказов старше maxPaymentWindow.
 	// Robokassa завершает оплату за минуты; сверхстарый вебхук с валидной подписью —
 	// признак реплея захваченного запроса, а не легитимной повторной доставки.
@@ -219,6 +210,40 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 			"order_id", order.ID(), "invoice_id", invoiceID,
 			"expected_kopecks", order.AmountKopecks(), "paid_kopecks", paidKopecks)
 		return ErrPaymentAmountMismatch
+	}
+
+	return uc.applyPaymentSuccess(ctx, order, "webhook")
+}
+
+// AdminConfirmPayment помечает заказ оплаченным без вебхука Robokassa.
+// Используется, когда деньги списаны, но ResultURL не дошёл до приложения.
+// Перед вызовом админ должен убедиться, что платёж есть в кабинете Robokassa.
+func (uc *OrderUseCase) AdminConfirmPayment(ctx context.Context, orderID uuid.UUID) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("получение заказа: %w", err)
+	}
+	if order.PaymentStatus() != domain.PaymentStatusPending {
+		if order.PaymentStatus() == domain.PaymentStatusPaid {
+			return nil
+		}
+		return fmt.Errorf("подтверждение оплаты недоступно: статус %q", order.PaymentStatus())
+	}
+	uc.log.Warn("admin: ручное подтверждение оплаты",
+		"order_id", orderID, "invoice_id", order.InvoiceID())
+	return uc.applyPaymentSuccess(ctx, order, "admin")
+}
+
+func (uc *OrderUseCase) applyPaymentSuccess(ctx context.Context, order *domain.Order, source string) error {
+	invoiceID := order.InvoiceID()
+
+	// Идемпотентность: Robokassa повторяет доставку ResultURL до получения OK{InvId}.
+	// Повторный вебхук для уже оплаченного заказа — это НЕ ошибка: трактуем как успех,
+	// иначе бесконечные ретраи Robokassa будут получать 500.
+	if order.PaymentStatus() == domain.PaymentStatusPaid {
+		uc.log.Info("оплата уже подтверждена — идемпотентно ОК",
+			"order_id", order.ID(), "invoice_id", invoiceID, "source", source)
+		return nil
 	}
 
 	if err := order.MarkPaid(); err != nil {
@@ -239,7 +264,7 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 	}
 	if !applied {
 		uc.log.Info("оплата уже обработана параллельной доставкой — постановку задачи пропускаем",
-			"order_id", order.ID(), "invoice_id", invoiceID)
+			"order_id", order.ID(), "invoice_id", invoiceID, "source", source)
 		return nil
 	}
 
@@ -249,7 +274,8 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 	}
 
 	metrics.PaymentsReceived.Inc()
-	uc.log.Info("заказ успешно оплачен и поставлен в очередь", "order_id", order.ID())
+	uc.log.Info("заказ успешно оплачен и поставлен в очередь",
+		"order_id", order.ID(), "invoice_id", invoiceID, "source", source)
 	return nil
 }
 

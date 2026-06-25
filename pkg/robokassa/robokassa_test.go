@@ -3,6 +3,7 @@ package robokassa
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,10 +15,11 @@ const (
 	testMerchantLogin = "TestMerchant"
 	testPassword1     = "TestPassword1"
 	testPassword2     = "TestPassword2"
+	testPassword3     = "TestPassword3"
 )
 
 func newTestClient(isTest bool) *Client {
-	return New(testMerchantLogin, testPassword1, testPassword2, isTest)
+	return New(testMerchantLogin, testPassword1, testPassword2, testPassword3, isTest)
 }
 
 // --- FormatAmount ---
@@ -170,92 +172,102 @@ func TestClient_PaymentAndWebhook_SameAmount(t *testing.T) {
 
 // --- Refund ---
 
-// newTestRefundClient создаёт Client с httptest-сервером вместо prod URL.
-func newTestRefundClient(srv *httptest.Server) *Client {
-	c := New(testMerchantLogin, testPassword1, testPassword2, true)
-	c.httpClient = srv.Client()
-	c.refundURL = srv.URL + "/refund"
-	return c
-}
-
 func TestRefund_Success(t *testing.T) {
+	const opKey = "0005F891-8CCD-434B-8455-816AFFFDBF37-0VOisWikFF"
+	stateCalls := 0
+	createCalls := 0
+	statusCalls := 0
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("ожидали POST, получили %s", r.Method)
+		switch {
+		case strings.Contains(r.URL.Path, "OpStateExt"):
+			stateCalls++
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprintf(w, `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><Info><OpKey>%s</OpKey></Info></OperationStateResponse>`, opKey)
+		case strings.HasSuffix(r.URL.Path, "/Refund/Create"):
+			createCalls++
+			if ct := r.Header.Get("Content-Type"); ct != "application/jwt" {
+				t.Errorf("ожидали application/jwt, получили %q", ct)
+			}
+			body, _ := io.ReadAll(r.Body)
+			if len(body) == 0 {
+				t.Fatal("пустое тело JWT")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"success":true,"requestId":"cf15fd52-d2d1-4fc4-b9c0-25310e3bdded"}`)
+		case strings.HasSuffix(r.URL.Path, "/Refund/GetState"):
+			statusCalls++
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"requestId":"cf15fd52-d2d1-4fc4-b9c0-25310e3bdded","amount":2000,"label":"finished"}`)
+		default:
+			t.Fatalf("неожиданный путь: %s", r.URL.Path)
 		}
-		if ct := r.Header.Get("Content-Type"); ct != "application/x-www-form-urlencoded" {
-			t.Errorf("неверный Content-Type: %s", ct)
-		}
-		fmt.Fprint(w, "OK42")
 	}))
 	defer srv.Close()
 
-	c := newTestRefundClient(srv)
-	if err := c.Refund(context.Background(), "1500.00", 42); err != nil {
+	c := newTestClient(false)
+	c.httpClient = srv.Client()
+	c.opStateURL = srv.URL + "/OpStateExt"
+	c.refundCreateURL = srv.URL + "/Refund/Create"
+	c.refundStateURL = srv.URL + "/Refund/GetState"
+
+	if err := c.Refund(context.Background(), "2000.00", 7); err != nil {
 		t.Fatalf("ожидали успех, получили: %v", err)
 	}
-}
-
-func TestRefund_ServerReturnsError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		fmt.Fprint(w, "ERROR5")
-	}))
-	defer srv.Close()
-
-	c := newTestRefundClient(srv)
-	err := c.Refund(context.Background(), "1500.00", 42)
-	if err == nil {
-		t.Fatal("ожидали ошибку при ответе ERROR от сервера")
-	}
-	if !strings.Contains(err.Error(), "ERROR5") {
-		t.Errorf("ошибка должна содержать тело ответа, получили: %v", err)
+	if stateCalls != 1 || createCalls != 1 || statusCalls < 1 {
+		t.Fatalf("вызовы API: opstate=%d create=%d state=%d", stateCalls, createCalls, statusCalls)
 	}
 }
 
-func TestRefund_HTTPErrorStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	c := newTestRefundClient(srv)
-	err := c.Refund(context.Background(), "1500.00", 42)
-	if err == nil {
-		t.Fatal("ожидали ошибку при HTTP 500")
-	}
-	if !strings.Contains(err.Error(), "500") {
-		t.Errorf("ошибка должна содержать HTTP-статус, получили: %v", err)
+func TestRefund_MissingPassword3(t *testing.T) {
+	c := New(testMerchantLogin, testPassword1, testPassword2, "", false)
+	err := c.Refund(context.Background(), "2000.00", 7)
+	if err == nil || !strings.Contains(err.Error(), "ROBOKASSA_PASS3") {
+		t.Fatalf("ожидали ошибку про PASS3, получили: %v", err)
 	}
 }
 
-func TestRefund_NetworkError(t *testing.T) {
-	// Сервер немедленно закрывается — имитирует сетевую ошибку.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
-	srv.Close()
-
-	c := newTestRefundClient(srv)
-	if err := c.Refund(context.Background(), "1500.00", 42); err == nil {
-		t.Fatal("ожидали ошибку при недоступном сервере")
-	}
-}
-
-func TestRefund_SendsCorrectParams(t *testing.T) {
-	var gotBody string
+func TestRefund_CreateRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		gotBody = r.Form.Encode()
-		fmt.Fprint(w, "OK99")
+		if strings.Contains(r.URL.Path, "OpStateExt") {
+			fmt.Fprint(w, `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><Info><OpKey>op-key</OpKey></Info></OperationStateResponse>`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"success":false,"message":"AlreadyRefunded"}`)
 	}))
 	defer srv.Close()
 
-	c := newTestRefundClient(srv)
-	_ = c.Refund(context.Background(), "750.00", 99)
+	c := newTestClient(false)
+	c.httpClient = srv.Client()
+	c.opStateURL = srv.URL + "/OpStateExt"
+	c.refundCreateURL = srv.URL + "/Refund/Create"
 
-	for _, param := range []string{"MrchLogin", "InvId", "OutSum", "Signature"} {
-		if !strings.Contains(gotBody, param) {
-			t.Errorf("параметр %q отсутствует в теле запроса: %s", param, gotBody)
-		}
+	err := c.Refund(context.Background(), "2000.00", 7)
+	if err == nil || !strings.Contains(err.Error(), "AlreadyRefunded") {
+		t.Fatalf("ожидали AlreadyRefunded, получили: %v", err)
 	}
+}
+
+func TestBuildRefundJWT(t *testing.T) {
+	token, err := buildRefundJWT("op-key-123", testPassword3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("ожидали 3 части JWT, получили %d", len(parts))
+	}
+}
+
+// newTestRefundClient подключает httptest-сервер ко всем URL возврата.
+func newTestRefundClient(srv *httptest.Server) *Client {
+	c := newTestClient(false)
+	c.httpClient = srv.Client()
+	c.opStateURL = srv.URL + "/OpStateExt"
+	c.refundCreateURL = srv.URL + "/Refund/Create"
+	c.refundStateURL = srv.URL + "/Refund/GetState"
+	return c
 }
 
 // --- helpers ---

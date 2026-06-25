@@ -213,6 +213,34 @@ func TestHandlePaymentSuccess_DuplicateWebhook_Idempotent(t *testing.T) {
 	}
 }
 
+func TestAdminConfirmPayment_Success(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+
+	if err := f.uc.AdminConfirmPayment(context.Background(), order.ID()); err != nil {
+		t.Fatalf("AdminConfirmPayment упал: %v", err)
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPaid {
+		t.Errorf("ожидали статус paid, получили %q", got.PaymentStatus())
+	}
+	if len(f.queue.genCalls) != 1 {
+		t.Errorf("ожидали 1 постановку задачи генерации, получили %d", len(f.queue.genCalls))
+	}
+}
+
+func TestAdminConfirmPayment_NotPending(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_ = f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000)
+
+	err := f.uc.AdminConfirmPayment(context.Background(), order.ID())
+	if err != nil {
+		t.Fatalf("идемпотентный повтор для paid не должен падать: %v", err)
+	}
+}
+
 // TestApplyPaymentSuccess_OnlyFromPending проверяет условный переход на уровне
 // репозитория: повторное применение к уже оплаченному заказу даёт applied=false.
 func TestApplyPaymentSuccess_OnlyFromPending(t *testing.T) {

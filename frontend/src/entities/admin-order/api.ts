@@ -14,6 +14,10 @@ export const adminOrderApi = {
     return apiFetch<void>(`/admin/orders/${id}/refund`, { method: 'POST' })
   },
 
+  confirmPayment(id: string) {
+    return apiFetch<void>(`/admin/orders/${id}/confirm-payment`, { method: 'POST' })
+  },
+
   // Повторно поставить оплаченный, но упавший заказ в очередь генерации.
   regenerate(id: string) {
     return apiFetch<void>(`/admin/orders/${id}/regenerate`, { method: 'POST' })

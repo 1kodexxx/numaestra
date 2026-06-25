@@ -168,7 +168,7 @@ curl -fsS https://<ваш-домен>/healthz
 | **Сеть** | UFW: только `22/80/443`. Postgres `5432`, Redis `6379`, приложение `8080` не торчат наружу. |
 | **TLS** | Caddy с `COMPOSE_PROFILES=proxy`, сертификат Let's Encrypt валиден, HSTS включён. |
 | **Секреты** | В `.env` на сервере: уникальные `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `SESSION_ENCRYPTION_KEY`, `ADMIN_*`, `ROBOKASSA_*`. Файл `chmod 600`, не в git. |
-| **Robokassa** | `ROBOKASSA_ALLOWED_IPS` заполнен боевыми подсетями; `ROBOKASSA_IS_TEST=false` только после smoke-теста. |
+| **Robokassa** | `ROBOKASSA_ALLOWED_IPS` — только боевые подсети Robokassa (без `172.x`); `ROBOKASSA_IS_TEST=false` только после smoke-теста. Caddy передаёт `X-Real-IP`. Для возвратов в админке: `ROBOKASSA_PASS3` (Password3 в кабинете) и включённый Refund API. |
 | **CORS** | `CORS_ALLOWED_ORIGINS` — только ваш домен (без `*` в проде). |
 | **Rate limit** | Redis с паролем; лимиты на заказы, каталог, отзывы идут через Redis (не in-memory per-pod). |
 | **Share-ссылки** | Клиент может отозвать `/s/{id}` на странице статуса; отозванная ссылка отдаёт 404. |
@@ -179,6 +179,69 @@ curl -fsS https://<ваш-домен>/healthz
 
 > **Ограничения без WAF:** при DDoS на уровне L7 помогает Cloudflare (или аналог) перед Caddy.
 > Rate limit при недоступности Redis пропускает трафик (fail-open) — поэтому Redis и его пароль обязательны в проде.
+
+---
+
+## 7. Robokassa: диагностика и восстановление
+
+### Симптом
+
+Деньги списаны, в админке заказ в статусе «Ожидание оплаты», генерация не стартовала.
+
+### Диагностика в логах
+
+```bash
+docker compose logs app --since 2h | grep -E 'robokassa|allowlist|вебхук'
+```
+
+| Запись в логе | Причина |
+|---|---|
+| `запрос отклонён IP allowlist` + `status=403` | IP вебхука не прошёл `ROBOKASSA_ALLOWED_IPS` (часто до фикса X-Real-IP за Caddy) |
+| `неверная подпись` | Неверный `ROBOKASSA_PASS2` или тестовый/боевой режим не совпадает с кабинетом |
+| `вебхук robokassa обработан` | Вебхук принят, заказ должен перейти в оплачен |
+
+### Восстановление заказа
+
+1. **Админка** — на странице заказа кнопка «Подтвердить оплату» (только если платёж есть в кабинете Robokassa).
+2. **SSH** — повторить ResultURL вручную (подставьте `invoice_id` и сумму заказа):
+
+```bash
+cd ~/numaestra
+set -a && source .env && set +a
+
+INV=7
+OUTSUM=2000.00
+SIG=$(echo -n "${OUTSUM}:${INV}:${ROBOKASSA_PASS2}" | md5sum | awk '{print toupper($1)}')
+
+docker compose exec -T app wget -qO- \
+  --header="X-Real-IP: 185.59.216.65" \
+  --post-data="OutSum=${OUTSUM}&InvId=${INV}&SignatureValue=${SIG}" \
+  http://127.0.0.1:8080/api/v1/orders/webhook/robokassa
+```
+
+Ожидаемый ответ: `OK{InvId}` (например `OK7`).
+
+### После деплоя с фиксом X-Real-IP
+
+В `ROBOKASSA_ALLOWED_IPS` **нельзя оставлять пустым** — в `APP_ENV=prod` приложение не запустится
+(`ROBOKASSA_ALLOWED_IPS обязателен в окружении "prod"`).
+
+Уберите только временный `172.16.0.0/12` (Docker), **заменив** его адресами Robokassa — не удаляйте переменную целиком:
+
+```bash
+# Правильно (prod):
+ROBOKASSA_ALLOWED_IPS=185.59.216.65,185.59.217.65
+
+# Неправильно — приложение не стартует:
+ROBOKASSA_ALLOWED_IPS=
+
+# Неправильно — костыль до фикса X-Real-IP, больше не нужен:
+ROBOKASSA_ALLOWED_IPS=172.16.0.0/12,185.59.216.65,185.59.217.65
+```
+
+Перезапуск: `docker compose up -d app`.
+
+Ручная проверка вебхука из контейнера (без `172.16` в allowlist) — с заголовком `X-Real-IP`, см. пример выше.
 
 ---
 

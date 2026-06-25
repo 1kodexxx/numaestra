@@ -205,6 +205,32 @@ func TestAdminUseCase_RefundOrder_NotPaid(t *testing.T) {
 	}
 }
 
+type mockPaymentConfirmer struct {
+	err error
+}
+
+func (m *mockPaymentConfirmer) AdminConfirmPayment(ctx context.Context, orderID uuid.UUID) error {
+	return m.err
+}
+
+func TestAdminUseCase_ConfirmOrderPayment_Success(t *testing.T) {
+	pc := &mockPaymentConfirmer{}
+	uc := NewAdminUseCase(newInMemOrderRepo(), newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).
+		WithPaymentConfirmer(pc)
+
+	if err := uc.ConfirmOrderPayment(context.Background(), uuid.New()); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestAdminUseCase_ConfirmOrderPayment_NoConfirmer(t *testing.T) {
+	uc, _, _ := newAdminUC(t)
+	err := uc.ConfirmOrderPayment(context.Background(), uuid.New())
+	if err == nil {
+		t.Fatal("ожидали ошибку без payment confirmer")
+	}
+}
+
 // --- AddAccount repo error ---
 
 func TestAdminUseCase_AddAccount_RepoError(t *testing.T) {

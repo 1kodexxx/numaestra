@@ -21,6 +21,9 @@ export function AdminOrderDetailPage() {
   const [refunding, setRefunding] = useState(false)
   const [refundError, setRefundError] = useState<string | null>(null)
 
+  const [confirming, setConfirming] = useState(false)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+
   const [regenerating, setRegenerating] = useState(false)
   const [regenError, setRegenError] = useState<string | null>(null)
 
@@ -61,6 +64,19 @@ export function AdminOrderDetailPage() {
       setRefundError(err instanceof ApiError ? err.message : 'Не удалось выполнить возврат')
     } finally {
       setRefunding(false)
+    }
+  }
+
+  async function handleConfirmPayment() {
+    if (!confirm('Подтвердить оплату вручную? Убедитесь, что платёж есть в кабинете Robokassa.')) return
+    setConfirmError(null); setConfirming(true)
+    try {
+      await adminOrderApi.confirmPayment(id)
+      load()
+    } catch (err) {
+      setConfirmError(err instanceof ApiError ? err.message : 'Не удалось подтвердить оплату')
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -154,6 +170,20 @@ export function AdminOrderDetailPage() {
           </div>
           <Button onClick={handleRegenerate} loading={regenerating}>Перегенерировать</Button>
           {regenError && <div style={{ marginTop: '12px' }}><ErrorBanner>{regenError}</ErrorBanner></div>}
+        </Panel>
+      )}
+
+      {/* Manual payment confirm */}
+      {order.payment_status === 'pending' && (
+        <Panel style={{ padding: '20px 24px', marginBottom: '16px' }}>
+          <SectionTitle>Подтверждение оплаты</SectionTitle>
+          <div style={{ fontSize: '13px', color: A.txt2, marginBottom: '14px' }}>
+            Клиент оплатил, но заказ остался в ожидании? Проверьте платёж в кабинете Robokassa и подтвердите вручную — генерация запустится без повторной оплаты.
+          </div>
+          <Button onClick={handleConfirmPayment} loading={confirming}>
+            Подтвердить оплату
+          </Button>
+          {confirmError && <div style={{ marginTop: '12px' }}><ErrorBanner>{confirmError}</ErrorBanner></div>}
         </Panel>
       )}
 

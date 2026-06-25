@@ -248,7 +248,7 @@ func run(ctx context.Context) error {
 	}
 
 	// 6. HTTP-хендлеры и роутер — режимы "all" и "api".
-	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.IsTest)
+	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.Password3, cfg.Robokassa.IsTest)
 	webhookAllowedNets, err := apphttp.ParseCIDRs(cfg.Robokassa.AllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)
@@ -272,6 +272,10 @@ func run(ctx context.Context) error {
 		log.Warn("ADMIN_LOGIN/ADMIN_PASSWORD не заданы — вход в /admin на фронтенде будет отклонять все запросы")
 	}
 
+	if cfg.Robokassa.Password3 == "" {
+		log.Warn("ROBOKASSA_PASS3 не задан — возвраты через админку будут недоступны")
+	}
+
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
 		WithIdempotency(idempotency.NewStore(rdb)).
 		WithRedis(rdb)
@@ -279,7 +283,7 @@ func run(ctx context.Context) error {
 	genreHandler := apphttp.NewGenreHandler(genreUC, log).WithRedis(rdb)
 	exampleHandler := apphttp.NewExampleHandler(exampleUC, log).WithRedis(rdb)
 	reviewHandler := apphttp.NewReviewHandler(reviewUC, log).WithRedis(rdb)
-	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log).WithQueue(queuePublisher).WithStorage(s3Client), log).
+	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log).WithQueue(queuePublisher).WithStorage(s3Client).WithPaymentConfirmer(orderUC), log).
 		WithGenres(genreUC).
 		WithExamples(exampleUC).
 		WithReviews(reviewUC).

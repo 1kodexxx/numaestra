@@ -16,7 +16,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,28 +25,31 @@ import (
 
 const (
 	paymentBaseURL = "https://auth.robokassa.ru/Merchant/Index.aspx"
-	refundBaseURL  = "https://auth.robokassa.ru/Merchant/Refund/Submit"
 )
 
 // Client инкапсулирует учётные данные мерчанта и методы работы с Robokassa.
 type Client struct {
 	merchantLogin string
 	password1     string // для генерации ссылки оплаты
-	password2     string // для проверки подписи вебхука
+	password2     string // для проверки подписи вебхука и OpStateExt
+	password3     string // для JWT API возвратов
 	isTest        bool
 	httpClient    *http.Client
-	refundURL     string // переопределяется в тестах
+	opStateURL      string // переопределяется в тестах
+	refundCreateURL string // переопределяется в тестах
+	refundStateURL  string // переопределяется в тестах
 }
 
 // New создаёт клиент Robokassa с переданными учётными данными.
-func New(merchantLogin, password1, password2 string, isTest bool) *Client {
+// password3 нужен для возвратов через Refund API (генерируется отдельно в кабинете).
+func New(merchantLogin, password1, password2, password3 string, isTest bool) *Client {
 	return &Client{
 		merchantLogin: merchantLogin,
 		password1:     password1,
 		password2:     password2,
+		password3:     password3,
 		isTest:        isTest,
-		httpClient:    &http.Client{Timeout: 10 * time.Second},
-		refundURL:     refundBaseURL,
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -145,41 +147,30 @@ func ParseAmountKopecks(outSum string) (int64, error) {
 	return rub*100 + kop, nil
 }
 
-// Refund инициирует возврат платежа через Robokassa API.
-// outSum — сумма возврата в рублях (формат "1500.00"), invID — номер счёта.
-// Подпись: MD5(OutSum:InvId:Password1) — согласно документации Robokassa.
-// https://docs.robokassa.ru/en/#3529
+// Refund инициирует полный возврат платежа через Robokassa Refund API v2.
+// invID — номер счёта (InvId). outSum сохранён в сигнатуре для совместимости,
+// но для полного возврата не передаётся в API.
+// Требует Password3 и боевой платёж (OpStateExt не работает для тестовых оплат).
+// https://docs.robokassa.ru/ru/refund-api
 func (c *Client) Refund(ctx context.Context, outSum string, invID int64) error {
-	invIDStr := strconv.FormatInt(invID, 10)
-	sig := upperMD5(fmt.Sprintf("%s:%s:%s", outSum, invIDStr, c.password1))
+	_ = outSum
 
-	params := url.Values{}
-	params.Set("MrchLogin", c.merchantLogin)
-	params.Set("InvId", invIDStr)
-	params.Set("OutSum", outSum)
-	params.Set("Signature", sig)
+	if c.password3 == "" {
+		return fmt.Errorf("не задан ROBOKASSA_PASS3 — сгенерируйте Password3 в кабинете Robokassa")
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.refundURL, strings.NewReader(params.Encode()))
+	opKey, err := c.fetchOpKey(ctx, invID)
 	if err != nil {
-		return fmt.Errorf("robokassa refund: build request: %w", err)
+		return fmt.Errorf("получение OpKey: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := c.httpClient.Do(req)
+	requestID, err := c.createRefund(ctx, opKey)
 	if err != nil {
-		return fmt.Errorf("robokassa refund: http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("robokassa refund: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return err
 	}
 
-	// Robokassa возвращает "OK{InvId}" при успехе и "ERROR{код}" при ошибке.
-	bodyStr := strings.TrimSpace(string(body))
-	if !strings.HasPrefix(bodyStr, "OK") {
-		return fmt.Errorf("robokassa refund: отказ от сервера: %s", bodyStr)
+	if err := c.waitRefundFinished(ctx, requestID); err != nil {
+		return err
 	}
 	return nil
 }

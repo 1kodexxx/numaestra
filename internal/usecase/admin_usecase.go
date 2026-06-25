@@ -23,6 +23,11 @@ type Refunder interface {
 	Refund(ctx context.Context, outSum string, invID int64) error
 }
 
+// paymentConfirmer — порт ручного подтверждения оплаты без вебхука Robokassa.
+type paymentConfirmer interface {
+	AdminConfirmPayment(ctx context.Context, orderID uuid.UUID) error
+}
+
 // categoryCacheInvalidator — порт сброса кеша каталога категорий.
 // Реализуется *PromptUseCase; позволяет AdminUseCase не зависеть от его
 // конкретной реализации и не тащить кеш в тесты, где он не нужен (nil-safe).
@@ -42,6 +47,7 @@ type AdminUseCase struct {
 	notifier      notify.Notifier
 	queue         domain.QueuePublisher // nil → перегенерация недоступна
 	storage       domain.TrackStorage   // nil → удаление только из БД
+	payment       paymentConfirmer      // nil → ручное подтверждение оплаты недоступно
 	log           *slog.Logger
 }
 
@@ -54,6 +60,12 @@ func (uc *AdminUseCase) WithQueue(q domain.QueuePublisher) *AdminUseCase {
 // WithStorage включает очистку MP3-треков заказа в объектном хранилище при удалении.
 func (uc *AdminUseCase) WithStorage(s domain.TrackStorage) *AdminUseCase {
 	uc.storage = s
+	return uc
+}
+
+// WithPaymentConfirmer включает ручное подтверждение оплаты в админке.
+func (uc *AdminUseCase) WithPaymentConfirmer(pc paymentConfirmer) *AdminUseCase {
+	uc.payment = pc
 	return uc
 }
 
@@ -215,6 +227,19 @@ func (uc *AdminUseCase) RefundOrder(ctx context.Context, orderID uuid.UUID) erro
 	}
 
 	uc.log.Info("возврат платежа выполнен", "order_id", orderID, "amount", outSum)
+	return nil
+}
+
+// ConfirmOrderPayment помечает заказ оплаченным, если вебхук Robokassa не дошёл.
+// Перед вызовом убедитесь, что платёж отображается в кабинете Robokassa.
+func (uc *AdminUseCase) ConfirmOrderPayment(ctx context.Context, orderID uuid.UUID) error {
+	if uc.payment == nil {
+		return fmt.Errorf("подтверждение оплаты недоступно")
+	}
+	if err := uc.payment.AdminConfirmPayment(ctx, orderID); err != nil {
+		return err
+	}
+	uc.log.Info("admin: оплата заказа подтверждена вручную", "order_id", orderID)
 	return nil
 }
 

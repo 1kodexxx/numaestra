@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
+import { clearPaidPending, isPaidPending, markPaidPending } from '@shared/lib/paidPending'
 import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
 import { Button, TextField, copyText } from '@shared/ui'
@@ -39,9 +40,20 @@ export function StatusPage() {
   const [input,  setInput]  = useState(initId ?? '')
   const [active, setActive] = useState<string | null>(initId)
 
-  const { order, loading, error, canManage } = usePollOrderStatus(active)
-
   const justPaid = searchParams.get('paid') === '1'
+  // Robokassa редиректит на SuccessURL с OutSum и InvId в query (если не /order/success).
+  const returnedFromRobokassa = searchParams.has('OutSum') && searchParams.has('InvId')
+  const confirmPayment = Boolean(active && (justPaid || returnedFromRobokassa || isPaidPending(active)))
+
+  useEffect(() => {
+    if (active && (justPaid || returnedFromRobokassa)) markPaidPending(active)
+  }, [active, justPaid, returnedFromRobokassa])
+
+  const { order, loading, error, canManage } = usePollOrderStatus(active, { confirmPayment })
+
+  useEffect(() => {
+    if (order?.payment_status !== 'pending') clearPaidPending(order?.id ?? '')
+  }, [order?.id, order?.payment_status])
 
   useSeo({ title: 'Статус заказа', description: 'Отслеживайте создание вашей персональной песни.', noindex: true })
 
@@ -96,7 +108,8 @@ export function StatusPage() {
     <div style={{ maxWidth: 680, margin: '0 auto', padding: '40px 24px 60px' }}>
       <OrderCard
         order={order}
-        justPaid={justPaid}
+        justPaid={justPaid || returnedFromRobokassa}
+        confirmAwaitingPayment={confirmPayment}
         canManage={canManage}
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
@@ -209,15 +222,17 @@ function OrdersOverview({ currentId, enabled, onSelect }: { currentId: string; e
 const STEPS   = ['Оплата', 'Очередь', 'Создание', 'Готово']
 const STEPKEYS = ['paid', 'queued', 'processing', 'completed'] as const
 
-function OrderCard({ order, justPaid, canManage, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; canManage: boolean; onClear: () => void; onBack: () => void }) {
+function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; confirmAwaitingPayment?: boolean; canManage: boolean; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
+  const awaitingPaymentConfirm = Boolean(confirmAwaitingPayment && ps === 'pending')
 
   let icon  = '⏳'
   let title = 'Обрабатываем заказ'
   let sub   = 'Пожалуйста, подождите...'
 
-  if (ps === 'pending')         { icon = '💳'; title = 'Ожидание оплаты';    sub = 'После оплаты начнём создавать песню' }
+  if (awaitingPaymentConfirm)   { icon = '✓'; title = 'Подтверждаем оплату';  sub = 'Обычно занимает до минуты — не закрывайте страницу' }
+  else if (ps === 'pending')    { icon = '💳'; title = 'Ожидание оплаты';     sub = 'После оплаты начнём создавать песню' }
   else if (gs === 'completed')  { icon = '🎵'; title = 'Ваша песня готова!'; sub = 'Все версии доступны для прослушивания' }
   else if (gs === 'failed')     { icon = '💔'; title = 'Ошибка генерации';   sub = 'Мы уже видим проблему — напишите нам, и мы поможем' }
   else if (gs === 'processing') { icon = '🎹'; title = 'Создаём песню';      sub = 'AI-студия работает над вашим треком...' }
@@ -314,14 +329,20 @@ function OrderCard({ order, justPaid, canManage, onClear, onBack }: { order: Ord
           ))}
         </div>
 
-        {/* Ожидание оплаты — кнопка повторного перехода к оплате */}
-        {ps === 'pending' && canManage && (
+        {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
+        {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
           <div style={{ marginTop: '28px' }}>
             <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
             {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
             <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
-              Первая попытка не прошла? Оплатите ещё раз — заказ сохранён.
+              Первая попытка не прошла? Нажмите ещё раз — заказ сохранён.
             </div>
+          </div>
+        )}
+
+        {awaitingPaymentConfirm && (
+          <div style={{ marginTop: '28px', fontSize: '13px', color: TEXT2 }}>
+            Повторная оплата не нужна — дождитесь обновления статуса.
           </div>
         )}
 
@@ -357,7 +378,7 @@ function OrderCard({ order, justPaid, canManage, onClear, onBack }: { order: Ord
         </div>
         {!isTerminal && (
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '4px' }}>
-            Обновляется каждые 10 секунд
+            {awaitingPaymentConfirm ? 'Проверяем оплату каждые 2 секунды' : 'Обновляется каждые 10 секунд'}
           </div>
         )}
       </div>

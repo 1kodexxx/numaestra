@@ -86,6 +86,7 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Post("/{id}/refund", h.RefundOrder)
+		r.Post("/{id}/confirm-payment", h.ConfirmOrderPayment)
 		r.Post("/{id}/feedback", h.SendOrderFeedback)
 		r.Post("/{id}/regenerate", h.RegenerateOrder)
 		r.Delete("/{id}", h.DeleteOrder)
@@ -379,6 +380,28 @@ func (h *AdminHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.log.Error("admin: ошибка возврата платежа", "order_id", id, "error", err)
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ConfirmOrderPayment помечает заказ оплаченным, если ResultURL Robokassa не дошёл.
+// POST /api/v1/admin/orders/{id}/confirm-payment
+func (h *AdminHandler) ConfirmOrderPayment(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID заказа")
+		return
+	}
+
+	if err := h.uc.ConfirmOrderPayment(r.Context(), id); err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		h.log.Error("admin: ошибка подтверждения оплаты", "order_id", id, "error", err)
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}

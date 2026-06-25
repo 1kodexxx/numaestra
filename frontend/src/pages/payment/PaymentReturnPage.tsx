@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { markPaidPending } from '@shared/lib/paidPending'
 import { orderStorage } from '@shared/lib/storage'
 import { Button } from '@shared/ui'
 
@@ -13,8 +14,12 @@ export function OrderSuccessPage() {
 
   useEffect(() => {
     const id = orderStorage.getOrderId()
-    if (id) navigate(`/status/${id}?paid=1`, { replace: true })
-    else navigate('/status?paid=1', { replace: true })
+    if (id) {
+      markPaidPending(id)
+      navigate(`/status/${id}?paid=1`, { replace: true })
+    } else {
+      navigate('/status?paid=1', { replace: true })
+    }
   }, [navigate])
 
   return (

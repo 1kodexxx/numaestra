@@ -27,6 +27,13 @@ export const orderApi = {
     return apiFetch<{ payment_url: string }>(`/orders/${id}/payment-url`, { accessToken })
   },
 
+  syncPayment(id: string, accessToken?: string) {
+    return apiFetch<{ synced: boolean }>(`/orders/${id}/sync-payment`, {
+      method: 'POST',
+      accessToken,
+    })
+  },
+
   getPublicStatus(id: string) {
     return apiFetch<OrderDetail>(`/orders/${id}/status`)
   },

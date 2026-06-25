@@ -75,6 +75,7 @@ type RobokassaConfig struct {
 	MerchantLogin string
 	Password1     string // Для генерации платежной ссылки
 	Password2     string // Для проверки подписи вебхука
+	Password3     string // Для JWT API возвратов (генерируется отдельно в кабинете)
 	IsTest        bool   // Флаг тестового режима
 	// AllowedIPs — список IP/CIDR, с которых принимаются вебхуки ResultURL.
 	// Пустой список отключает фильтрацию по IP (подпись проверяется всегда).
@@ -149,6 +150,7 @@ func Load() (*Config, error) {
 			MerchantLogin: getEnv("ROBOKASSA_MERCHANT_LOGIN", defaultRobokassaLogin),
 			Password1:     getEnv("ROBOKASSA_PASS1", defaultRobokassaPass1),
 			Password2:     getEnv("ROBOKASSA_PASS2", defaultRobokassaPass2),
+			Password3:     getEnv("ROBOKASSA_PASS3", ""),
 			// Дефолт false: в проде безопаснее «боевой» режим. Тестовый режим
 			// нужно включать осознанно через ROBOKASSA_IS_TEST=true в dev-окружении,
 			// иначе платежи уходят в тест и Robokassa их не зачисляет.

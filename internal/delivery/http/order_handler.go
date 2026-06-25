@@ -109,6 +109,7 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Get("/{id}/payment-url", h.GetPaymentURL)
+		r.Post("/{id}/sync-payment", h.SyncPayment)
 		r.Post("/{id}/share/revoke", h.RevokeShare)
 		r.Post("/{id}/share/restore", h.RestoreShare)
 	})
@@ -296,6 +297,7 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 	}
 
 	// Robokassa требует строгий формат ответа при успехе.
+	h.log.Info("вебхук robokassa обработан", "invoice_id", invoiceID, "out_sum", outSum)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
 }
@@ -412,6 +414,68 @@ func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"payment_url": h.buildPaymentURL(order)})
+}
+
+// SyncPayment подтягивает статус оплаты из Robokassa, если ResultURL не дошёл.
+// POST /api/v1/orders/{id}/sync-payment
+func (h *OrderHandler) SyncPayment(w http.ResponseWriter, r *http.Request) {
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
+
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	order, err := h.uc.GetOrderForCustomer(r.Context(), owner, orderID)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrOrderAccessDenied) {
+			respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
+			return
+		}
+		h.log.Error("ошибка получения заказа для синхронизации оплаты", "order_id", orderID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
+	}
+
+	if order.PaymentStatus() == domain.PaymentStatusPaid {
+		respondJSON(w, http.StatusOK, map[string]bool{"synced": true})
+		return
+	}
+	if order.PaymentStatus() != domain.PaymentStatusPending {
+		respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+		return
+	}
+
+	paid, err := h.rk.IsInvoicePaid(r.Context(), order.InvoiceID())
+	if err != nil {
+		h.log.Warn("sync-payment: не удалось проверить оплату в Robokassa",
+			"order_id", orderID, "invoice_id", order.InvoiceID(), "err", err)
+		respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+		return
+	}
+	if !paid {
+		respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+		return
+	}
+
+	if err := h.uc.HandlePaymentSuccess(r.Context(), order.InvoiceID(), order.AmountKopecks()); err != nil {
+		if errors.Is(err, usecase.ErrPaymentAmountMismatch) || errors.Is(err, usecase.ErrPaymentWindowExpired) {
+			h.log.Warn("sync-payment: оплата в Robokassa не применена", "order_id", orderID, "err", err)
+			respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+			return
+		}
+		h.log.Error("sync-payment: ошибка применения оплаты", "order_id", orderID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
+	}
+
+	h.log.Info("sync-payment: оплата подтверждена через OpStateExt", "order_id", orderID, "invoice_id", order.InvoiceID())
+	respondJSON(w, http.StatusOK, map[string]bool{"synced": true})
 }
 
 type PublicShareResponse struct {
