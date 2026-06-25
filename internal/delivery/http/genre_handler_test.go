@@ -36,7 +36,7 @@ func (r *genreHandlerRepo) GetForCategory(_ context.Context, categoryID string) 
 	}
 	return r.items, nil
 }
-func (r *genreHandlerRepo) Create(context.Context, *domain.Genre) error   { return nil }
+func (r *genreHandlerRepo) Create(context.Context, *domain.Genre) error { return nil }
 func (r *genreHandlerRepo) Update(context.Context, *domain.Genre) error { return nil }
 func (r *genreHandlerRepo) Delete(context.Context, int) error           { return nil }
 func (r *genreHandlerRepo) SetCategoryGenres(context.Context, string, []int) error {

@@ -155,22 +155,22 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, 
 	}
 
 	return &Order{
-		id:               uuid.New(),
-		invoiceID:        invoiceID,
-		customerEmail:    customerEmail,
-		customerPhone:    customerPhone,
-		brief:            brief,
-		categoryID:       categoryID,
-		sunoPrompt:       sunoPrompt,
-		amountKopecks:    amountKopecks,
-		currency:         "RUB",
-		paymentStatus:    PaymentStatusPending,
-		generationStatus: GenerationStatusNew,
-		accessToken:      token,
-		consentGivenAt:   &consentAt,
+		id:                uuid.New(),
+		invoiceID:         invoiceID,
+		customerEmail:     customerEmail,
+		customerPhone:     customerPhone,
+		brief:             brief,
+		categoryID:        categoryID,
+		sunoPrompt:        sunoPrompt,
+		amountKopecks:     amountKopecks,
+		currency:          "RUB",
+		paymentStatus:     PaymentStatusPending,
+		generationStatus:  GenerationStatusNew,
+		accessToken:       token,
+		consentGivenAt:    &consentAt,
 		consentDocVersion: consentDocVersion,
-		createdAt:        now,
-		updatedAt:        now,
+		createdAt:         now,
+		updatedAt:         now,
 	}, nil
 }
 
@@ -185,32 +185,32 @@ func generateAccessToken() (string, error) {
 
 // OrderSnapshot - сырые данные заказа из хранилища для восстановления агрегата.
 type OrderSnapshot struct {
-	ID                uuid.UUID
-	InvoiceID         int64
-	CustomerEmail     string
-	CustomerPhone     string
-	Brief             string
-	CategoryID        string
-	SunoPrompt        string
-	AmountKopecks     int64
-	Currency          string
-	PaymentStatus     PaymentStatus
-	GenerationStatus  GenerationStatus
-	GenerationPhase   GenerationPhase
+	ID                 uuid.UUID
+	InvoiceID          int64
+	CustomerEmail      string
+	CustomerPhone      string
+	Brief              string
+	CategoryID         string
+	SunoPrompt         string
+	AmountKopecks      int64
+	Currency           string
+	PaymentStatus      PaymentStatus
+	GenerationStatus   GenerationStatus
+	GenerationPhase    GenerationPhase
 	GenerationProgress int
-	TracksReady       int
-	AssignedAccountID *uuid.UUID
-	Tracks            []Track
-	FailureReason     string
-	AccessToken       string
-	AdminFeedback     string
-	AdminFeedbackAt   *time.Time
-	ConsentGivenAt    *time.Time
-	ConsentDocVersion string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	PaidAt            *time.Time
-	CompletedAt       *time.Time
+	TracksReady        int
+	AssignedAccountID  *uuid.UUID
+	Tracks             []Track
+	FailureReason      string
+	AccessToken        string
+	AdminFeedback      string
+	AdminFeedbackAt    *time.Time
+	ConsentGivenAt     *time.Time
+	ConsentDocVersion  string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	PaidAt             *time.Time
+	CompletedAt        *time.Time
 }
 
 // RestoreOrder восстанавливает агрегат из снапшота хранилища.
@@ -223,12 +223,12 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
 		generationPhase: s.GenerationPhase, generationProgress: s.GenerationProgress, tracksReady: s.TracksReady,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
-		accessToken:     s.AccessToken,
-		adminFeedback:   s.AdminFeedback,
-		adminFeedbackAt: s.AdminFeedbackAt,
+		accessToken:       s.AccessToken,
+		adminFeedback:     s.AdminFeedback,
+		adminFeedbackAt:   s.AdminFeedbackAt,
 		consentGivenAt:    s.ConsentGivenAt,
 		consentDocVersion: s.ConsentDocVersion,
-		createdAt:       s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
+		createdAt:         s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 	}
 }
 
@@ -247,8 +247,8 @@ func (o *Order) PaymentStatus() PaymentStatus       { return o.paymentStatus }
 func (o *Order) GenerationStatus() GenerationStatus { return o.generationStatus }
 func (o *Order) GenerationPhase() GenerationPhase   { return o.generationPhase }
 func (o *Order) GenerationProgress() int            { return o.generationProgress }
-func (o *Order) TracksReady() int                 { return o.tracksReady }
-func (o *Order) AssignedAccountID() *uuid.UUID    { return o.assignedAccountID }
+func (o *Order) TracksReady() int                   { return o.tracksReady }
+func (o *Order) AssignedAccountID() *uuid.UUID      { return o.assignedAccountID }
 func (o *Order) Tracks() []Track                    { return o.tracks }
 func (o *Order) FailureReason() string              { return o.failureReason }
 func (o *Order) AccessToken() string                { return o.accessToken }
@@ -464,32 +464,32 @@ type QueuePublisher interface {
 
 func (o *Order) Snapshot() OrderSnapshot {
 	return OrderSnapshot{
-		ID:                o.id,
-		InvoiceID:         o.invoiceID,
-		CustomerEmail:     o.customerEmail,
-		CustomerPhone:     o.customerPhone,
-		Brief:             o.brief,
-		CategoryID:        o.categoryID,
-		SunoPrompt:        o.sunoPrompt,
-		AmountKopecks:     o.amountKopecks,
-		Currency:          o.currency,
-		PaymentStatus:     o.paymentStatus,
+		ID:                 o.id,
+		InvoiceID:          o.invoiceID,
+		CustomerEmail:      o.customerEmail,
+		CustomerPhone:      o.customerPhone,
+		Brief:              o.brief,
+		CategoryID:         o.categoryID,
+		SunoPrompt:         o.sunoPrompt,
+		AmountKopecks:      o.amountKopecks,
+		Currency:           o.currency,
+		PaymentStatus:      o.paymentStatus,
 		GenerationStatus:   o.generationStatus,
 		GenerationPhase:    o.generationPhase,
 		GenerationProgress: o.generationProgress,
 		TracksReady:        o.tracksReady,
 		AssignedAccountID:  o.assignedAccountID,
-		Tracks:            o.tracks,
-		FailureReason:     o.failureReason,
-		AccessToken:       o.accessToken,
-		AdminFeedback:     o.adminFeedback,
-		AdminFeedbackAt:   o.adminFeedbackAt,
-		ConsentGivenAt:    o.consentGivenAt,
-		ConsentDocVersion: o.consentDocVersion,
-		CreatedAt:         o.createdAt,
-		UpdatedAt:         o.updatedAt,
-		PaidAt:            o.paidAt,
-		CompletedAt:       o.completedAt,
+		Tracks:             o.tracks,
+		FailureReason:      o.failureReason,
+		AccessToken:        o.accessToken,
+		AdminFeedback:      o.adminFeedback,
+		AdminFeedbackAt:    o.adminFeedbackAt,
+		ConsentGivenAt:     o.consentGivenAt,
+		ConsentDocVersion:  o.consentDocVersion,
+		CreatedAt:          o.createdAt,
+		UpdatedAt:          o.updatedAt,
+		PaidAt:             o.paidAt,
+		CompletedAt:        o.completedAt,
 	}
 }
 

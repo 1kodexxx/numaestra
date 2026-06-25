@@ -7,7 +7,7 @@ import "errors"
 const CurrentConsentDocVersion = "2026-06-01"
 
 var (
-	ErrConsentRequired      = errors.New("необходимо согласие с условиями и обработкой персональных данных")
+	ErrConsentRequired       = errors.New("необходимо согласие с условиями и обработкой персональных данных")
 	ErrInvalidConsentVersion = errors.New("устаревшая версия согласия, обновите страницу")
 )
 

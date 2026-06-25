@@ -28,7 +28,7 @@ type CoverUploader interface {
 // Все маршруты защищены Bearer-токеном через AdminAuth middleware.
 type AdminHandler struct {
 	uc        *usecase.AdminUseCase
-	genreUC   *usecase.GenreUseCase // nil → роуты жанров не регистрируются
+	genreUC   *usecase.GenreUseCase   // nil → роуты жанров не регистрируются
 	exampleUC *usecase.ExampleUseCase // nil → роуты примеров не регистрируются
 	reviewUC  *usecase.ReviewUseCase  // nil → роуты отзывов не регистрируются
 	stats     *usecase.StatsUseCase   // nil → роут статистики не регистрируется
@@ -185,20 +185,20 @@ type setStatusRequest struct {
 }
 
 type adminOrderResponse struct {
-	ID               string          `json:"id"`
-	InvoiceID        int64           `json:"invoice_id"`
-	Email            string          `json:"email"`
-	Phone            string          `json:"phone"`
-	Brief            string          `json:"brief"`
-	AmountKopecks    int64           `json:"amount_kopecks"`
-	PaymentStatus    string          `json:"payment_status"`
-	GenerationStatus string          `json:"generation_status"`
-	Tracks           []adminTrackDTO `json:"tracks"`
-	AdminFeedback    string          `json:"admin_feedback,omitempty"`
-	AdminFeedbackAt  string          `json:"admin_feedback_at,omitempty"`
-	ConsentGivenAt   string          `json:"consent_given_at,omitempty"`
-	ConsentDocVersion string         `json:"consent_doc_version,omitempty"`
-	CreatedAt        string          `json:"created_at"`
+	ID                string          `json:"id"`
+	InvoiceID         int64           `json:"invoice_id"`
+	Email             string          `json:"email"`
+	Phone             string          `json:"phone"`
+	Brief             string          `json:"brief"`
+	AmountKopecks     int64           `json:"amount_kopecks"`
+	PaymentStatus     string          `json:"payment_status"`
+	GenerationStatus  string          `json:"generation_status"`
+	Tracks            []adminTrackDTO `json:"tracks"`
+	AdminFeedback     string          `json:"admin_feedback,omitempty"`
+	AdminFeedbackAt   string          `json:"admin_feedback_at,omitempty"`
+	ConsentGivenAt    string          `json:"consent_given_at,omitempty"`
+	ConsentDocVersion string          `json:"consent_doc_version,omitempty"`
+	CreatedAt         string          `json:"created_at"`
 }
 
 type adminTrackDTO struct {
@@ -213,18 +213,18 @@ func orderToAdminResponse(o *domain.Order) adminOrderResponse {
 		tracks = append(tracks, adminTrackDTO{Index: t.Index, AudioURL: t.AudioURL})
 	}
 	resp := adminOrderResponse{
-		ID:               snap.ID.String(),
-		InvoiceID:        snap.InvoiceID,
-		Email:            snap.CustomerEmail,
-		Phone:            snap.CustomerPhone,
-		Brief:            snap.Brief,
-		AmountKopecks:    snap.AmountKopecks,
-		PaymentStatus:    string(snap.PaymentStatus),
-		GenerationStatus: string(snap.GenerationStatus),
-		Tracks:           tracks,
-		AdminFeedback:    snap.AdminFeedback,
+		ID:                snap.ID.String(),
+		InvoiceID:         snap.InvoiceID,
+		Email:             snap.CustomerEmail,
+		Phone:             snap.CustomerPhone,
+		Brief:             snap.Brief,
+		AmountKopecks:     snap.AmountKopecks,
+		PaymentStatus:     string(snap.PaymentStatus),
+		GenerationStatus:  string(snap.GenerationStatus),
+		Tracks:            tracks,
+		AdminFeedback:     snap.AdminFeedback,
 		ConsentDocVersion: snap.ConsentDocVersion,
-		CreatedAt:        snap.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:         snap.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if snap.ConsentGivenAt != nil {
 		resp.ConsentGivenAt = snap.ConsentGivenAt.Format("2006-01-02T15:04:05Z")
@@ -481,14 +481,14 @@ type optionDTO struct {
 }
 
 type questionRequest struct {
-	StepNumber   int                    `json:"step_number"`
-	QuestionText string                 `json:"question_text"`
-	UIType       string                 `json:"ui_type"`
-	MappingKey   string                 `json:"mapping_key"`
-	IsRequired   bool                   `json:"is_required"`
-	OptionSource string                 `json:"option_source"`
-	Config       domain.QuestionConfig  `json:"config"`
-	Options      []optionDTO            `json:"options"`
+	StepNumber   int                   `json:"step_number"`
+	QuestionText string                `json:"question_text"`
+	UIType       string                `json:"ui_type"`
+	MappingKey   string                `json:"mapping_key"`
+	IsRequired   bool                  `json:"is_required"`
+	OptionSource string                `json:"option_source"`
+	Config       domain.QuestionConfig `json:"config"`
+	Options      []optionDTO           `json:"options"`
 }
 
 func (q questionRequest) toDomainConfig() domain.QuestionConfig {
@@ -515,15 +515,15 @@ type categoryAdminResponse struct {
 }
 
 type questionResponse struct {
-	ID           int                    `json:"id"`
-	StepNumber   int                    `json:"step_number"`
-	QuestionText string                 `json:"question_text"`
-	UIType       string                 `json:"ui_type"`
-	MappingKey   string                 `json:"mapping_key"`
-	IsRequired   bool                   `json:"is_required"`
-	OptionSource string                 `json:"option_source,omitempty"`
-	Config       domain.QuestionConfig  `json:"config,omitempty"`
-	Options      []optionDTO            `json:"options,omitempty"`
+	ID           int                   `json:"id"`
+	StepNumber   int                   `json:"step_number"`
+	QuestionText string                `json:"question_text"`
+	UIType       string                `json:"ui_type"`
+	MappingKey   string                `json:"mapping_key"`
+	IsRequired   bool                  `json:"is_required"`
+	OptionSource string                `json:"option_source,omitempty"`
+	Config       domain.QuestionConfig `json:"config,omitempty"`
+	Options      []optionDTO           `json:"options,omitempty"`
 }
 
 func questionToResponse(q domain.Question) questionResponse {

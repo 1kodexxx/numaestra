@@ -133,12 +133,12 @@ func (h *OrderHandler) requireOrderAccess(next http.Handler) http.Handler {
 // --- DTO ---
 
 type CreateOrderRequest struct {
-	Email      string            `json:"email"`
-	Phone      string            `json:"phone"`
-	Brief      string            `json:"brief"`
-	CategoryID          string            `json:"category_id"`
-	ConsentDocVersion   string            `json:"consent_doc_version"`
-	Answers             map[string]string `json:"answers"`
+	Email             string            `json:"email"`
+	Phone             string            `json:"phone"`
+	Brief             string            `json:"brief"`
+	CategoryID        string            `json:"category_id"`
+	ConsentDocVersion string            `json:"consent_doc_version"`
+	Answers           map[string]string `json:"answers"`
 }
 
 type OrderResponse struct {
@@ -293,14 +293,14 @@ type TrackResponse struct {
 }
 
 type OrderDetailResponse struct {
-	ID               string          `json:"id"`
-	Brief            string          `json:"brief"`
-	PaymentStatus    string          `json:"payment_status"`
-	GenerationStatus string          `json:"generation_status"`
-	GenerationPhase  string          `json:"generation_phase,omitempty"`
-	GenerationProgress int           `json:"generation_progress"`
-	TracksReady      int             `json:"tracks_ready"`
-	Tracks           []TrackResponse `json:"tracks,omitempty"`
+	ID                 string          `json:"id"`
+	Brief              string          `json:"brief"`
+	PaymentStatus      string          `json:"payment_status"`
+	GenerationStatus   string          `json:"generation_status"`
+	GenerationPhase    string          `json:"generation_phase,omitempty"`
+	GenerationProgress int             `json:"generation_progress"`
+	TracksReady        int             `json:"tracks_ready"`
+	Tracks             []TrackResponse `json:"tracks,omitempty"`
 	// PaidAt — момент оплаты (RFC3339), якорь для прогресс-бара генерации на
 	// фронте. Пусто, пока заказ не оплачен.
 	PaidAt string `json:"paid_at,omitempty"`

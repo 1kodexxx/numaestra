@@ -14,11 +14,11 @@ type stubGenreRepo struct {
 }
 
 func (s *stubGenreRepo) GetAll(context.Context, bool) ([]domain.Genre, error) { return nil, nil }
-func (s *stubGenreRepo) GetByID(context.Context, int) (*domain.Genre, error) { return nil, nil }
+func (s *stubGenreRepo) GetByID(context.Context, int) (*domain.Genre, error)  { return nil, nil }
 func (s *stubGenreRepo) GetForCategory(context.Context, string) ([]domain.Genre, error) {
 	return s.forCategory, nil
 }
-func (s *stubGenreRepo) Create(context.Context, *domain.Genre) error   { return nil }
+func (s *stubGenreRepo) Create(context.Context, *domain.Genre) error { return nil }
 func (s *stubGenreRepo) Update(context.Context, *domain.Genre) error { return nil }
 func (s *stubGenreRepo) Delete(context.Context, int) error           { return nil }
 func (s *stubGenreRepo) SetCategoryGenres(context.Context, string, []int) error {

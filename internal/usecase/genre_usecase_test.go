@@ -10,11 +10,11 @@ import (
 )
 
 type inMemGenreRepo struct {
-	mu              sync.Mutex
-	genres          map[int]domain.Genre
-	nextID          int
-	categoryGenres  map[string][]int
-	createErr       error
+	mu             sync.Mutex
+	genres         map[int]domain.Genre
+	nextID         int
+	categoryGenres map[string][]int
+	createErr      error
 }
 
 func newInMemGenreRepo() *inMemGenreRepo {
