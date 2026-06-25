@@ -296,6 +296,14 @@ type noopRefunder struct{ err error }
 
 func (n *noopRefunder) Refund(_ context.Context, _ string, _ int64) error { return n.err }
 
+type noopPaymentConfirmer struct {
+	err error
+}
+
+func (n *noopPaymentConfirmer) AdminConfirmPayment(_ context.Context, _ uuid.UUID) error {
+	return n.err
+}
+
 // --- тесты ---
 
 func TestAdminHandler_ListAccounts_Empty(t *testing.T) {
@@ -471,6 +479,44 @@ func TestAdminHandler_RefundOrder_NotPaid(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("ожидали 400 для неоплаченного заказа, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_ConfirmOrderPayment_Success(t *testing.T) {
+	orders := newAdminOrderRepo()
+	accounts := newAdminAccRepo()
+	pc := &noopPaymentConfirmer{}
+	uc := usecase.NewAdminUseCase(orders, accounts, nil, &noopRefunder{}, nil, nil, discardAdminLogger()).
+		WithPaymentConfirmer(pc)
+	h := NewAdminHandler(uc, discardAdminLogger())
+	router := adminTestRouter(h)
+
+	o, _ := domain.NewOrder(3, "p@q.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 5000)
+	_ = orders.Create(context.Background(), o)
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/orders/"+o.ID().String()+"/confirm-payment", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("ожидали 204, получили %d; тело: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminHandler_ConfirmOrderPayment_NotFound(t *testing.T) {
+	pc := &noopPaymentConfirmer{err: domain.ErrOrderNotFound}
+	orders := newAdminOrderRepo()
+	uc := usecase.NewAdminUseCase(orders, newAdminAccRepo(), nil, &noopRefunder{}, nil, nil, discardAdminLogger()).
+		WithPaymentConfirmer(pc)
+	h := NewAdminHandler(uc, discardAdminLogger())
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodPost, "/admin/orders/"+uuid.New().String()+"/confirm-payment", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404, получили %d", w.Code)
 	}
 }
 

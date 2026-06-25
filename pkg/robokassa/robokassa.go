@@ -53,6 +53,17 @@ func New(merchantLogin, password1, password2, password3 string, isTest bool) *Cl
 	}
 }
 
+// WithTestHTTP подключает httptest-сервер к XML/Refund API (используется в HTTP-тестах).
+func (c *Client) WithTestHTTP(httpClient *http.Client, opStateURL string) *Client {
+	if httpClient != nil {
+		c.httpClient = httpClient
+	}
+	if opStateURL != "" {
+		c.opStateURL = opStateURL
+	}
+	return c
+}
+
 // PaymentURL формирует ссылку для перенаправления клиента на страницу оплаты.
 // outSum — сумма в рублях с двумя знаками после запятой (например "1500.00").
 // invID — уникальный номер счёта (InvId).

@@ -817,6 +817,94 @@ func TestHandler_Webhook_PaymentWindowExpired(t *testing.T) {
 	}
 }
 
+func paidOpStateXML() string {
+	return `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><State><Code>100</Code></State><Info><OpKey>op-key</OpKey></Info></OperationStateResponse>`
+}
+
+func newHandlerWithOpState(t *testing.T, xmlBody string) (*OrderHandler, http.Handler) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, xmlBody)
+	}))
+	t.Cleanup(srv.Close)
+
+	repo := newHOrderRepo()
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, notify.NewLogNotifier(discardLogger()), nil, usecase.NewNoopPromptUseCase(), 200000, hTxManager{}, discardLogger())
+	rk := robokassa.New(hMerchant, hPass1, hPass2, "", false).WithTestHTTP(srv.Client(), srv.URL)
+	h := NewOrderHandler(uc, discardLogger(), rk, nil)
+	return h, h.Routes()
+}
+
+func TestHandler_SyncPayment_Success(t *testing.T) {
+	h, router := newHandlerWithOpState(t, paidOpStateXML())
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	req := httptest.NewRequest(http.MethodPost, "/"+order.ID().String()+"/sync-payment", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]bool
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("разбор ответа: %v", err)
+	}
+	if !resp["synced"] {
+		t.Fatal("ожидали synced=true")
+	}
+	got, err := h.uc.GetOrderByToken(context.Background(), order.AccessToken())
+	if err != nil {
+		t.Fatalf("GetOrderByToken: %v", err)
+	}
+	if got.PaymentStatus() != domain.PaymentStatusPaid {
+		t.Fatalf("ожидали paid, получили %q", got.PaymentStatus())
+	}
+}
+
+func TestHandler_SyncPayment_NotPaidAtProvider(t *testing.T) {
+	pendingXML := `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><State><Code>5</Code></State><Info><OpKey>op-key</OpKey></Info></OperationStateResponse>`
+	h, router := newHandlerWithOpState(t, pendingXML)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	req := httptest.NewRequest(http.MethodPost, "/"+order.ID().String()+"/sync-payment", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]bool
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["synced"] {
+		t.Fatal("ожидали synced=false")
+	}
+}
+
+func TestHandler_SyncPayment_AlreadyPaid(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+	if err := h.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), order.AmountKopecks()); err != nil {
+		t.Fatalf("HandlePaymentSuccess: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/"+order.ID().String()+"/sync-payment", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]bool
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if !resp["synced"] {
+		t.Fatal("ожидали synced=true для уже оплаченного заказа")
+	}
+}
+
 // --- helpers ---
 
 func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief string) *domain.Order {
