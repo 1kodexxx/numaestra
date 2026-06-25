@@ -71,7 +71,7 @@ export function AccessRecoveryForm({ orderId, compact }: AccessRecoveryFormProps
         </Button>
       </div>
       {success && (
-        <div style={{
+        <div className="pop-in" style={{
           marginTop: '12px', fontSize: '13px', color: '#4ade80',
           background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)',
           borderRadius: '10px', padding: '10px 14px',
@@ -80,7 +80,7 @@ export function AccessRecoveryForm({ orderId, compact }: AccessRecoveryFormProps
         </div>
       )}
       {error && (
-        <div style={{
+        <div className="pop-in" style={{
           marginTop: '12px', fontSize: '13px', color: '#ef4444',
           background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
           borderRadius: '10px', padding: '10px 14px',

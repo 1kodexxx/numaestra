@@ -7,7 +7,7 @@ function NavTextLink({ to, label, active }: { to: string; label: string; active:
   return (
     <Link
       to={to}
-      className="state-layer"
+      className="state-layer nav-pill"
       style={{
         textDecoration: 'none',
         fontSize: '13px',
@@ -40,6 +40,7 @@ export function Navbar() {
 
   return (
     <nav
+      className="nav-enter"
       style={{
         position: 'sticky',
         top: 0,
@@ -73,7 +74,7 @@ export function Navbar() {
 
       <Link
         to="/status"
-        className="state-layer"
+        className="state-layer nav-pill"
         style={{
           textDecoration: 'none',
           fontSize: '13px',

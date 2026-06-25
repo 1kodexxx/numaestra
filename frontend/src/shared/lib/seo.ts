@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 
 const SITE = 'Numaestra'
+/** Меняйте при замене og-image.png — сбрасывает кэш превью в Telegram. */
+const OG_IMAGE = '/og-image.png?v=2'
 const DEFAULT_DESC =
   'AI-студия Numaestra создаёт уникальную песню под ваш повод. Опишите идею — получите 4 готовые версии трека за 10 минут.'
 
@@ -44,7 +46,7 @@ export function useSeo({ title, description, image, noindex }: SeoOptions) {
     const desc = description || DEFAULT_DESC
     const origin = window.location.origin
     const url = origin + window.location.pathname
-    const img = image ? (image.startsWith('http') ? image : origin + image) : origin + '/og-image.png'
+    const img = image ? (image.startsWith('http') ? image : origin + image) : origin + OG_IMAGE
 
     document.title = fullTitle
     setMeta('name', 'description', desc)

@@ -4,6 +4,7 @@ import type { PublicReview } from '@entities/review'
 import { Button, TextField, Spinner } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { useSeo } from '@shared/lib/seo'
+import { staggerDelay } from '@shared/lib/motion'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.08)'
@@ -23,6 +24,7 @@ function Stars({ value, onChange, size = 18 }: { value: number; onChange?: (v: n
           role={interactive ? 'radio' : undefined}
           aria-checked={interactive ? n === value : undefined}
           aria-label={interactive ? `${n} из 5` : undefined}
+          className={interactive ? 'star-interactive' : undefined}
           style={{
             fontSize: `${size}px`,
             lineHeight: 1,
@@ -95,7 +97,7 @@ export function ReviewsPage() {
     <>
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '40px 20px 0' }} className="fade-in">
         {/* Hero */}
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '32px' }} className="hero-enter">
           <h1 style={{ fontSize: 'clamp(26px, 5vw, 38px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '10px' }}>
             Отзывы о <span className="gradient-text">Numaestra</span>
           </h1>
@@ -113,7 +115,7 @@ export function ReviewsPage() {
         </div>
 
         {/* Форма */}
-        <div style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '18px', padding: '24px', marginBottom: '36px' }}>
+        <div className="fade-up hero-enter-d1" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '18px', padding: '24px', marginBottom: '36px' }}>
           <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '18px' }}>Оставить отзыв</div>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <TextField label="Ваше имя" value={name} onChange={(v) => { setName(v); setSent(false) }} required surfaceColor={SURFACE} />
@@ -135,7 +137,7 @@ export function ReviewsPage() {
               </div>
             )}
             {sent && (
-              <div style={{ fontSize: '13px', color: '#4ade80', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '10px', padding: '10px 14px' }}>
+              <div className="pop-in" style={{ fontSize: '13px', color: '#4ade80', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '10px', padding: '10px 14px' }}>
                 Спасибо! Ваш отзыв опубликован.
               </div>
             )}
@@ -158,8 +160,8 @@ export function ReviewsPage() {
 
         {!loading && reviews.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {reviews.map((r) => (
-              <article key={r.id} style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px' }}>
+            {reviews.map((r, i) => (
+              <article key={r.id} className="fade-up interactive-card" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px', ...staggerDelay(i, 45, 320) }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                     <span style={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.author_name}</span>

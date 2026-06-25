@@ -44,6 +44,7 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
   return (
     <div
       role="presentation"
+      className="modal-backdrop"
       onClick={() => { if (!loading) onClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 100,
@@ -58,7 +59,7 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="scale-in"
+        className="modal-panel"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.08)',

@@ -159,7 +159,11 @@ func TestSEOInjector_ShareSong(t *testing.T) {
 	if !strings.Contains(html, `href="https://numaestra.ru/s/8e250afe-894e-4d70-8a64-54bdc474117a"`) {
 		t.Error("canonical должен указывать на конкретную ссылку шеринга")
 	}
-	if !strings.Contains(html, `property="og:image" content="https://numaestra.ru/og-image.png"`) {
-		t.Error("og:image должен быть абсолютным PNG для превью в мессенджерах")
+	wantImg := `property="og:image" content="https://numaestra.ru/og-image.png?v=2"`
+	if !strings.Contains(html, wantImg) {
+		t.Errorf("og:image должен быть абсолютным PNG для превью в мессенджерах, ожидали %q", wantImg)
+	}
+	if !strings.Contains(html, `property="og:image:secure_url" content="https://numaestra.ru/og-image.png?v=2"`) {
+		t.Error("og:image:secure_url обязателен для HTTPS-превью в Telegram")
 	}
 }

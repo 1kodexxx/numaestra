@@ -52,7 +52,7 @@ function ColTitle({ children }: { children: React.ReactNode }) {
 export function Footer() {
   const year = new Date().getFullYear();
   return (
-    <footer style={{ borderTop: `1px solid ${BORDER}`, marginTop: "40px" }}>
+    <footer className="footer-enter" style={{ borderTop: `1px solid ${BORDER}`, marginTop: "40px" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "44px 24px 0" }}>
         <div
           style={{

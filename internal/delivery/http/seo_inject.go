@@ -68,6 +68,14 @@ func (s *SEOInjector) WithReviews(r reviewRater) *SEOInjector {
 
 const seoSiteName = "Numaestra"
 
+// ogImageVersion — query-параметр к og-image.png; при замене картинки увеличьте,
+// чтобы Telegram и другие мессенджеры перекачали превью (кэш ~12 ч).
+const ogImageVersion = "2"
+
+func ogImageURL(baseURL string) string {
+	return baseURL + "/og-image.png?v=" + ogImageVersion
+}
+
 var (
 	reTitle     = regexp.MustCompile(`(?s)<title>.*?</title>`)
 	reDesc      = regexp.MustCompile(`<meta name="description" content="[^"]*"\s*/?>`)
@@ -111,9 +119,10 @@ func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
 		out = reRobots.ReplaceAllLiteralString(out, `<meta name="robots" content="noindex, nofollow" />`)
 	}
 
-	// Telegram / VK / WhatsApp требуют абсолютный URL и растр (PNG/JPEG), не SVG.
+	// Telegram / VK / WhatsApp требуют абсолютный HTTPS URL и растр (PNG/JPEG), не SVG.
+	var ogImage string
 	if baseURL != "" {
-		ogImage := baseURL + "/og-image.png"
+		ogImage = ogImageURL(baseURL)
 		out = reOgImage.ReplaceAllLiteralString(out, `<meta property="og:image" content="`+attr(ogImage)+`" />`)
 		out = reTwImage.ReplaceAllLiteralString(out, `<meta name="twitter:image" content="`+attr(ogImage)+`" />`)
 	}
@@ -123,6 +132,10 @@ func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
 	if data.canonical != "" {
 		fmt.Fprintf(&head, `<link rel="canonical" href="%s" />`+"\n    ", attr(data.canonical))
 		fmt.Fprintf(&head, `<meta property="og:url" content="%s" />`+"\n    ", attr(data.canonical))
+	}
+	if ogImage != "" {
+		fmt.Fprintf(&head, `<meta property="og:image:secure_url" content="%s" />`+"\n    ", attr(ogImage))
+		fmt.Fprintf(&head, `<link rel="image_src" href="%s" />`+"\n    ", attr(ogImage))
 	}
 	if data.jsonLD != "" {
 		fmt.Fprintf(&head, `<script type="application/ld+json">%s</script>`+"\n    ", data.jsonLD)

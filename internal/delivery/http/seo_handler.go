@@ -40,7 +40,7 @@ func (h *SeoHandler) Robots(w http.ResponseWriter, r *http.Request) {
 	base := h.baseURL(r)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	fmt.Fprintf(w, "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: %s/sitemap.xml\n", base)
+	fmt.Fprintf(w, "User-agent: TelegramBot\nAllow: /\n\nUser-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: %s/sitemap.xml\n", base)
 }
 
 // Sitemap — GET /sitemap.xml

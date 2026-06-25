@@ -55,14 +55,20 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname.startsWith('/admin')
   const isFullscreen = pathname === '/' || pathname.startsWith('/category/')
 
-  if (isAdmin) return <>{children}</>
+  if (isAdmin) {
+    return (
+      <div key={pathname} className="route-fade" style={{ minHeight: '100%' }}>
+        {children}
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Navbar />
       <div style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
         {/* Перемонтируем по pathname → проигрывается плавное появление на каждой навигации */}
-        <div key={pathname} className="route-fade" style={{ minHeight: '100%' }}>
+        <div key={pathname} className={isFullscreen ? 'route-fade' : 'route-fade-up'} style={{ minHeight: '100%' }}>
           {children}
           {!isFullscreen && <Footer />}
         </div>

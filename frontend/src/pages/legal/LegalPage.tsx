@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
+import { staggerDelay } from '@shared/lib/motion'
 import { findLegalDoc, BUSINESS } from './legalContent'
 
 const TEXT2 = 'rgba(255,255,255,0.55)'
@@ -51,7 +52,7 @@ export function LegalPage() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {doc.sections.map((s, i) => (
-          <section key={i}>
+          <section key={i} className="fade-up" style={staggerDelay(i, 50, 300)}>
             {s.heading && (
               <h2 style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: '10px' }}>{s.heading}</h2>
             )}

@@ -58,6 +58,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
+      className="chip-press"
       style={{
         padding: "9px 15px",
         borderRadius: "20px",

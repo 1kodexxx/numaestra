@@ -81,11 +81,27 @@ export function Button({
     },
   }
 
+  function handlePointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    if (isDisabled) return
+    onPointerDown(e)
+    e.currentTarget.style.transform = 'scale(0.97)'
+    rest.onPointerDown?.(e)
+  }
+
   return (
     <button
       {...rest}
       disabled={isDisabled}
-      onPointerDown={isDisabled ? undefined : onPointerDown}
+      onPointerDown={handlePointerDown}
+      onPointerUp={(e) => {
+        if (!isDisabled && variant === 'filled') e.currentTarget.style.transform = 'translateY(-1px)'
+        else if (!isDisabled) e.currentTarget.style.transform = ''
+        rest.onPointerUp?.(e)
+      }}
+      onPointerCancel={(e) => {
+        if (!isDisabled) e.currentTarget.style.transform = ''
+        rest.onPointerCancel?.(e)
+      }}
       style={{ ...base, ...variants[variant], ...style }}
       onMouseEnter={(e) => {
         if (isDisabled) return

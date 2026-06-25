@@ -124,7 +124,7 @@ export function ExampleDetailPage() {
       </button>
 
       {/* Header */}
-      <div style={{
+      <div className="fade-up interactive-card hero-enter-d1" style={{
         background: '#0f0f0f', border: `1px solid ${BORDER}`,
         borderRadius: '24px', padding: '32px 30px',
         marginBottom: '16px', position: 'relative', overflow: 'hidden',
@@ -164,7 +164,7 @@ export function ExampleDetailPage() {
       </div>
 
       {/* Description */}
-      <div style={{
+      <div className="fade-up interactive-card hero-enter-d2" style={{
         background: '#0f0f0f', border: `1px solid ${BORDER}`,
         borderRadius: '20px', padding: '24px 26px', marginBottom: '16px',
       }}>

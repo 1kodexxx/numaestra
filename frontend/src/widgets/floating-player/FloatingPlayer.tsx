@@ -82,13 +82,13 @@ export function FloatingPlayer({
   const pct = dur > 0 ? (time / dur) * 100 : 0
 
   return (
-    <div style={{
+    <div className="slide-up-in" style={{
       position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 35,
       background: 'rgba(15,15,15,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       borderTop: '1px solid rgba(0,229,192,0.2)', boxShadow: '0 -10px 30px rgba(0,0,0,0.45)',
       paddingBottom: 'env(safe-area-inset-bottom)',
     }}>
-      <div className="fade-up" style={{
+      <div style={{
         maxWidth: 1000, margin: '0 auto', padding: '12px 16px',
         display: 'flex', alignItems: 'center', gap: '14px',
       }}>

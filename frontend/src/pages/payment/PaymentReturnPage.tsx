@@ -30,8 +30,8 @@ export function OrderFailPage() {
   const orderId = orderStorage.getOrderId()
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '64px 24px' }}>
-      <div style={{ background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '24px', padding: '40px 36px', textAlign: 'center' }}>
+    <div className="fade-in" style={{ maxWidth: 480, margin: '0 auto', padding: '64px 24px' }}>
+      <div className="modal-panel interactive-card" style={{ background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '24px', padding: '40px 36px', textAlign: 'center' }}>
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>💳</div>
         <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '8px' }}>Оплата не завершена</div>
         <div style={{ fontSize: '14px', color: TEXT2, lineHeight: 1.6, marginBottom: '28px' }}>

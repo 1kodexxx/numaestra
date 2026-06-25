@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
+import { staggerDelay } from '@shared/lib/motion'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
 
 const ACCENT = '#00e5c0'
@@ -71,7 +72,7 @@ export function HowItWorksPage() {
     <>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 20px 0' }} className="fade-in">
         {/* Hero */}
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }} className="hero-enter">
           <div
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '7px',
@@ -97,9 +98,11 @@ export function HowItWorksPage() {
           {steps.map((s, i) => (
             <li
               key={i}
+              className="fade-up interactive-card"
               style={{
                 display: 'flex', gap: '16px', alignItems: 'flex-start',
                 background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px',
+                ...staggerDelay(i, 60, 360),
               }}
             >
               {/* Номер шага */}
@@ -127,7 +130,7 @@ export function HowItWorksPage() {
         </ol>
 
         {/* CTA */}
-        <div style={{ textAlign: 'center', margin: '40px 0 8px' }}>
+        <div style={{ textAlign: 'center', margin: '40px 0 8px' }} className="fade-up hero-enter-d2">
           <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '14px' }}>Готовы начать?</div>
           <Button size="lg" onClick={() => navigate('/')}>Заказать песню →</Button>
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '12px' }}>

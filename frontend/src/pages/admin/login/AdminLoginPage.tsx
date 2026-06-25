@@ -45,7 +45,7 @@ export function AdminLoginPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="scale-in"
+        className="modal-panel"
         style={{
           position: 'relative', width: '100%', maxWidth: '380px',
           background: A.surface, border: `1px solid ${A.border}`,
