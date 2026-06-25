@@ -274,8 +274,8 @@ func TestPromptUseCase_BuildFinalPrompt_IncludesCustomLyrics(t *testing.T) {
 	uc := NewPromptUseCase(repo)
 
 	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
-		"name":           "Коля",
-		"CUSTOM_LYRICS":  "Припев: мы вместе навсегда",
+		"name":          "Коля",
+		"CUSTOM_LYRICS": "Припев: мы вместе навсегда",
 	})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
