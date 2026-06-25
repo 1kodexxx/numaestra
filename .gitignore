@@ -18,6 +18,8 @@ tmp_*
 *.out
 cov_func.txt
 coverage
+coverage-*
+coverage_*
 
 # ── Редакторы / ОС ──
 .idea/
