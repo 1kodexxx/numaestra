@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { adminCategoryApi } from '@entities/admin-category'
-import type { AdminCategory, AdminQuestion, AdminOption } from '@entities/admin-category'
+import type { AdminCategory, AdminQuestion, AdminOption, QuestionConfig } from '@entities/admin-category'
+import { adminGenreApi } from '@entities/admin-genre'
+import type { AdminGenre } from '@entities/admin-genre'
 import { Spinner, Button, TextField } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { A, Panel, Grid2, ErrorBanner, EmptyState, StatusBadge, Field, Select } from '@widgets/admin-layout'
@@ -129,6 +131,8 @@ export function AdminCategoryEditPage() {
         </form>
       </Panel>
 
+      <GenreEditor categoryId={category.id} initialGenreIds={category.genre_ids ?? []} />
+
       <QuestionsEditor categoryId={category.id} questions={category.questions ?? []} onChange={load} />
 
       <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: `1px solid ${A.border}` }}>
@@ -148,6 +152,69 @@ export function AdminCategoryEditPage() {
   )
 }
 
+function GenreEditor({ categoryId, initialGenreIds }: { categoryId: string; initialGenreIds: number[] }) {
+  const [allGenres, setAllGenres] = useState<AdminGenre[]>([])
+  const [selected, setSelected] = useState<number[]>(initialGenreIds)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSelected(initialGenreIds)
+  }, [initialGenreIds])
+
+  useEffect(() => {
+    adminGenreApi.list()
+      .then((g) => { setAllGenres(g); setLoading(false) })
+      .catch((err: Error) => { setError(err.message); setLoading(false) })
+  }, [])
+
+  function toggle(id: number) {
+    setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
+
+  async function save() {
+    setSaving(true); setError(null)
+    try {
+      await adminGenreApi.setCategoryGenres(categoryId, selected)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось сохранить жанры')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ marginBottom: '28px' }}>
+      <div className="admin-section-header">
+        <h2 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', margin: 0 }}>Жанры категории</h2>
+        <Button size="sm" loading={saving} onClick={save}>Сохранить жанры</Button>
+      </div>
+      <Panel style={{ padding: '18px' }}>
+        {loading ? <Spinner /> : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {allGenres.filter((g) => g.is_active).map((g) => {
+              const on = selected.includes(g.id)
+              return (
+                <button key={g.id} type="button" onClick={() => toggle(g.id)} style={{
+                  padding: '8px 14px', borderRadius: '20px', fontFamily: 'inherit', cursor: 'pointer',
+                  background: on ? 'rgba(0,229,192,0.14)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${on ? 'rgba(0,229,192,0.5)' : A.border}`,
+                  color: on ? A.accent : A.txt2, fontSize: '13px',
+                }}>{g.label}</button>
+              )
+            })}
+          </div>
+        )}
+        <div style={{ fontSize: '12px', color: A.txt3, marginTop: '12px' }}>
+          Пустой список = все активные жанры из справочника. Иначе в квизе только выбранные.
+        </div>
+        {error && <div style={{ fontSize: '12px', color: '#f87171', marginTop: '8px' }}>{error}</div>}
+      </Panel>
+    </div>
+  )
+}
+
 function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: string; questions: AdminQuestion[]; onChange: () => void }) {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -156,18 +223,22 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
   const [uiType, setUiType] = useState<AdminQuestion['ui_type']>('text')
   const [mappingKey, setMappingKey] = useState('')
   const [isRequired, setIsRequired] = useState(true)
+  const [optionSource, setOptionSource] = useState<'inline' | 'genres'>('inline')
+  const [config, setConfig] = useState<QuestionConfig>({})
   const [optionsText, setOptionsText] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   function resetForm() {
     setEditingId(null); setStepNumber(questions.length + 1); setQuestionText('')
-    setUiType('text'); setMappingKey(''); setIsRequired(true); setOptionsText(''); setFormError(null)
+    setUiType('text'); setMappingKey(''); setIsRequired(true)
+    setOptionSource('inline'); setConfig({}); setOptionsText(''); setFormError(null)
   }
 
   function startEdit(q: AdminQuestion) {
     setEditingId(q.id); setStepNumber(q.step_number); setQuestionText(q.question_text)
     setUiType(q.ui_type); setMappingKey(q.mapping_key); setIsRequired(q.is_required)
+    setOptionSource(q.option_source ?? 'inline'); setConfig(q.config ?? {})
     setOptionsText((q.options ?? []).map((o) => `${o.label}=${o.value}`).join('\n'))
     setShowForm(true)
   }
@@ -182,7 +253,10 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setFormError(null); setSubmitting(true)
-    const payload = { step_number: stepNumber, question_text: questionText, ui_type: uiType, mapping_key: mappingKey, is_required: isRequired, options: parseOptions() }
+    const payload = {
+      step_number: stepNumber, question_text: questionText, ui_type: uiType, mapping_key: mappingKey,
+      is_required: isRequired, option_source: optionSource, config, options: optionSource === 'genres' ? [] : parseOptions(),
+    }
     try {
       if (editingId != null) await adminCategoryApi.updateQuestion(categoryId, editingId, payload)
       else await adminCategoryApi.addQuestion(categoryId, payload)
@@ -200,7 +274,7 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
     onChange()
   }
 
-  const needsOptions = uiType === 'select' || uiType === 'tags' || uiType === 'radio'
+  const needsOptions = (uiType === 'select' || uiType === 'tags' || uiType === 'radio') && optionSource === 'inline'
 
   return (
     <div>
@@ -229,6 +303,24 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
               </Field>
               <TextField label="Mapping key — плейсхолдер [KEY]" value={mappingKey} onChange={(v) => setMappingKey(v.toUpperCase())} required surfaceColor={A.surface} />
             </Grid2>
+            <Grid2 className="admin-grid-2--sm">
+              <Field label="Источник вариантов">
+                <Select value={optionSource} onChange={(v) => setOptionSource(v as 'inline' | 'genres')}>
+                  <option value="inline">inline (вручную)</option>
+                  <option value="genres">справочник жанров</option>
+                </Select>
+              </Field>
+              <TextField label="Подсказка (hint)" value={config.hint ?? ''} onChange={(v) => setConfig((c: QuestionConfig) => ({ ...c, hint: v }))} surfaceColor={A.surface} />
+            </Grid2>
+            {uiType === 'tags' && (
+              <Grid2 className="admin-grid-2--sm">
+                <TextField label="Мин. выбор" value={String(config.min_select ?? '')} onChange={(v) => setConfig((c: QuestionConfig) => ({ ...c, min_select: v ? Number(v) : undefined }))} surfaceColor={A.surface} />
+                <TextField label="Макс. выбор" value={String(config.max_select ?? '')} onChange={(v) => setConfig((c: QuestionConfig) => ({ ...c, max_select: v ? Number(v) : undefined }))} surfaceColor={A.surface} />
+              </Grid2>
+            )}
+            {(uiType === 'text' || uiType === 'textarea') && (
+              <TextField label="Placeholder" value={config.placeholder ?? ''} onChange={(v) => setConfig((c: QuestionConfig) => ({ ...c, placeholder: v }))} surfaceColor={A.surface} />
+            )}
             {needsOptions && (
               <TextField
                 label='Варианты ответа — «Метка=значение», по одному на строку'
@@ -264,6 +356,7 @@ function QuestionsEditor({ categoryId, questions, onChange }: { categoryId: stri
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '7px' }}>
                     <StatusBadge label={q.ui_type} tone="muted" />
+                    {q.option_source === 'genres' && <StatusBadge label="genres" tone="muted" />}
                     <span style={{ fontSize: '12px', color: A.txt3, fontFamily: 'monospace' }}>{q.mapping_key}</span>
                   </div>
                 </div>

@@ -255,6 +255,34 @@ func TestHandler_GetOrder_Success(t *testing.T) {
 	}
 }
 
+func TestHandler_GetOrder_IncludesGenerationProgress(t *testing.T) {
+	h, router, repo := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(uuid.New())
+	order.UpdateGenerationProgress(domain.GenerationPhaseGenerating, 55, 2)
+	if err := repo.Update(context.Background(), order); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String(), nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp OrderDetailResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if resp.GenerationPhase != string(domain.GenerationPhaseGenerating) || resp.GenerationProgress != 55 || resp.TracksReady != 2 {
+		t.Errorf("прогресс в ответе: phase=%q progress=%d tracks=%d", resp.GenerationPhase, resp.GenerationProgress, resp.TracksReady)
+	}
+}
+
 func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	order := mustCreate(t, h, "user@example.com", "", "Бриф")

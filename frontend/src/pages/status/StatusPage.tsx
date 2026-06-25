@@ -271,7 +271,13 @@ function OrderCard({ order, onClear, onBack }: { order: OrderDetail; onClear: ()
         {/* Непрерывный прогресс генерации (после оплаты, до завершения) */}
         {ps !== 'pending' && !isTerminal && (
           <div style={{ marginTop: '28px', textAlign: 'left' }}>
-            <GenerationProgress status={gs} paidAt={order.paid_at} />
+            <GenerationProgress
+              status={gs}
+              paidAt={order.paid_at}
+              generationPhase={order.generation_phase}
+              generationProgress={order.generation_progress}
+              tracksReady={order.tracks_ready}
+            />
           </div>
         )}
 

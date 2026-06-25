@@ -150,7 +150,7 @@ func TestAdminUseCase_AddQuestion_Success(t *testing.T) {
 		t.Fatalf("создание категории: %v", err)
 	}
 
-	q, err := uc.AddQuestion(context.Background(), "wedding", 1, "Как зовут жениха?", "text", "GROOM", true, nil)
+	q, err := uc.AddQuestion(context.Background(), "wedding", 1, "Как зовут жениха?", "text", "GROOM", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil)
 	if err != nil {
 		t.Fatalf("AddQuestion упал: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestAdminUseCase_AddQuestion_Success(t *testing.T) {
 
 func TestAdminUseCase_AddQuestion_CategoryNotFound(t *testing.T) {
 	uc, _, _ := newAdminUCWithCategories(t)
-	_, err := uc.AddQuestion(context.Background(), "несуществующая", 1, "Текст?", "text", "KEY", true, nil)
+	_, err := uc.AddQuestion(context.Background(), "несуществующая", 1, "Текст?", "text", "KEY", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil)
 	if !errors.Is(err, domain.ErrCategoryNotFound) {
 		t.Fatalf("ожидали ErrCategoryNotFound, получили %v", err)
 	}
@@ -177,11 +177,11 @@ func TestAdminUseCase_AddQuestion_ValidationError(t *testing.T) {
 	}
 
 	// ui_type "tags" требует options.
-	if _, err := uc.AddQuestion(context.Background(), "wedding", 1, "Жанр?", "tags", "GENRE", true, nil); err == nil {
+	if _, err := uc.AddQuestion(context.Background(), "wedding", 1, "Жанр?", "tags", "GENRE", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil); err == nil {
 		t.Error("ожидали ошибку валидации: tags без options")
 	}
 	// недопустимый ui_type.
-	if _, err := uc.AddQuestion(context.Background(), "wedding", 1, "Текст?", "checkbox", "KEY", true, nil); err == nil {
+	if _, err := uc.AddQuestion(context.Background(), "wedding", 1, "Текст?", "checkbox", "KEY", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil); err == nil {
 		t.Error("ожидали ошибку валидации: недопустимый ui_type")
 	}
 }
@@ -191,12 +191,12 @@ func TestAdminUseCase_UpdateQuestion_Success(t *testing.T) {
 	if _, err := uc.CreateCategory(context.Background(), "wedding", "Свадьба", "", "", nil, "шаблон"); err != nil {
 		t.Fatalf("создание категории: %v", err)
 	}
-	q, err := uc.AddQuestion(context.Background(), "wedding", 1, "Как зовут жениха?", "text", "GROOM", true, nil)
+	q, err := uc.AddQuestion(context.Background(), "wedding", 1, "Как зовут жениха?", "text", "GROOM", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil)
 	if err != nil {
 		t.Fatalf("добавление вопроса: %v", err)
 	}
 
-	err = uc.UpdateQuestion(context.Background(), "wedding", q.ID, 2, "Как зовут жениха? (обновлено)", "text", "GROOM", false, nil)
+	err = uc.UpdateQuestion(context.Background(), "wedding", q.ID, 2, "Как зовут жениха? (обновлено)", "text", "GROOM", false, domain.OptionSourceInline, domain.QuestionConfig{}, nil)
 	if err != nil {
 		t.Fatalf("UpdateQuestion упал: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestAdminUseCase_UpdateQuestion_NotFound(t *testing.T) {
 	if _, err := uc.CreateCategory(context.Background(), "wedding", "Свадьба", "", "", nil, "шаблон"); err != nil {
 		t.Fatalf("создание категории: %v", err)
 	}
-	err := uc.UpdateQuestion(context.Background(), "wedding", 999, 1, "Текст?", "text", "KEY", true, nil)
+	err := uc.UpdateQuestion(context.Background(), "wedding", 999, 1, "Текст?", "text", "KEY", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil)
 	if !errors.Is(err, domain.ErrQuestionNotFound) {
 		t.Fatalf("ожидали ErrQuestionNotFound, получили %v", err)
 	}
@@ -226,7 +226,7 @@ func TestAdminUseCase_DeleteQuestion_Success(t *testing.T) {
 	if _, err := uc.CreateCategory(context.Background(), "wedding", "Свадьба", "", "", nil, "шаблон"); err != nil {
 		t.Fatalf("создание категории: %v", err)
 	}
-	q, err := uc.AddQuestion(context.Background(), "wedding", 1, "Как зовут жениха?", "text", "GROOM", true, nil)
+	q, err := uc.AddQuestion(context.Background(), "wedding", 1, "Как зовут жениха?", "text", "GROOM", true, domain.OptionSourceInline, domain.QuestionConfig{}, nil)
 	if err != nil {
 		t.Fatalf("добавление вопроса: %v", err)
 	}

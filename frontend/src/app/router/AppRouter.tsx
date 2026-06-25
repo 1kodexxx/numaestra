@@ -18,6 +18,7 @@ import {
   AdminCategoryEditPage,
   AdminOrdersPage,
   AdminOrderDetailPage,
+  AdminGenresPage,
   AdminAccountsPage,
 } from '@pages/admin'
 import { AdminLayout } from '@widgets/admin-layout'
@@ -43,6 +44,7 @@ export function AppRouter() {
           <Route path="dashboard" element={<AdminDashboardPage />} />
           <Route path="categories" element={<AdminCategoriesPage />} />
           <Route path="categories/:id" element={<AdminCategoryEditPage />} />
+          <Route path="genres" element={<AdminGenresPage />} />
           <Route path="examples" element={<AdminExamplesPage />} />
           <Route path="reviews" element={<AdminReviewsPage />} />
           <Route path="orders" element={<AdminOrdersPage />} />

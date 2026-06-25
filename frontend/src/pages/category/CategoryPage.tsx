@@ -155,17 +155,22 @@ function QuestionField({
         onChange={onText}
         multiline={q.ui_type === "textarea"}
         rows={3}
+        placeholder={q.config?.placeholder}
         surfaceColor={SURFACE}
       />
     );
   }
 
   const multi = q.ui_type === "tags";
+  const hint = q.config?.hint
+    ?? (multi
+      ? `можно выбрать несколько${q.config?.max_select ? `, до ${q.config.max_select}` : ""}`
+      : undefined);
   return (
     <Section
       label={q.question_text}
       required={q.is_required}
-      hint={multi ? "можно выбрать несколько" : undefined}
+      hint={hint}
     >
       {q.options.map((opt) => {
         const sel = multi
@@ -265,13 +270,14 @@ export function CategoryPage() {
     [wizard, mergedAnswers, category, customText, extraNotes],
   );
 
-  function toggleTag(key: string, val: string) {
+  function toggleTag(key: string, val: string, maxSelect?: number) {
     setTagSel((prev) => {
       const arr = prev[key] ?? [];
-      return {
-        ...prev,
-        [key]: arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val],
-      };
+      if (arr.includes(val)) {
+        return { ...prev, [key]: arr.filter((x) => x !== val) };
+      }
+      if (maxSelect && arr.length >= maxSelect) return prev;
+      return { ...prev, [key]: [...arr, val] };
     });
   }
 
@@ -389,7 +395,7 @@ export function CategoryPage() {
                 onText={(v) =>
                   setAnswers((prev) => ({ ...prev, [q.mapping_key]: v }))
                 }
-                onToggleTag={(v) => toggleTag(q.mapping_key, v)}
+                onToggleTag={(v) => toggleTag(q.mapping_key, v, q.config?.max_select)}
               />
             ))
           : Array.from({ length: 6 }, (_, i) => (

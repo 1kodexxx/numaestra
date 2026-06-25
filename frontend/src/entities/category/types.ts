@@ -14,12 +14,21 @@ export interface QuestionOption {
   label: string
 }
 
+export interface QuestionConfig {
+  placeholder?: string
+  hint?: string
+  min_select?: number
+  max_select?: number
+}
+
 export interface Question {
   id: string
   question_text: string
   ui_type: QuestionUIType
   mapping_key: string
   is_required: boolean
+  option_source?: 'inline' | 'genres'
+  config?: QuestionConfig
   options: QuestionOption[]
 }
 

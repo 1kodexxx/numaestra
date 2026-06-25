@@ -100,7 +100,7 @@ func (c *Category) UpdateDetails(title, description, coverImageURL string, seoTa
 
 // NewQuestion создаёт вопрос квиза после валидации. ID присваивается хранилищем
 // при сохранении (AddQuestion) и здесь всегда равен 0.
-func NewQuestion(stepNumber int, questionText, uiType, mappingKey string, isRequired bool, options []Option) (Question, error) {
+func NewQuestion(stepNumber int, questionText, uiType, mappingKey string, isRequired bool, optionSource string, config QuestionConfig, options []Option) (Question, error) {
 	if questionText == "" {
 		return Question{}, errors.New("текст вопроса обязателен")
 	}
@@ -110,7 +110,14 @@ func NewQuestion(stepNumber int, questionText, uiType, mappingKey string, isRequ
 	if mappingKey == "" {
 		return Question{}, errors.New("mapping_key обязателен")
 	}
-	if (uiType == "select" || uiType == "tags" || uiType == "radio") && len(options) == 0 {
+	if optionSource == "" {
+		optionSource = OptionSourceInline
+	}
+	if err := validateOptionSource(optionSource); err != nil {
+		return Question{}, err
+	}
+	needsInlineOptions := uiType == "select" || uiType == "tags" || uiType == "radio"
+	if needsInlineOptions && optionSource == OptionSourceInline && len(options) == 0 {
 		return Question{}, fmt.Errorf("для ui_type %q нужен хотя бы один вариант ответа (options)", uiType)
 	}
 	return Question{
@@ -119,6 +126,8 @@ func NewQuestion(stepNumber int, questionText, uiType, mappingKey string, isRequ
 		UIType:       uiType,
 		MappingKey:   mappingKey,
 		IsRequired:   isRequired,
+		OptionSource: optionSource,
+		Config:       config,
 		Options:      options,
 	}, nil
 }
@@ -205,13 +214,15 @@ func (c *Category) MarshalJSON() ([]byte, error) {
 }
 
 type Question struct {
-	ID           int      `json:"id"`
-	StepNumber   int      `json:"step_number"`
-	QuestionText string   `json:"question_text"`
-	UIType       string   `json:"ui_type"`
-	MappingKey   string   `json:"mapping_key"`
-	IsRequired   bool     `json:"is_required"`
-	Options      []Option `json:"options,omitempty"`
+	ID           int            `json:"id"`
+	StepNumber   int            `json:"step_number"`
+	QuestionText string         `json:"question_text"`
+	UIType       string         `json:"ui_type"`
+	MappingKey   string         `json:"mapping_key"`
+	IsRequired   bool           `json:"is_required"`
+	OptionSource string         `json:"option_source,omitempty"`
+	Config       QuestionConfig `json:"config,omitempty"`
+	Options      []Option       `json:"options,omitempty"`
 }
 
 type Option struct {

@@ -16,10 +16,11 @@ import (
 
 func testNow() time.Time { return time.Now().UTC() }
 
-// orderCols — 20 колонок в SELECT-ах orders (в порядке Scan).
+// orderCols — 23 колонки в SELECT-ах orders (в порядке Scan).
 var orderCols = []string{
 	"id", "invoice_id", "customer_email", "customer_phone", "brief", "category_id", "suno_prompt",
-	"amount_kopecks", "currency", "payment_status", "generation_status", "assigned_account_id",
+	"amount_kopecks", "currency", "payment_status", "generation_status", "generation_phase", "generation_progress", "tracks_ready",
+	"assigned_account_id",
 	"failure_reason", "access_token", "admin_feedback", "admin_feedback_at", "created_at", "updated_at", "paid_at", "completed_at",
 }
 
@@ -28,7 +29,9 @@ func orderRowValues(id uuid.UUID, invoice int64) []any {
 	now := time.Now().UTC()
 	return []any{
 		id, invoice, "user@example.com", "", "Бриф", "", "",
-		int64(200000), "RUB", domain.PaymentStatusPaid, domain.GenerationStatusCompleted, (*uuid.UUID)(nil),
+		int64(200000), "RUB", domain.PaymentStatusPaid, domain.GenerationStatusCompleted,
+		domain.GenerationPhaseCompleted, 100, 4,
+		(*uuid.UUID)(nil),
 		"", "tok", "", (*time.Time)(nil), now, now, (*time.Time)(nil), (*time.Time)(nil),
 	}
 }
@@ -297,7 +300,7 @@ func TestOrderRepository_Update_NotFound(t *testing.T) {
 
 	// Update оборачивается в транзакцию (runAtomic). RowsAffected=0 → откат и ErrOrderNotFound.
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(8)...).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
+	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(11)...).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
 	mock.ExpectRollback()
 
 	repo := NewOrderRepository(mock)

@@ -27,11 +27,17 @@ const (
 )
 
 type CategoryRepository struct {
-	db PgxPool
+	db     PgxPool
+	genres domain.GenreRepository
 }
 
 func NewCategoryRepository(db PgxPool) *CategoryRepository {
 	return &CategoryRepository{db: db}
+}
+
+func (r *CategoryRepository) WithGenres(genres domain.GenreRepository) *CategoryRepository {
+	r.genres = genres
+	return r
 }
 
 // GetAll забирает только базовую информацию для карточек на главной странице.
@@ -78,6 +84,8 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 						'ui_type',       q.ui_type,
 						'mapping_key',   q.mapping_key,
 						'is_required',   q.is_required,
+						'option_source', q.option_source,
+						'config',        q.config,
 						'options', (
 							SELECT COALESCE(
 								json_agg(
@@ -90,6 +98,7 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 							)
 							FROM question_options o
 							WHERE o.question_id = q.id
+							  AND q.option_source = 'inline'
 						)
 					) ORDER BY q.step_number
 				) FILTER (WHERE q.id IS NOT NULL),
@@ -124,7 +133,31 @@ func (r *CategoryRepository) GetByID(ctx context.Context, id string) (*domain.Ca
 		return nil, fmt.Errorf("unmarshal questions: %w", err)
 	}
 
+	if err := r.enrichGenreOptions(ctx, id, snap.Questions); err != nil {
+		return nil, err
+	}
+
 	return domain.RestoreCategory(snap), nil
+}
+
+func (r *CategoryRepository) enrichGenreOptions(ctx context.Context, categoryID string, questions []domain.Question) error {
+	if r.genres == nil {
+		return nil
+	}
+	genres, err := r.genres.GetForCategory(ctx, categoryID)
+	if err != nil {
+		return err
+	}
+	genreOptions := make([]domain.Option, 0, len(genres))
+	for _, g := range genres {
+		genreOptions = append(genreOptions, g.ToOption())
+	}
+	for i := range questions {
+		if questions[i].OptionSource == domain.OptionSourceGenres {
+			questions[i].Options = append([]domain.Option(nil), genreOptions...)
+		}
+	}
+	return nil
 }
 
 // Create сохраняет новую категорию каталога.
@@ -175,10 +208,10 @@ func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
 // AddQuestion добавляет новый вопрос (и его варианты ответов) к категории.
 func (r *CategoryRepository) AddQuestion(ctx context.Context, categoryID string, q domain.Question) (domain.Question, error) {
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO questions (category_id, step_number, question_text, ui_type, mapping_key, is_required)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO questions (category_id, step_number, question_text, ui_type, mapping_key, is_required, option_source, config)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id
-	`, categoryID, q.StepNumber, q.QuestionText, q.UIType, q.MappingKey, q.IsRequired).Scan(&q.ID)
+	`, categoryID, q.StepNumber, q.QuestionText, q.UIType, q.MappingKey, q.IsRequired, q.OptionSource, q.Config.ToMap()).Scan(&q.ID)
 	if err != nil {
 		if pgErrCode(err) == pgErrForeignKeyViolation {
 			return domain.Question{}, domain.ErrCategoryNotFound
@@ -186,6 +219,9 @@ func (r *CategoryRepository) AddQuestion(ctx context.Context, categoryID string,
 		return domain.Question{}, fmt.Errorf("insert question: %w", err)
 	}
 
+	if q.OptionSource == "" {
+		q.OptionSource = domain.OptionSourceInline
+	}
 	if err := r.insertOptions(ctx, q.ID, q.Options); err != nil {
 		return domain.Question{}, err
 	}
@@ -196,9 +232,10 @@ func (r *CategoryRepository) AddQuestion(ctx context.Context, categoryID string,
 func (r *CategoryRepository) UpdateQuestion(ctx context.Context, categoryID string, q domain.Question) error {
 	cmd, err := r.db.Exec(ctx, `
 		UPDATE questions
-		SET step_number = $1, question_text = $2, ui_type = $3, mapping_key = $4, is_required = $5
-		WHERE id = $6 AND category_id = $7
-	`, q.StepNumber, q.QuestionText, q.UIType, q.MappingKey, q.IsRequired, q.ID, categoryID)
+		SET step_number = $1, question_text = $2, ui_type = $3, mapping_key = $4, is_required = $5,
+		    option_source = $6, config = $7
+		WHERE id = $8 AND category_id = $9
+	`, q.StepNumber, q.QuestionText, q.UIType, q.MappingKey, q.IsRequired, q.OptionSource, q.Config.ToMap(), q.ID, categoryID)
 	if err != nil {
 		return fmt.Errorf("update question: %w", err)
 	}

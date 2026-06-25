@@ -43,6 +43,9 @@ export function processingOrder(): OrderDetail {
     amount_kopecks: 200_000,
     tracks: [],
     paid_at: new Date().toISOString(),
+    generation_phase: 'generating',
+    generation_progress: 55,
+    tracks_ready: 2,
   }
 }
 
@@ -50,6 +53,9 @@ export function queuedOrder(): OrderDetail {
   return {
     ...processingOrder(),
     generation_status: 'queued',
+    generation_phase: 'queued',
+    generation_progress: 3,
+    tracks_ready: 0,
   }
 }
 

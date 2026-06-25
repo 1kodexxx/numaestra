@@ -88,7 +88,7 @@ func TestCategoryRepository_AddQuestion_CategoryMissing(t *testing.T) {
 	defer mock.Close()
 
 	mock.ExpectQuery("INSERT INTO questions").
-		WithArgs(anyArgs(6)...).
+		WithArgs(anyArgs(8)...).
 		WillReturnError(&pgconn.PgError{Code: pgErrForeignKeyViolation})
 
 	repo := NewCategoryRepository(mock)

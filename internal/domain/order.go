@@ -34,6 +34,19 @@ const (
 	GenerationStatusFailed     GenerationStatus = "failed"     // отказ после всех ретраев
 )
 
+// GenerationPhase — детальная стадия пайплайна (для прогресс-бара на странице статуса).
+type GenerationPhase string
+
+const (
+	GenerationPhaseQueued     GenerationPhase = "queued"
+	GenerationPhasePreparing  GenerationPhase = "preparing"
+	GenerationPhaseLyrics     GenerationPhase = "lyrics"
+	GenerationPhaseSubmitting GenerationPhase = "submitting"
+	GenerationPhaseGenerating GenerationPhase = "generating"
+	GenerationPhaseUploading  GenerationPhase = "uploading"
+	GenerationPhaseCompleted  GenerationPhase = "completed"
+)
+
 // MaxBriefLength — максимально допустимая длина технического задания (в рунах).
 // Ограничивает объём данных, который уходит в LLM и в БД: слишком длинный бриф
 // раздувает стоимость генерации и нагрузку на хранилище.
@@ -86,6 +99,10 @@ type Order struct {
 
 	paymentStatus    PaymentStatus
 	generationStatus GenerationStatus
+
+	generationPhase    GenerationPhase
+	generationProgress int
+	tracksReady        int
 
 	assignedAccountID *uuid.UUID
 	tracks            []Track
@@ -169,6 +186,9 @@ type OrderSnapshot struct {
 	Currency          string
 	PaymentStatus     PaymentStatus
 	GenerationStatus  GenerationStatus
+	GenerationPhase   GenerationPhase
+	GenerationProgress int
+	TracksReady       int
 	AssignedAccountID *uuid.UUID
 	Tracks            []Track
 	FailureReason     string
@@ -189,6 +209,7 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		categoryID: s.CategoryID, sunoPrompt: s.SunoPrompt,
 		amountKopecks: s.AmountKopecks, currency: s.Currency,
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
+		generationPhase: s.GenerationPhase, generationProgress: s.GenerationProgress, tracksReady: s.TracksReady,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
 		accessToken:     s.AccessToken,
 		adminFeedback:   s.AdminFeedback,
@@ -210,7 +231,10 @@ func (o *Order) AmountKopecks() int64               { return o.amountKopecks }
 func (o *Order) Currency() string                   { return o.currency }
 func (o *Order) PaymentStatus() PaymentStatus       { return o.paymentStatus }
 func (o *Order) GenerationStatus() GenerationStatus { return o.generationStatus }
-func (o *Order) AssignedAccountID() *uuid.UUID      { return o.assignedAccountID }
+func (o *Order) GenerationPhase() GenerationPhase   { return o.generationPhase }
+func (o *Order) GenerationProgress() int            { return o.generationProgress }
+func (o *Order) TracksReady() int                 { return o.tracksReady }
+func (o *Order) AssignedAccountID() *uuid.UUID    { return o.assignedAccountID }
 func (o *Order) Tracks() []Track                    { return o.tracks }
 func (o *Order) FailureReason() string              { return o.failureReason }
 func (o *Order) AccessToken() string                { return o.accessToken }
@@ -282,8 +306,37 @@ func (o *Order) Enqueue() error {
 		return ErrInvalidGenerationTransition
 	}
 	o.generationStatus = GenerationStatusQueued
+	o.UpdateGenerationProgress(GenerationPhaseQueued, 3, 0)
 	o.touch()
 	return nil
+}
+
+// UpdateGenerationProgress обновляет детальный прогресс (монотонно — только вперёд).
+func (o *Order) UpdateGenerationProgress(phase GenerationPhase, progress, tracksReady int) {
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 100 {
+		progress = 100
+	}
+	if tracksReady < 0 {
+		tracksReady = 0
+	}
+	if tracksReady > DefaultTrackCount {
+		tracksReady = DefaultTrackCount
+	}
+	if progress < o.generationProgress && phase == o.generationPhase {
+		return
+	}
+	if phase != "" {
+		o.generationPhase = phase
+	}
+	if progress >= o.generationProgress {
+		o.generationProgress = progress
+	}
+	if tracksReady >= o.tracksReady {
+		o.tracksReady = tracksReady
+	}
 }
 
 // StartProcessing фиксирует захват конкретного Suno-аккаунта под этот заказ.
@@ -293,6 +346,7 @@ func (o *Order) StartProcessing(accountID uuid.UUID) error {
 	}
 	o.generationStatus = GenerationStatusProcessing
 	o.assignedAccountID = &accountID
+	o.UpdateGenerationProgress(GenerationPhasePreparing, 10, 0)
 	o.touch()
 	return nil
 }
@@ -307,6 +361,7 @@ func (o *Order) Complete(tracks []Track) error {
 	}
 	o.generationStatus = GenerationStatusCompleted
 	o.tracks = tracks
+	o.UpdateGenerationProgress(GenerationPhaseCompleted, 100, len(tracks))
 	now := time.Now().UTC()
 	o.completedAt = &now
 	o.touch()
@@ -337,6 +392,9 @@ func (o *Order) Regenerate() error {
 	o.generationStatus = GenerationStatusQueued
 	o.assignedAccountID = nil
 	o.failureReason = ""
+	o.generationPhase = GenerationPhaseQueued
+	o.generationProgress = 3
+	o.tracksReady = 0
 	o.touch()
 	return nil
 }
@@ -349,6 +407,9 @@ func (o *Order) RequeueForRetry() error {
 	}
 	o.generationStatus = GenerationStatusQueued
 	o.assignedAccountID = nil
+	o.generationPhase = GenerationPhaseQueued
+	o.generationProgress = 3
+	o.tracksReady = 0
 	o.touch()
 	return nil
 }
@@ -380,8 +441,11 @@ func (o *Order) Snapshot() OrderSnapshot {
 		AmountKopecks:     o.amountKopecks,
 		Currency:          o.currency,
 		PaymentStatus:     o.paymentStatus,
-		GenerationStatus:  o.generationStatus,
-		AssignedAccountID: o.assignedAccountID,
+		GenerationStatus:   o.generationStatus,
+		GenerationPhase:    o.generationPhase,
+		GenerationProgress: o.generationProgress,
+		TracksReady:        o.tracksReady,
+		AssignedAccountID:  o.assignedAccountID,
 		Tracks:            o.tracks,
 		FailureReason:     o.failureReason,
 		AccessToken:       o.accessToken,

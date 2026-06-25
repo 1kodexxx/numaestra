@@ -9,6 +9,7 @@ import './admin-responsive.css'
 const NAV = [
   { to: '/admin/dashboard', label: 'Дашборд', icon: '📊' },
   { to: '/admin/categories', label: 'Категории', icon: '🗂️' },
+  { to: '/admin/genres', label: 'Жанры', icon: '🎸' },
   { to: '/admin/examples', label: 'Примеры работ', icon: '🎧' },
   { to: '/admin/reviews', label: 'Отзывы', icon: '💬' },
   { to: '/admin/orders', label: 'Заказы', icon: '🧾' },

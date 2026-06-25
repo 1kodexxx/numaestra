@@ -123,7 +123,7 @@ func TestCategoryRepository_AddQuestion_Success(t *testing.T) {
 	defer mock.Close()
 
 	// INSERT questions ... RETURNING id → QueryRow; затем insertOptions (нет опций — без вставок).
-	mock.ExpectQuery("INSERT INTO questions").WithArgs(anyArgs(6)...).
+	mock.ExpectQuery("INSERT INTO questions").WithArgs(anyArgs(8)...).
 		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(7))
 
 	repo := NewCategoryRepository(mock)

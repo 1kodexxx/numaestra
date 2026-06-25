@@ -337,8 +337,8 @@ func (uc *AdminUseCase) DeleteCategory(ctx context.Context, id string) error {
 }
 
 // AddQuestion добавляет новый вопрос квиза к категории.
-func (uc *AdminUseCase) AddQuestion(ctx context.Context, categoryID string, stepNumber int, questionText, uiType, mappingKey string, isRequired bool, options []domain.Option) (domain.Question, error) {
-	q, err := domain.NewQuestion(stepNumber, questionText, uiType, mappingKey, isRequired, options)
+func (uc *AdminUseCase) AddQuestion(ctx context.Context, categoryID string, stepNumber int, questionText, uiType, mappingKey string, isRequired bool, optionSource string, config domain.QuestionConfig, options []domain.Option) (domain.Question, error) {
+	q, err := domain.NewQuestion(stepNumber, questionText, uiType, mappingKey, isRequired, optionSource, config, options)
 	if err != nil {
 		return domain.Question{}, fmt.Errorf("валидация вопроса: %w", err)
 	}
@@ -352,8 +352,8 @@ func (uc *AdminUseCase) AddQuestion(ctx context.Context, categoryID string, step
 }
 
 // UpdateQuestion перезаписывает вопрос квиза (включая полную замену вариантов ответов).
-func (uc *AdminUseCase) UpdateQuestion(ctx context.Context, categoryID string, questionID, stepNumber int, questionText, uiType, mappingKey string, isRequired bool, options []domain.Option) error {
-	q, err := domain.NewQuestion(stepNumber, questionText, uiType, mappingKey, isRequired, options)
+func (uc *AdminUseCase) UpdateQuestion(ctx context.Context, categoryID string, questionID, stepNumber int, questionText, uiType, mappingKey string, isRequired bool, optionSource string, config domain.QuestionConfig, options []domain.Option) error {
+	q, err := domain.NewQuestion(stepNumber, questionText, uiType, mappingKey, isRequired, optionSource, config, options)
 	if err != nil {
 		return fmt.Errorf("валидация вопроса: %w", err)
 	}

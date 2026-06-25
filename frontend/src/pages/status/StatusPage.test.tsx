@@ -113,7 +113,8 @@ describe('StatusPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Создаём песню')).toBeInTheDocument()
     })
-    expect(screen.getByText(/%/)).toBeInTheDocument()
+    expect(screen.getByText('55%')).toBeInTheDocument()
+    expect(screen.getByText('🎼 Готово 2 из 4 версий…')).toBeInTheDocument()
   })
 
   it('legacy query order_id продолжает работать', async () => {

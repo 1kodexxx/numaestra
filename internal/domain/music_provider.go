@@ -56,6 +56,9 @@ type MusicGenerationResult struct {
 	Status MusicGenerationStatus
 	Tracks []ProviderTrack
 	Error  string // причина неудачи, если Status == MusicGenerationStatusFailed
+	// ProgressPercent и ClipsReady заполняются при Status == running/pending.
+	ProgressPercent int
+	ClipsReady      int
 }
 
 // ProviderTrack - один трек от провайдера, до скачивания и перезаливки в S3

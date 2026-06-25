@@ -278,7 +278,19 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	}
 	metrics.ActiveWorkerSlots.Inc()
 
+	if err := uc.saveOrderAndAccount(ctx, order, account); err != nil {
+		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
+		return fmt.Errorf("сохранение старта обработки: %w", err)
+	}
+
 	// 3. Два разных текста песни: квиз — два промпта; свободный бриф — LLM.
+	if order.SunoPrompt() == "" {
+		order.UpdateGenerationProgress(domain.GenerationPhaseLyrics, 15, 0)
+		if err := uc.orderRepo.Update(ctx, order); err != nil {
+			uc.log.Warn("не удалось сохранить прогресс (lyrics)", "order_id", order.ID(), "err", err)
+		}
+	}
 	briefs, err := uc.buildGenerationBriefs(ctx, order)
 	if err != nil {
 		metrics.LLMErrors.Inc()
@@ -293,6 +305,11 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("генерация текста LLM недоступна: %w", err)
 	}
 	uc.log.Info("подготовлены варианты текста для генерации", "order_id", order.ID(), "variants", len(briefs))
+
+	order.UpdateGenerationProgress(domain.GenerationPhaseSubmitting, 25, 0)
+	if err := uc.orderRepo.Update(ctx, order); err != nil {
+		uc.log.Warn("не удалось сохранить прогресс (submitting)", "order_id", order.ID(), "err", err)
+	}
 
 	// 4. Отправка структурированного запроса в Suno API.
 	// Продукт фиксированный — 4 версии песни на заказ, без тарифов.
@@ -343,6 +360,8 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("сбой провайдера: %w", err)
 	}
 
+	order.UpdateGenerationProgress(domain.GenerationPhaseGenerating, 30, 0)
+
 	// 5. Атомарно сохраняем заказ (Processing) и состояние аккаунта в одной транзакции
 	// (Unit of Work). Слот аккаунта остаётся занятым на всё время поллинга и
 	// освобождается позже в CheckGenerationStatus (Complete/Fail) либо в
@@ -378,6 +397,12 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	}
 
 	if result.Status == domain.MusicGenerationStatusPending || result.Status == domain.MusicGenerationStatusRunning {
+		if result.ProgressPercent > 0 {
+			order.UpdateGenerationProgress(domain.GenerationPhaseGenerating, result.ProgressPercent, result.ClipsReady)
+			if err := uc.orderRepo.Update(ctx, order); err != nil {
+				uc.log.Warn("не удалось сохранить прогресс генерации", "order_id", order.ID(), "err", err)
+			}
+		}
 		return ErrGenerationNotReady
 	}
 
@@ -393,6 +418,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		metrics.ActiveWorkerSlots.Dec()
 	case domain.MusicGenerationStatusCompleted:
 		var domainTracks []domain.Track
+		totalTracks := len(result.Tracks)
 		for i, pt := range result.Tracks {
 			// Перезаливаем трек в собственное S3-хранилище. Временные ссылки Suno
 			// протухают через несколько часов, поэтому загрузка ОБЯЗАТЕЛЬНА: при
@@ -414,6 +440,11 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 				DurationSec: pt.DurationSec,
 				SunoTrackID: pt.ExternalID,
 			})
+			uploadPct := 85 + ((i+1)*14)/max(totalTracks, 1)
+			order.UpdateGenerationProgress(domain.GenerationPhaseUploading, uploadPct, i+1)
+			if err := uc.orderRepo.Update(ctx, order); err != nil {
+				uc.log.Warn("не удалось сохранить прогресс загрузки", "order_id", order.ID(), "err", err)
+			}
 		}
 
 		if err := order.Complete(domainTracks); err != nil {

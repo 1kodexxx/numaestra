@@ -28,6 +28,7 @@ type CoverUploader interface {
 // Все маршруты защищены Bearer-токеном через AdminAuth middleware.
 type AdminHandler struct {
 	uc        *usecase.AdminUseCase
+	genreUC   *usecase.GenreUseCase // nil → роуты жанров не регистрируются
 	exampleUC *usecase.ExampleUseCase // nil → роуты примеров не регистрируются
 	reviewUC  *usecase.ReviewUseCase  // nil → роуты отзывов не регистрируются
 	stats     *usecase.StatsUseCase   // nil → роут статистики не регистрируется
@@ -43,6 +44,12 @@ func NewAdminHandler(uc *usecase.AdminUseCase, log *slog.Logger) *AdminHandler {
 // (или S3-ключи не заданы), эндпоинт загрузки вернёт 503.
 func (h *AdminHandler) WithCoverUploader(up CoverUploader) *AdminHandler {
 	h.uploader = up
+	return h
+}
+
+// WithGenres включает CRUD справочника жанров и привязку жанров к категориям.
+func (h *AdminHandler) WithGenres(uc *usecase.GenreUseCase) *AdminHandler {
+	h.genreUC = uc
 	return h
 }
 
@@ -93,7 +100,20 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Post("/{id}/questions", h.AddQuestion)
 		r.Put("/{id}/questions/{qid}", h.UpdateQuestion)
 		r.Delete("/{id}/questions/{qid}", h.DeleteQuestion)
+		if h.genreUC != nil {
+			r.Get("/{id}/genres", h.GetCategoryGenres)
+			r.Put("/{id}/genres", h.SetCategoryGenres)
+		}
 	})
+
+	if h.genreUC != nil {
+		r.Route("/genres", func(r chi.Router) {
+			r.Get("/", h.ListGenres)
+			r.Post("/", h.CreateGenre)
+			r.Put("/{id}", h.UpdateGenre)
+			r.Delete("/{id}", h.DeleteGenre)
+		})
+	}
 
 	if h.exampleUC != nil {
 		r.Route("/examples", func(r chi.Router) {
@@ -432,12 +452,18 @@ type optionDTO struct {
 }
 
 type questionRequest struct {
-	StepNumber   int         `json:"step_number"`
-	QuestionText string      `json:"question_text"`
-	UIType       string      `json:"ui_type"`
-	MappingKey   string      `json:"mapping_key"`
-	IsRequired   bool        `json:"is_required"`
-	Options      []optionDTO `json:"options"`
+	StepNumber   int                    `json:"step_number"`
+	QuestionText string                 `json:"question_text"`
+	UIType       string                 `json:"ui_type"`
+	MappingKey   string                 `json:"mapping_key"`
+	IsRequired   bool                   `json:"is_required"`
+	OptionSource string                 `json:"option_source"`
+	Config       domain.QuestionConfig  `json:"config"`
+	Options      []optionDTO            `json:"options"`
+}
+
+func (q questionRequest) toDomainConfig() domain.QuestionConfig {
+	return q.Config
 }
 
 func (q questionRequest) toDomainOptions() []domain.Option {
@@ -455,17 +481,20 @@ type categoryAdminResponse struct {
 	CoverImageURL      string             `json:"cover_image_url"`
 	SeoTags            []string           `json:"seo_tags"`
 	BasePromptTemplate string             `json:"base_prompt_template"`
+	GenreIDs           []int              `json:"genre_ids,omitempty"`
 	Questions          []questionResponse `json:"questions,omitempty"`
 }
 
 type questionResponse struct {
-	ID           int         `json:"id"`
-	StepNumber   int         `json:"step_number"`
-	QuestionText string      `json:"question_text"`
-	UIType       string      `json:"ui_type"`
-	MappingKey   string      `json:"mapping_key"`
-	IsRequired   bool        `json:"is_required"`
-	Options      []optionDTO `json:"options,omitempty"`
+	ID           int                    `json:"id"`
+	StepNumber   int                    `json:"step_number"`
+	QuestionText string                 `json:"question_text"`
+	UIType       string                 `json:"ui_type"`
+	MappingKey   string                 `json:"mapping_key"`
+	IsRequired   bool                   `json:"is_required"`
+	OptionSource string                 `json:"option_source,omitempty"`
+	Config       domain.QuestionConfig  `json:"config,omitempty"`
+	Options      []optionDTO            `json:"options,omitempty"`
 }
 
 func questionToResponse(q domain.Question) questionResponse {
@@ -480,11 +509,13 @@ func questionToResponse(q domain.Question) questionResponse {
 		UIType:       q.UIType,
 		MappingKey:   q.MappingKey,
 		IsRequired:   q.IsRequired,
+		OptionSource: q.OptionSource,
+		Config:       q.Config,
 		Options:      opts,
 	}
 }
 
-func categoryToAdminResponse(c *domain.Category) categoryAdminResponse {
+func categoryToAdminResponse(c *domain.Category, genreIDs []int) categoryAdminResponse {
 	questions := make([]questionResponse, 0, len(c.Questions()))
 	for _, q := range c.Questions() {
 		questions = append(questions, questionToResponse(q))
@@ -496,6 +527,7 @@ func categoryToAdminResponse(c *domain.Category) categoryAdminResponse {
 		CoverImageURL:      c.CoverImageURL(),
 		SeoTags:            c.SeoTags(),
 		BasePromptTemplate: c.BasePromptTemplate(),
+		GenreIDs:           genreIDs,
 		Questions:          questions,
 	}
 }
@@ -511,7 +543,7 @@ func (h *AdminHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := make([]categoryAdminResponse, 0, len(categories))
 	for _, c := range categories {
-		resp = append(resp, categoryToAdminResponse(c))
+		resp = append(resp, categoryToAdminResponse(c, nil))
 	}
 	respondJSON(w, http.StatusOK, resp)
 }
@@ -530,7 +562,16 @@ func (h *AdminHandler) GetCategory(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusInternalServerError, "не удалось получить категорию")
 		return
 	}
-	respondJSON(w, http.StatusOK, categoryToAdminResponse(category))
+	var genreIDs []int
+	if h.genreUC != nil {
+		genreIDs, err = h.genreUC.GetCategoryGenreIDs(r.Context(), id)
+		if err != nil {
+			h.log.Error("admin: ошибка получения жанров категории", "category_id", id, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "не удалось получить категорию")
+			return
+		}
+	}
+	respondJSON(w, http.StatusOK, categoryToAdminResponse(category, genreIDs))
 }
 
 // CreateCategory создаёт новую категорию каталога (включая, например, категорию
@@ -552,7 +593,7 @@ func (h *AdminHandler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusCreated, categoryToAdminResponse(category))
+	respondJSON(w, http.StatusCreated, categoryToAdminResponse(category, nil))
 }
 
 // UpdateCategory обновляет изменяемые поля категории.
@@ -575,7 +616,7 @@ func (h *AdminHandler) UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, categoryToAdminResponse(category))
+	respondJSON(w, http.StatusOK, categoryToAdminResponse(category, nil))
 }
 
 // coverExtByMIME — допустимые типы обложек и соответствующее расширение ключа.
@@ -671,7 +712,7 @@ func (h *AdminHandler) AddQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q, err := h.uc.AddQuestion(r.Context(), categoryID, req.StepNumber, req.QuestionText, req.UIType, req.MappingKey, req.IsRequired, req.toDomainOptions())
+	q, err := h.uc.AddQuestion(r.Context(), categoryID, req.StepNumber, req.QuestionText, req.UIType, req.MappingKey, req.IsRequired, req.OptionSource, req.toDomainConfig(), req.toDomainOptions())
 	if err != nil {
 		if errors.Is(err, domain.ErrCategoryNotFound) {
 			respondError(w, r, http.StatusNotFound, "категория не найдена")
@@ -699,7 +740,7 @@ func (h *AdminHandler) UpdateQuestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.uc.UpdateQuestion(r.Context(), categoryID, qid, req.StepNumber, req.QuestionText, req.UIType, req.MappingKey, req.IsRequired, req.toDomainOptions()); err != nil {
+	if err := h.uc.UpdateQuestion(r.Context(), categoryID, qid, req.StepNumber, req.QuestionText, req.UIType, req.MappingKey, req.IsRequired, req.OptionSource, req.toDomainConfig(), req.toDomainOptions()); err != nil {
 		if errors.Is(err, domain.ErrQuestionNotFound) {
 			respondError(w, r, http.StatusNotFound, "вопрос не найден")
 			return
@@ -727,6 +768,134 @@ func (h *AdminHandler) DeleteQuestion(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Error("admin: ошибка удаления вопроса", "category_id", categoryID, "question_id", qid, "error", err)
 		respondError(w, r, http.StatusInternalServerError, "не удалось удалить вопрос")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Genres ---
+
+type genreRequest struct {
+	Slug      string `json:"slug"`
+	Label     string `json:"label"`
+	SunoValue string `json:"suno_value"`
+	SortOrder int    `json:"sort_order"`
+	IsActive  bool   `json:"is_active"`
+}
+
+type genreUpdateRequest struct {
+	Label     string `json:"label"`
+	SunoValue string `json:"suno_value"`
+	SortOrder int    `json:"sort_order"`
+	IsActive  bool   `json:"is_active"`
+}
+
+type categoryGenresRequest struct {
+	GenreIDs []int `json:"genre_ids"`
+}
+
+// ListGenres возвращает весь справочник жанров (включая неактивные).
+// GET /api/v1/admin/genres
+func (h *AdminHandler) ListGenres(w http.ResponseWriter, r *http.Request) {
+	genres, err := h.genreUC.List(r.Context(), "", false)
+	if err != nil {
+		h.log.Error("admin: ошибка получения жанров", "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить жанры")
+		return
+	}
+	respondJSON(w, http.StatusOK, genres)
+}
+
+// CreateGenre создаёт жанр в справочнике.
+// POST /api/v1/admin/genres
+func (h *AdminHandler) CreateGenre(w http.ResponseWriter, r *http.Request) {
+	var req genreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+	g, err := h.genreUC.Create(r.Context(), req.Slug, req.Label, req.SunoValue, req.SortOrder)
+	if err != nil {
+		if errors.Is(err, domain.ErrGenreAlreadyExists) {
+			respondError(w, r, http.StatusConflict, "жанр с таким slug уже существует")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusCreated, g)
+}
+
+// UpdateGenre обновляет жанр.
+// PUT /api/v1/admin/genres/{id}
+func (h *AdminHandler) UpdateGenre(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный id жанра")
+		return
+	}
+	var req genreUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+	g, err := h.genreUC.Update(r.Context(), id, req.Label, req.SunoValue, req.SortOrder, req.IsActive)
+	if err != nil {
+		if errors.Is(err, domain.ErrGenreNotFound) {
+			respondError(w, r, http.StatusNotFound, "жанр не найден")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, g)
+}
+
+// DeleteGenre удаляет жанр из справочника.
+// DELETE /api/v1/admin/genres/{id}
+func (h *AdminHandler) DeleteGenre(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный id жанра")
+		return
+	}
+	if err := h.genreUC.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, domain.ErrGenreNotFound) {
+			respondError(w, r, http.StatusNotFound, "жанр не найден")
+			return
+		}
+		h.log.Error("admin: ошибка удаления жанра", "genre_id", id, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось удалить жанр")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetCategoryGenres возвращает id жанров, привязанных к категории.
+// GET /api/v1/admin/categories/{id}/genres
+func (h *AdminHandler) GetCategoryGenres(w http.ResponseWriter, r *http.Request) {
+	categoryID := chi.URLParam(r, "id")
+	ids, err := h.genreUC.GetCategoryGenreIDs(r.Context(), categoryID)
+	if err != nil {
+		h.log.Error("admin: ошибка получения жанров категории", "category_id", categoryID, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось получить жанры категории")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"genre_ids": ids})
+}
+
+// SetCategoryGenres заменяет список жанров категории.
+// PUT /api/v1/admin/categories/{id}/genres
+func (h *AdminHandler) SetCategoryGenres(w http.ResponseWriter, r *http.Request) {
+	categoryID := chi.URLParam(r, "id")
+	var req categoryGenresRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+	if err := h.genreUC.SetCategoryGenres(r.Context(), categoryID, req.GenreIDs); err != nil {
+		h.log.Error("admin: ошибка обновления жанров категории", "category_id", categoryID, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось обновить жанры категории")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

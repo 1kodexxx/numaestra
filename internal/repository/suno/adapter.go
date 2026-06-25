@@ -72,6 +72,8 @@ func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string)
 	var tracks []domain.ProviderTrack
 	var lastFailReason string
 	stillRunning := false
+	var taskScore float64
+	clipsReady := 0
 
 	for _, taskID := range taskIDs {
 		task, err := a.client.GetTask(ctx, taskID)
@@ -81,7 +83,9 @@ func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string)
 
 		switch task.Status {
 		case suno.StatusSuccess:
+			taskScore += 1.0
 			for _, clip := range task.Clips {
+				clipsReady++
 				tracks = append(tracks, domain.ProviderTrack{
 					SourceURL:   clip.AudioURL,
 					DurationSec: clip.DurationSec,
@@ -92,13 +96,21 @@ func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string)
 			if task.FailReason != "" {
 				lastFailReason = task.FailReason
 			}
-		default: // pending / running
+		case suno.StatusRunning:
 			stillRunning = true
+			taskScore += 0.55
+		default: // pending
+			stillRunning = true
+			taskScore += 0.12
 		}
 	}
 
 	if stillRunning {
-		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
+		return domain.MusicGenerationResult{
+			Status:          domain.MusicGenerationStatusRunning,
+			ProgressPercent: runningProgressPercent(taskScore, len(taskIDs)),
+			ClipsReady:      clipsReady,
+		}, nil
 	}
 
 	// Все задачи терминальны. Есть клипы — успех (даже если часть задач упала);
@@ -111,6 +123,19 @@ func (a *ProviderAdapter) FetchResult(ctx context.Context, providerJobID string)
 	}
 
 	return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusCompleted, Tracks: tracks}, nil
+}
+
+// runningProgressPercent переводит долю завершённых Suno-задач в 30–85% шкалы заказа.
+func runningProgressPercent(taskScore float64, taskCount int) int {
+	if taskCount <= 0 {
+		return 30
+	}
+	const base, max = 30, 85
+	ratio := taskScore / float64(taskCount)
+	if ratio > 1 {
+		ratio = 1
+	}
+	return base + int(ratio*float64(max-base))
 }
 
 // tasksFor возвращает число задач Sunor, нужное для trackCount версий (минимум 1).

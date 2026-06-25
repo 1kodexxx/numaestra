@@ -1,4 +1,5 @@
 import type { Category } from "@entities/category";
+import { genreApi } from "@entities/genre";
 import { exampleApi } from "@entities/example";
 import { useCreateOrder } from "@features/create-order";
 import { useCatalog } from "@features/load-catalog";
@@ -420,19 +421,9 @@ const MOODS = [
   "Спокойствие",
   "Драйв",
 ];
-const GENRES = [
-  "Поп",
-  "Баллада",
-  "Рок",
-  "Рэп",
-  "Хип-хоп",
-  "Джаз",
-  "R&B",
-  "Электроника",
-  "Шансон",
-  "Акустика",
-  "Фолк",
-  "Кантри",
+const GENRES_FALLBACK = [
+  "Поп", "Баллада", "Рок", "Рэп", "Хип-хоп", "Джаз", "R&B", "Электроника",
+  "Шансон", "Акустика", "Фолк", "Кантри",
 ];
 const TEMPOS = ["Медленный", "Средний", "Быстрый"];
 const VOCALS = ["Мужской", "Женский", "Дуэт", "Хор", "Без вокала"];
@@ -515,12 +506,14 @@ function Section({
 function PromptBuilder({
   form,
   update,
+  genres,
   onBack,
   onSubmit,
   canSubmit,
 }: {
   form: PromptForm;
   update: <K extends keyof PromptForm>(key: K, value: PromptForm[K]) => void;
+  genres: string[];
   onBack: () => void;
   onSubmit: () => void;
   canSubmit: boolean;
@@ -620,7 +613,7 @@ function PromptBuilder({
         />
 
         <Section label="Жанр" hint="можно несколько">
-          {GENRES.map((g) => (
+          {genres.map((g) => (
             <Chip
               key={g}
               label={g}
@@ -1141,6 +1134,7 @@ export function CatalogPage() {
   const { isMobile, isShort } = useBreakpoint();
   const [briefOpen, setBriefOpen] = useState(false);
   const [form, setForm] = useState<PromptForm>(EMPTY_FORM);
+  const [genres, setGenres] = useState<string[]>(GENRES_FALLBACK);
   const [showContact, setShowContact] = useState(false);
   const [playing, setPlaying] = useState<ExampleSong | null>(null);
   const [track, setTrack] = useState<{ url: string; duration: number } | null>(
@@ -1170,6 +1164,18 @@ export function CatalogPage() {
       })
       .catch(() => {
         /* сеть недоступна — остаёмся на резервном списке */
+      });
+  }, []);
+
+  useEffect(() => {
+    genreApi
+      .list()
+      .then((items) => {
+        if (items.length === 0) return;
+        setGenres(items.map((g) => g.label));
+      })
+      .catch(() => {
+        /* остаёмся на резервном списке */
       });
   }, []);
 
@@ -1265,6 +1271,7 @@ export function CatalogPage() {
         <PromptBuilder
           form={form}
           update={updateForm}
+          genres={genres}
           onBack={closeBuilder}
           onSubmit={() => setShowContact(true)}
           canSubmit={

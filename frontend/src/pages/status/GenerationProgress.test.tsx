@@ -12,42 +12,71 @@ describe('GenerationProgress', () => {
   })
 
   it('показывает 100% и финальный текст при completed', () => {
-    render(<GenerationProgress status="completed" />)
+    render(<GenerationProgress status="completed" generationProgress={100} />)
 
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.getByText('Песня готова 🎉')).toBeInTheDocument()
   })
 
-  it('не достигает 100% до фактического завершения (потолок 94%)', () => {
-    // paid_at далеко в прошлом → кривая упёрлась в CAP, но не в 100%.
-    const longAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-    render(<GenerationProgress status="processing" paidAt={longAgo} />)
+  it('использует прогресс с сервера вместо чисто временной оценки', () => {
+    render(
+      <GenerationProgress
+        status="processing"
+        paidAt={new Date().toISOString()}
+        generationPhase="generating"
+        generationProgress={62}
+        tracksReady={2}
+      />,
+    )
+
+    expect(screen.getByText('62%')).toBeInTheDocument()
+    expect(screen.getByText('🎼 Готово 2 из 4 версий…')).toBeInTheDocument()
+  })
+
+  it('не достигает 100% до фактического завершения', () => {
+    render(
+      <GenerationProgress
+        status="processing"
+        paidAt={new Date(Date.now() - 60 * 60 * 1000).toISOString()}
+        generationProgress={85}
+        generationPhase="generating"
+      />,
+    )
 
     const pct = Number(screen.getByText(/%$/).textContent!.replace('%', ''))
     expect(pct).toBeGreaterThan(0)
-    expect(pct).toBeLessThanOrEqual(94)
-  })
-
-  it('стартует около 0% сразу после оплаты', () => {
-    render(<GenerationProgress status="queued" paidAt={new Date().toISOString()} />)
-
-    expect(screen.getByText('0%')).toBeInTheDocument()
+    expect(pct).toBeLessThan(100)
   })
 
   it('в статусе queued показывает сообщение фазы очереди', () => {
-    render(<GenerationProgress status="queued" paidAt={new Date().toISOString()} />)
+    render(
+      <GenerationProgress
+        status="queued"
+        paidAt={new Date().toISOString()}
+        generationPhase="queued"
+        generationProgress={3}
+      />,
+    )
 
+    expect(screen.getByText('3%')).toBeInTheDocument()
     expect(screen.getByText('Заказ принят — становимся в очередь…')).toBeInTheDocument()
   })
 
-  it('растёт со временем без обновления статуса', () => {
-    render(<GenerationProgress status="processing" paidAt={new Date().toISOString()} />)
-    expect(screen.getByText('0%')).toBeInTheDocument()
+  it('плавно подтягивает отображение между опросами', () => {
+    render(
+      <GenerationProgress
+        status="processing"
+        generationPhase="generating"
+        generationProgress={40}
+        paidAt={new Date().toISOString()}
+      />,
+    )
+    expect(screen.getByText('40%')).toBeInTheDocument()
 
-    // Прокручиваем 2 минуты ежесекундных тиков (setNow внутри — оборачиваем в act).
-    act(() => { vi.advanceTimersByTime(120_000) })
+    act(() => { vi.advanceTimersByTime(8_000) })
 
     const pct = Number(screen.getByText(/%$/).textContent!.replace('%', ''))
-    expect(pct).toBeGreaterThan(0)
+    expect(pct).toBeGreaterThanOrEqual(40)
+    expect(pct).toBeLessThanOrEqual(43)
   })
 })

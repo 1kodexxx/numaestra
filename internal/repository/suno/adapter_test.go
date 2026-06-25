@@ -161,6 +161,44 @@ func TestFetchResult_StillRunning(t *testing.T) {
 	}
 }
 
+func TestFetchResult_StillRunning_ReportsProgress(t *testing.T) {
+	mock := &suno.MockClient{
+		GetTaskFunc: func(_ context.Context, id string) (suno.Task, error) {
+			if id == "t1" {
+				return suno.Task{ID: id, Status: suno.StatusSuccess, Clips: []suno.Clip{
+					{ID: "c1", AudioURL: "u1"},
+					{ID: "c2", AudioURL: "u2"},
+				}}, nil
+			}
+			return suno.Task{ID: id, Status: suno.StatusRunning}, nil
+		},
+	}
+	a := NewProviderAdapter(mock)
+
+	res, err := a.FetchResult(context.Background(), "t1,t2")
+	if err != nil {
+		t.Fatalf("FetchResult: %v", err)
+	}
+	if res.ProgressPercent < 55 || res.ProgressPercent > 75 {
+		t.Errorf("ожидали прогресс ~57%% (1 из 2 задач готова), получили %d", res.ProgressPercent)
+	}
+	if res.ClipsReady != 2 {
+		t.Errorf("ожидали 2 готовых клипа, получили %d", res.ClipsReady)
+	}
+}
+
+func TestRunningProgressPercent(t *testing.T) {
+	if p := runningProgressPercent(0, 2); p != 30 {
+		t.Errorf("0/2 → 30%%, получили %d", p)
+	}
+	if p := runningProgressPercent(1.0, 2); p != 57 {
+		t.Errorf("2/2 → 57%%, получили %d", p)
+	}
+	if p := runningProgressPercent(2.0, 2); p != 85 {
+		t.Errorf("полный score → 85%%, получили %d", p)
+	}
+}
+
 func TestFetchResult_PartialFailureStillCompletes(t *testing.T) {
 	mock := &suno.MockClient{
 		GetTaskFunc: func(_ context.Context, id string) (suno.Task, error) {

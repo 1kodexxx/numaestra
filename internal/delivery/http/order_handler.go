@@ -288,6 +288,9 @@ type OrderDetailResponse struct {
 	Brief            string          `json:"brief"`
 	PaymentStatus    string          `json:"payment_status"`
 	GenerationStatus string          `json:"generation_status"`
+	GenerationPhase  string          `json:"generation_phase,omitempty"`
+	GenerationProgress int           `json:"generation_progress"`
+	TracksReady      int             `json:"tracks_ready"`
 	Tracks           []TrackResponse `json:"tracks,omitempty"`
 	// PaidAt — момент оплаты (RFC3339), якорь для прогресс-бара генерации на
 	// фронте. Пусто, пока заказ не оплачен.
@@ -323,12 +326,15 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, OrderDetailResponse{
-		ID:               order.ID().String(),
-		Brief:            order.Brief(),
-		PaymentStatus:    string(order.PaymentStatus()),
-		GenerationStatus: string(order.GenerationStatus()),
-		Tracks:           tracks,
-		PaidAt:           paidAt,
+		ID:                 order.ID().String(),
+		Brief:              order.Brief(),
+		PaymentStatus:      string(order.PaymentStatus()),
+		GenerationStatus:   string(order.GenerationStatus()),
+		GenerationPhase:    string(order.GenerationPhase()),
+		GenerationProgress: order.GenerationProgress(),
+		TracksReady:        order.TracksReady(),
+		Tracks:             tracks,
+		PaidAt:             paidAt,
 	})
 }
 

@@ -300,6 +300,9 @@ func TestProcessGenerationTask_Success(t *testing.T) {
 	if got.GenerationStatus() != domain.GenerationStatusProcessing {
 		t.Errorf("ожидали processing, получили %q", got.GenerationStatus())
 	}
+	if got.GenerationPhase() != domain.GenerationPhaseGenerating || got.GenerationProgress() < 30 {
+		t.Errorf("ожидали generating ≥30%%, получили %s/%d", got.GenerationPhase(), got.GenerationProgress())
+	}
 	if len(f.queue.statusCalls) != 1 || f.queue.statusCalls[0].SunoJobID != "job-123" {
 		t.Errorf("ожидали постановку задачи опроса с job-123, получили %+v", f.queue.statusCalls)
 	}
@@ -459,6 +462,53 @@ func TestCheckGenerationStatus_Completed(t *testing.T) {
 }
 
 func TestCheckGenerationStatus_StillRunning(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status:          domain.MusicGenerationStatusRunning,
+			ProgressPercent: 62,
+			ClipsReady:      2,
+		}, nil
+	}
+
+	err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1")
+	if !errors.Is(err, ErrGenerationNotReady) {
+		t.Fatalf("ожидали ErrGenerationNotReady, получили %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationProgress() != 62 || got.TracksReady() != 2 || got.GenerationPhase() != domain.GenerationPhaseGenerating {
+		t.Errorf("прогресс должен сохраниться: phase=%s progress=%d tracks=%d",
+			got.GenerationPhase(), got.GenerationProgress(), got.TracksReady())
+	}
+}
+
+func TestCheckGenerationStatus_Completed_SetsFullProgress(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := f.processingOrder(t, acc)
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{
+				{SourceURL: "https://suno/1.mp3", DurationSec: 180, ExternalID: "ext-1"},
+			},
+		}, nil
+	}
+
+	if err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "job-1"); err != nil {
+		t.Fatalf("CheckGenerationStatus: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.GenerationPhase() != domain.GenerationPhaseCompleted || got.GenerationProgress() != 100 {
+		t.Errorf("ожидали completed/100%%, получили %s/%d", got.GenerationPhase(), got.GenerationProgress())
+	}
+}
+
+func TestCheckGenerationStatus_StillRunning_NoProgressInResult(t *testing.T) {
 	f := newFixture(t)
 	acc := f.addAccount(t, 10)
 	order := f.processingOrder(t, acc)

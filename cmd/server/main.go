@@ -132,8 +132,10 @@ func run(ctx context.Context) error {
 	queuePublisher := queue.NewAsynqPublisher(asynqClient, redisOpt)
 
 	// === НОВЫЙ БЛОК ДЛЯ UI (Server-Driven UI) ===
-	categoryRepo := postgres.NewCategoryRepository(pgPool)
+	genreRepo := postgres.NewGenreRepository(pgPool)
+	categoryRepo := postgres.NewCategoryRepository(pgPool).WithGenres(genreRepo)
 	promptUC := usecase.NewPromptUseCase(categoryRepo)
+	genreUC := usecase.NewGenreUseCase(genreRepo, log)
 	// ============================================
 
 	exampleRepo := postgres.NewExampleRepository(pgPool)
@@ -272,9 +274,11 @@ func run(ctx context.Context) error {
 		WithIdempotency(idempotency.NewStore(rdb)).
 		WithRedis(rdb)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log)
+	genreHandler := apphttp.NewGenreHandler(genreUC, log)
 	exampleHandler := apphttp.NewExampleHandler(exampleUC, log)
 	reviewHandler := apphttp.NewReviewHandler(reviewUC, log)
 	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log).WithQueue(queuePublisher), log).
+		WithGenres(genreUC).
 		WithExamples(exampleUC).
 		WithReviews(reviewUC).
 		WithStats(statsUC)
@@ -310,7 +314,7 @@ func run(ctx context.Context) error {
 	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log).
 		WithReviews(reviewUC)
 
-	router := newRouter(log, orderHandler, categoryHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
+	router := newRouter(log, orderHandler, categoryHandler, genreHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -355,6 +359,7 @@ func newRouter(
 	log *slog.Logger,
 	orderHandler *apphttp.OrderHandler,
 	categoryHandler *apphttp.CategoryHandler,
+	genreHandler *apphttp.GenreHandler,
 	exampleHandler *apphttp.ExampleHandler,
 	reviewHandler *apphttp.ReviewHandler,
 	adminHandler *apphttp.AdminHandler,
@@ -398,6 +403,7 @@ func newRouter(
 
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
+	r.Mount("/api/v1/genres", genreHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
 	r.Mount("/api/v1/reviews", reviewHandler.Routes())
 
