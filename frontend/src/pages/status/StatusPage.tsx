@@ -105,7 +105,7 @@ export function StatusPage() {
   if (!order) return null
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', padding: '40px 24px 60px' }}>
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: 'clamp(24px, 6vw, 40px) clamp(16px, 4vw, 24px) 60px' }}>
       <OrderCard
         order={order}
         justPaid={justPaid || returnedFromRobokassa}
@@ -267,11 +267,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
         </div>
       )}
       {/* Header */}
-      <div style={{
-        background: '#0f0f0f', border: `1px solid ${BORDER}`,
-        borderRadius: '24px', padding: '36px 36px 28px', textAlign: 'center', marginBottom: '16px',
-        position: 'relative', overflow: 'hidden',
-      }}>
+      <div className="status-order-card">
         {gs !== 'failed' && (
           <div style={{
             position: 'absolute', inset: 0, pointerEvents: 'none',
@@ -288,7 +284,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
           )}
           <div style={{ fontSize: '52px', lineHeight: 1, position: 'relative' }}>{icon}</div>
         </div>
-        <div style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '8px' }}>{title}</div>
+        <div style={{ fontSize: 'clamp(20px, 5vw, 24px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '8px' }}>{title}</div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: gs === 'failed' ? '12px' : '32px' }}>{sub}</div>
         {gs === 'failed' && (
           <Link to="/legal/contacts" style={{ display: 'inline-block', fontSize: '14px', color: ACCENT, marginBottom: '24px', textDecoration: 'none' }}>
@@ -297,36 +293,39 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
         )}
 
         {/* Steps */}
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0 }}>
-          {STEPS.map((label, i) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div className="status-steps" aria-label="Этапы заказа">
+          {STEPS.flatMap((label, i) => {
+            const nodes = [
+              <div key={label} className="status-step-col">
                 <div
-                  className={i === idx && !isTerminal ? 'progress-pulse' : ''}
+                  className={i === idx && !isTerminal ? 'progress-pulse status-step-dot' : 'status-step-dot'}
                   style={{
-                    width: 32, height: 32, borderRadius: '50%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '12px', fontWeight: 700,
                     background: i <= idx ? ACCENT : 'rgba(255,255,255,0.07)',
                     color: i <= idx ? DARK : 'rgba(255,255,255,0.2)',
-                    transition: 'all 0.3s',
                   }}
                 >
                   {i < idx ? '✓' : i + 1}
                 </div>
-                <div style={{ fontSize: '11px', marginTop: '6px', color: i <= idx ? TEXT2 : TEXT3, width: 60, textAlign: 'center', fontWeight: 500 }}>
+                <div
+                  className="status-step-label"
+                  style={{ color: i <= idx ? TEXT2 : TEXT3 }}
+                >
                   {label}
                 </div>
-              </div>
-              {i < STEPS.length - 1 && (
-                <div style={{
-                  width: 52, height: 2, marginBottom: 22,
-                  background: i < idx ? ACCENT : 'rgba(255,255,255,0.07)',
-                  transition: 'background 0.3s',
-                }} />
-              )}
-            </div>
-          ))}
+              </div>,
+            ]
+            if (i < STEPS.length - 1) {
+              nodes.push(
+                <div
+                  key={`${label}-line`}
+                  className="status-step-line"
+                  style={{ background: i < idx ? ACCENT : 'rgba(255,255,255,0.07)' }}
+                  aria-hidden
+                />,
+              )
+            }
+            return nodes
+          })}
         </div>
 
         {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
@@ -359,7 +358,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
           </div>
         )}
 
-        <div style={{ marginTop: '20px', fontSize: '12px', color: TEXT3, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <div className="status-order-id" style={{ marginTop: '20px', fontSize: '12px', color: TEXT3, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           ID:
           <button
             onClick={() => copyText(order.id, 'ID заказа скопирован')}
