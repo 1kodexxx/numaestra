@@ -38,7 +38,7 @@ export function StatusPage() {
   const [input,  setInput]  = useState(initId ?? '')
   const [active, setActive] = useState<string | null>(initId)
 
-  const { order, loading, error } = usePollOrderStatus(active)
+  const { order, loading, error, canManage } = usePollOrderStatus(active)
 
   const justPaid = searchParams.get('paid') === '1'
 
@@ -92,11 +92,13 @@ export function StatusPage() {
       <OrderCard
         order={order}
         justPaid={justPaid}
+        canManage={canManage}
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
       />
       <OrdersOverview
         currentId={order.id}
+        enabled={canManage}
         onSelect={(id) => {
           const token = orderStorage.getAccessToken()
           if (token) orderStorage.saveOrder(id, token)
@@ -121,15 +123,19 @@ function summaryBadge(o: OrderSummary): { label: string; color: string; bg: stri
   }
 }
 
-function OrdersOverview({ currentId, onSelect }: { currentId: string; onSelect: (id: string) => void }) {
+function OrdersOverview({ currentId, enabled, onSelect }: { currentId: string; enabled: boolean; onSelect: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderSummary[] | null>(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setOrders(null)
+      return
+    }
     const token = orderStorage.getAccessToken() ?? undefined
     orderApi.list(token).then(setOrders).catch(() => setOrders([]))
-  }, [currentId])
+  }, [currentId, enabled])
 
-  if (!orders || orders.length < 2) return null
+  if (!enabled || !orders || orders.length < 2) return null
 
   return (
     <div className="fade-in" style={{ marginTop: '24px' }}>
@@ -198,7 +204,7 @@ function OrdersOverview({ currentId, onSelect }: { currentId: string; onSelect: 
 const STEPS   = ['Оплата', 'Очередь', 'Создание', 'Готово']
 const STEPKEYS = ['paid', 'queued', 'processing', 'completed'] as const
 
-function OrderCard({ order, justPaid, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; onClear: () => void; onBack: () => void }) {
+function OrderCard({ order, justPaid, canManage, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; canManage: boolean; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
 
@@ -306,11 +312,19 @@ function OrderCard({ order, justPaid, onClear, onBack }: { order: OrderDetail; j
         {/* Ожидание оплаты — кнопка повторного перехода к оплате */}
         {ps === 'pending' && (
           <div style={{ marginTop: '28px' }}>
-            <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
-            {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
-            <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
-              Первая попытка не прошла? Оплатите ещё раз — заказ сохранён.
-            </div>
+            {canManage ? (
+              <>
+                <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
+                {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
+                <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+                  Первая попытка не прошла? Оплатите ещё раз — заказ сохранён.
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: '13px', color: TEXT2, lineHeight: 1.5 }}>
+                Для оплаты откройте полную ссылку из письма после оформления заказа — в ней есть секретный токен доступа.
+              </div>
+            )}
           </div>
         )}
 
@@ -410,7 +424,7 @@ function OrderCard({ order, justPaid, onClear, onBack }: { order: OrderDetail; j
           содержать токен в query (?order_id=&token=), а делиться им нельзя —
           получатель получил бы доступ к управлению заказом владельца. */}
       {gs === 'completed' && (
-        <ShareSection orderId={order.id} shareRevoked={order.share_revoked ?? false} />
+        <ShareSection orderId={order.id} shareRevoked={order.share_revoked ?? false} canManage={canManage} />
       )}
 
       {/* Actions */}
@@ -424,7 +438,7 @@ function OrderCard({ order, justPaid, onClear, onBack }: { order: OrderDetail; j
   )
 }
 
-function ShareSection({ orderId, shareRevoked: initialRevoked }: { orderId: string; shareRevoked: boolean }) {
+function ShareSection({ orderId, shareRevoked: initialRevoked, canManage }: { orderId: string; shareRevoked: boolean; canManage: boolean }) {
   const [shareRevoked, setShareRevoked] = useState(initialRevoked)
   const [shareBusy, setShareBusy] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
@@ -460,18 +474,20 @@ function ShareSection({ orderId, shareRevoked: initialRevoked }: { orderId: stri
             text="Послушайте песню, которую мне сделали в Numaestra 🎵"
           />
           <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <button
-              type="button"
-              onClick={() => toggleShare(true)}
-              disabled={shareBusy}
-              style={{
-                background: 'transparent', border: `1px solid ${BORDER}`, borderRadius: '10px',
-                padding: '8px 14px', fontSize: '12px', color: TEXT2, cursor: shareBusy ? 'wait' : 'pointer',
-                fontFamily: 'inherit',
-              }}
-            >
-              {shareBusy ? 'Сохраняем…' : 'Отозвать публичную ссылку'}
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => toggleShare(true)}
+                disabled={shareBusy}
+                style={{
+                  background: 'transparent', border: `1px solid ${BORDER}`, borderRadius: '10px',
+                  padding: '8px 14px', fontSize: '12px', color: TEXT2, cursor: shareBusy ? 'wait' : 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {shareBusy ? 'Сохраняем…' : 'Отозвать публичную ссылку'}
+              </button>
+            )}
           </div>
         </>
       ) : (
@@ -485,11 +501,12 @@ function ShareSection({ orderId, shareRevoked: initialRevoked }: { orderId: stri
           <button
             type="button"
             onClick={() => toggleShare(false)}
-            disabled={shareBusy}
+            disabled={shareBusy || !canManage}
             style={{
               background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.25)',
               borderRadius: '10px', padding: '8px 14px', fontSize: '12px', color: ACCENT,
-              cursor: shareBusy ? 'wait' : 'pointer', fontFamily: 'inherit', fontWeight: 600,
+              cursor: shareBusy || !canManage ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontWeight: 600,
+              opacity: canManage ? 1 : 0.5,
             }}
           >
             {shareBusy ? 'Сохраняем…' : 'Восстановить доступ'}

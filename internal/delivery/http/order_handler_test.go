@@ -486,6 +486,37 @@ func TestHandler_GetPublicShare_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandler_GetPublicStatus_PendingWithoutToken(t *testing.T) {
+	h, router, repo := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Секретный бриф")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/status", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "Секретный бриф") || strings.Contains(body, "user@example.com") {
+		t.Error("публичный статус не должен содержать brief или email")
+	}
+	var resp PublicStatusResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.PaymentStatus != string(domain.PaymentStatusPending) {
+		t.Errorf("ожидали pending, получили %s", resp.PaymentStatus)
+	}
+
+	_ = order.MarkPaid()
+	_ = repo.Update(context.Background(), order)
+	req2 := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/status", nil)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
+	if resp.PaymentStatus != string(domain.PaymentStatusPaid) {
+		t.Errorf("ожидали paid после MarkPaid, получили %s", resp.PaymentStatus)
+	}
+}
+
 func TestHandler_ListOrders_Success(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	order := mustCreate(t, h, "user@example.com", "", "Бриф")

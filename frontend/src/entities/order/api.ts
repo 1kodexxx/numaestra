@@ -27,6 +27,10 @@ export const orderApi = {
     return apiFetch<{ payment_url: string }>(`/orders/${id}/payment-url`, { accessToken })
   },
 
+  getPublicStatus(id: string) {
+    return apiFetch<OrderDetail>(`/orders/${id}/status`)
+  },
+
   // Публичная карточка завершённой песни для шеринга — без токена.
   getPublicShare(id: string) {
     return apiFetch<{ id: string; tracks: Track[] }>(`/orders/${id}/share`)

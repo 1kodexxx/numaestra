@@ -3,11 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePollOrderStatus } from './usePollOrderStatus'
 import { orderApi } from '@entities/order'
 import { orderStorage } from '@shared/lib/storage'
+import { ApiError } from '@shared/api'
 import type { OrderDetail } from '@entities/order'
 
 vi.mock('@entities/order', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@entities/order')>()
-  return { ...actual, orderApi: { ...actual.orderApi, getById: vi.fn() } }
+  return { ...actual, orderApi: { ...actual.orderApi, getById: vi.fn(), getPublicStatus: vi.fn() } }
 })
 
 function order(status: OrderDetail['generation_status']): OrderDetail {
@@ -26,6 +27,7 @@ describe('usePollOrderStatus', () => {
     vi.useFakeTimers()
     localStorage.clear()
     vi.mocked(orderApi.getById).mockReset()
+    vi.mocked(orderApi.getPublicStatus).mockReset()
   })
 
   afterEach(() => {
@@ -52,6 +54,7 @@ describe('usePollOrderStatus', () => {
   })
 
   it('повторно опрашивает каждые 10 секунд, пока статус не терминальный', async () => {
+    orderStorage.saveOrder('order-1', 'tok-abc')
     vi.mocked(orderApi.getById)
       .mockResolvedValueOnce(order('queued'))
       .mockResolvedValueOnce(order('processing'))
@@ -70,6 +73,7 @@ describe('usePollOrderStatus', () => {
   })
 
   it('останавливает поллинг при статусе completed', async () => {
+    orderStorage.saveOrder('order-1', 'tok-abc')
     vi.mocked(orderApi.getById).mockResolvedValue(order('completed'))
 
     const { result } = renderHook(() => usePollOrderStatus('order-1'))
@@ -82,6 +86,7 @@ describe('usePollOrderStatus', () => {
   })
 
   it('останавливает поллинг при статусе failed', async () => {
+    orderStorage.saveOrder('order-1', 'tok-abc')
     vi.mocked(orderApi.getById).mockResolvedValue(order('failed'))
 
     renderHook(() => usePollOrderStatus('order-1'))
@@ -92,6 +97,7 @@ describe('usePollOrderStatus', () => {
   })
 
   it('сохраняет ошибку и прекращает поллинг при сбое запроса', async () => {
+    orderStorage.saveOrder('order-1', 'tok-abc')
     vi.mocked(orderApi.getById).mockRejectedValue(new Error('заказ не найден'))
 
     const { result } = renderHook(() => usePollOrderStatus('order-1'))
@@ -101,5 +107,29 @@ describe('usePollOrderStatus', () => {
 
     await vi.advanceTimersByTimeAsync(30_000)
     expect(orderApi.getById).toHaveBeenCalledTimes(1)
+  })
+
+  it('без токена запрашивает публичный статус по ID', async () => {
+    vi.mocked(orderApi.getPublicStatus).mockResolvedValue(order('processing'))
+
+    const { result } = renderHook(() => usePollOrderStatus('order-1'))
+
+    await vi.waitFor(() => expect(result.current.order?.generation_status).toBe('processing'))
+    expect(orderApi.getPublicStatus).toHaveBeenCalledWith('order-1')
+    expect(orderApi.getById).not.toHaveBeenCalled()
+    expect(result.current.canManage).toBe(false)
+  })
+
+  it('при устаревшем токене сбрасывает storage и грузит публичный статус', async () => {
+    orderStorage.saveOrder('deleted-order', 'stale-token')
+    vi.mocked(orderApi.getById).mockRejectedValue(new ApiError(401, 'неверный токен доступа'))
+    vi.mocked(orderApi.getPublicStatus).mockResolvedValue(order('completed'))
+
+    const { result } = renderHook(() => usePollOrderStatus('order-1'))
+
+    await vi.waitFor(() => expect(result.current.order?.generation_status).toBe('completed'))
+    expect(orderStorage.getAccessToken()).toBeNull()
+    expect(orderApi.getPublicStatus).toHaveBeenCalledWith('order-1')
+    expect(result.current.canManage).toBe(false)
   })
 })

@@ -91,6 +91,7 @@ func (h *OrderHandler) Routes() chi.Router {
 	r.Group(func(r chi.Router) {
 		r.Use(clientLimiter)
 		r.Get("/{id}/share", h.GetPublicShare)
+		r.Get("/{id}/status", h.GetPublicStatus)
 	})
 
 	r.Group(func(r chi.Router) {
@@ -415,6 +416,21 @@ type PublicShareResponse struct {
 	Tracks []TrackResponse `json:"tracks"`
 }
 
+// PublicStatusResponse — публичный статус заказа по UUID (без email/brief/токена).
+// Позволяет отслеживать заказ по ID из письма, даже если access_token утерян.
+type PublicStatusResponse struct {
+	ID                 string          `json:"id"`
+	InvoiceID          int64           `json:"invoice_id"`
+	PaymentStatus      string          `json:"payment_status"`
+	GenerationStatus   string          `json:"generation_status"`
+	GenerationPhase    string          `json:"generation_phase,omitempty"`
+	GenerationProgress int             `json:"generation_progress"`
+	TracksReady        int             `json:"tracks_ready"`
+	PaidAt             string          `json:"paid_at,omitempty"`
+	ShareRevoked       bool            `json:"share_revoked"`
+	Tracks             []TrackResponse `json:"tracks,omitempty"`
+}
+
 // GetPublicShare отдаёт минимальный публичный вид завершённого заказа — только
 // треки, без email/phone/brief/токена. Доступ без X-Access-Token: ID заказа
 // (непредсказуемый UUID) сам по себе выступает capability-ссылкой для шеринга.
@@ -455,6 +471,53 @@ func (h *OrderHandler) GetPublicShare(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, PublicShareResponse{
 		ID:     order.ID().String(),
 		Tracks: tracks,
+	})
+}
+
+// GetPublicStatus отдаёт статус заказа без X-Access-Token. UUID заказа — capability-
+// ссылка для отслеживания (как на странице «Статус заказа»). Без email/phone/brief.
+// GET /api/v1/orders/{id}/status
+func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
+	idParam := chi.URLParam(r, "id")
+	orderID, err := uuid.Parse(idParam)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	order, err := h.uc.GetOrder(r.Context(), orderID)
+	if err != nil {
+		respondError(w, r, http.StatusNotFound, "заказ не найден")
+		return
+	}
+
+	var tracks []TrackResponse
+	if order.GenerationStatus() == domain.GenerationStatusCompleted {
+		for _, t := range order.Tracks() {
+			tracks = append(tracks, TrackResponse{
+				Index:       t.Index,
+				AudioURL:    t.AudioURL,
+				DurationSec: t.DurationSec,
+			})
+		}
+	}
+
+	paidAt := ""
+	if t := order.PaidAt(); t != nil {
+		paidAt = t.Format(time.RFC3339)
+	}
+
+	respondJSON(w, http.StatusOK, PublicStatusResponse{
+		ID:                 order.ID().String(),
+		InvoiceID:          order.InvoiceID(),
+		PaymentStatus:      string(order.PaymentStatus()),
+		GenerationStatus:   string(order.GenerationStatus()),
+		GenerationPhase:    string(order.GenerationPhase()),
+		GenerationProgress: order.GenerationProgress(),
+		TracksReady:        order.TracksReady(),
+		PaidAt:             paidAt,
+		ShareRevoked:       order.ShareRevoked(),
+		Tracks:             tracks,
 	})
 }
 

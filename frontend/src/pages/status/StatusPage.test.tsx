@@ -22,6 +22,7 @@ vi.mock('@entities/order', async (importOriginal) => {
     orderApi: {
       ...actual.orderApi,
       getById: vi.fn(),
+      getPublicStatus: vi.fn(),
       paymentUrl: vi.fn(),
       list: vi.fn(),
     },
@@ -45,6 +46,7 @@ describe('StatusPage', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.mocked(orderApi.getById).mockReset()
+    vi.mocked(orderApi.getPublicStatus).mockReset()
     vi.mocked(orderApi.paymentUrl).mockReset()
     vi.mocked(orderApi.list).mockResolvedValue([])
   })
@@ -145,7 +147,7 @@ describe('StatusPage', () => {
   })
 
   it('находит заказ по введённому ID', async () => {
-    vi.mocked(orderApi.getById).mockResolvedValue(completedOrder())
+    vi.mocked(orderApi.getPublicStatus).mockResolvedValue(completedOrder())
 
     renderWithRouter(<StatusPage />, { route: '/status' })
     const user = userEvent.setup()
@@ -156,7 +158,8 @@ describe('StatusPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Ваша песня готова!')).toBeInTheDocument()
     })
-    expect(orderApi.getById).toHaveBeenCalledWith(ORDER_ID, undefined)
+    expect(orderApi.getPublicStatus).toHaveBeenCalledWith(ORDER_ID)
+    expect(orderApi.getById).not.toHaveBeenCalled()
   })
 
   it('переключается между заказами по клику в списке', async () => {
