@@ -6,7 +6,7 @@ x-app-env: &app-env
   # Пароль БД параметризован: в dev дефолт numaestra, в prod задайте POSTGRES_PASSWORD.
   POSTGRES_DSN: postgres://numaestra:${POSTGRES_PASSWORD:-numaestra}@postgres:5432/numaestra?sslmode=disable
   REDIS_ADDR: redis:6379
-  REDIS_PASSWORD: ""
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   ROBOKASSA_MERCHANT_LOGIN: ${ROBOKASSA_MERCHANT_LOGIN:-numaestra_test}
   ROBOKASSA_PASS1: ${ROBOKASSA_PASS1:-test_pass1}
   ROBOKASSA_PASS2: ${ROBOKASSA_PASS2:-test_pass2}
@@ -163,7 +163,7 @@ services:
     environment:
       PGHOST: postgres
       PGUSER: numaestra
-      PGPASSWORD: numaestra
+      PGPASSWORD: ${POSTGRES_PASSWORD:-numaestra}
       PGDATABASE: numaestra
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}

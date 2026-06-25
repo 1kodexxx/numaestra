@@ -8,12 +8,13 @@ const TEXT3 = 'rgba(255,255,255,0.22)'
 interface ContactModalProps {
   loading: boolean
   error: string | null
+  priceLabel: string
   onClose: () => void
   onSubmit: (email: string, phone: string) => void
 }
 
 /** Email/phone capture + price summary, shown before redirecting to payment. */
-export function ContactModal({ loading, error, onClose, onSubmit }: ContactModalProps) {
+export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: ContactModalProps) {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [agree, setAgree] = useState(false)
@@ -60,7 +61,7 @@ export function ContactModal({ loading, error, onClose, onSubmit }: ContactModal
           textAlign: 'center', marginBottom: '20px',
         }}>
           <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>4 уникальных версии</div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>2 000 ₽</div>
+          <div style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>{priceLabel}</div>
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '2px' }}>Один платёж, без подписок</div>
         </div>
 

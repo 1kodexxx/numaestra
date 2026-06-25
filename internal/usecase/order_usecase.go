@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/mail"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,11 +16,12 @@ import (
 	"github.com/numaestra/numaestra/pkg/metrics"
 	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/openai"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 // quizLyricVariantSuffix — инструкция для Suno Inspiration Mode: второй запрос
 // с тем же стилем, но другими русскими словами и припевом.
-const quizLyricVariantSuffix = "\n\n[IMPORTANT: This is alternative version #2. Write completely different Russian lyrics and a different chorus. Keep the same theme, mood, and musical style as version #1, but do NOT repeat lines or phrases from version #1.]"
+const quizLyricVariantSuffix = "\n\n[VERSION 2: Write completely different Russian lyrics and a different chorus. Keep the same story, mood, genre, vocals, and tempo as version 1. Do not reuse lines or phrases from version 1.]"
 
 // Пользовательские ошибки слоя Use-Case
 var (
@@ -127,7 +129,7 @@ var ErrInvalidPhone = errors.New("некорректный формат теле
 // Минимум 7 цифр, максимум 15 (E.164), допускаются пробелы, дефисы, скобки.
 var phoneRe = regexp.MustCompile(`^\+?[\d\s\-\(\)]{7,20}$`)
 
-func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, categoryID string, answers map[string]string) (*domain.Order, error) {
+func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, categoryID, consentDocVersion string, answers map[string]string) (*domain.Order, error) {
 	// Проверяем формат email, если он передан. Поле необязательное (можно оставить пустым),
 	// но если передано — должно соответствовать RFC 5322 (net/mail).
 	if email != "" {
@@ -167,7 +169,7 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 		}
 	}
 
-	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, amountKopecks)
+	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, consentDocVersion, amountKopecks)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка валидации заказа: %w", err)
 	}
@@ -284,27 +286,12 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 		return fmt.Errorf("сохранение старта обработки: %w", err)
 	}
 
-	// 3. Два разных текста песни: квиз — два промпта; свободный бриф — LLM.
-	if order.SunoPrompt() == "" {
-		order.UpdateGenerationProgress(domain.GenerationPhaseLyrics, 15, 0)
-		if err := uc.orderRepo.Update(ctx, order); err != nil {
-			uc.log.Warn("не удалось сохранить прогресс (lyrics)", "order_id", order.ID(), "err", err)
-		}
-	}
+	// 3. Два варианта промпта для Suno Inspiration Mode (Suno сам пишет текст).
 	briefs, err := uc.buildGenerationBriefs(ctx, order)
 	if err != nil {
-		metrics.LLMErrors.Inc()
-		uc.log.Error("LLM недоступен — возвращаем заказ в очередь для повторной попытки",
-			"order_id", order.ID(), "err", err)
-		account.ReleaseSlot()
-		metrics.ActiveWorkerSlots.Dec()
-		_ = order.RequeueForRetry()
-		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
-			uc.log.Error("не удалось откатить заказ после ошибки LLM", "order_id", order.ID(), "err", saveErr)
-		}
-		return fmt.Errorf("генерация текста LLM недоступна: %w", err)
+		return fmt.Errorf("подготовка промптов для Suno: %w", err)
 	}
-	uc.log.Info("подготовлены варианты текста для генерации", "order_id", order.ID(), "variants", len(briefs))
+	uc.log.Info("подготовлены варианты промпта для Suno", "order_id", order.ID(), "variants", len(briefs))
 
 	order.UpdateGenerationProgress(domain.GenerationPhaseSubmitting, 25, 0)
 	if err := uc.orderRepo.Update(ctx, order); err != nil {
@@ -315,6 +302,7 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	// Продукт фиксированный — 4 версии песни на заказ, без тарифов.
 	req := domain.MusicGenerationRequest{
 		Briefs:       briefs,
+		Style:        resolveSunoStyleTags(order.SunoPrompt(), order.Brief()),
 		Instrumental: false,
 		TrackCount:   domain.DefaultTrackCount,
 	}
@@ -714,14 +702,21 @@ func (uc *OrderUseCase) recoverStuckOrder(ctx context.Context, order *domain.Ord
 }
 
 func (uc *OrderUseCase) buildGenerationBriefs(ctx context.Context, order *domain.Order) ([]string, error) {
-	if order.SunoPrompt() != "" {
-		prompt := order.SunoPrompt()
+	raw := order.SunoPrompt()
+	if raw != "" {
 		uc.log.Info("используем готовый промпт из квиза", "order_id", order.ID(), "category_id", order.CategoryID())
-		return []string{prompt, prompt + quizLyricVariantSuffix}, nil
+	} else {
+		raw = order.Brief()
+		uc.log.Info("используем brief напрямую в Suno (Inspiration Mode)", "order_id", order.ID())
 	}
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("пустой промпт для генерации")
+	}
+	return sunoInspirationBriefs(raw), nil
 
+	/* --- LLM (ChatGPT / OpenRouter) отключён: Suno сам пишет текст ---
 	uc.log.Info("генерация двух вариантов текста через LLM", "order_id", order.ID())
-	briefs, err := uc.llmClient.GenerateLyricsVariants(ctx, order.Brief(), domain.DefaultLyricVariantCount)
+	briefs, err := uc.llmClient.GenerateLyricsVariants(ctx, suno.BriefStoryForLLM(order.Brief()), domain.DefaultLyricVariantCount)
 	if err != nil {
 		return nil, err
 	}
@@ -729,4 +724,35 @@ func (uc *OrderUseCase) buildGenerationBriefs(ctx context.Context, order *domain
 		return nil, fmt.Errorf("LLM вернул %d вариантов, ожидали %d", len(briefs), domain.DefaultLyricVariantCount)
 	}
 	return briefs[:domain.DefaultLyricVariantCount], nil
+	*/
+}
+
+func sunoInspirationBriefs(raw string) []string {
+	desc := raw
+	tags := ""
+	if enc, ok := suno.DecodePrompt(raw); ok {
+		tags = enc.Tags
+		desc = enc.Description
+	}
+	variant2Desc := desc + quizLyricVariantSuffix
+	if tags != "" {
+		return []string{
+			suno.EncodePrompt(tags, desc),
+			suno.EncodePrompt(tags, variant2Desc),
+		}
+	}
+	return []string{desc, variant2Desc}
+}
+
+func resolveSunoStyleTags(sunoPrompt, brief string) string {
+	if enc, ok := suno.DecodePrompt(sunoPrompt); ok && enc.Tags != "" {
+		return enc.Tags
+	}
+	if tags := suno.ExtractTagsFromBrief(brief); tags != "" {
+		return tags
+	}
+	if enc, ok := suno.DecodePrompt(brief); ok {
+		return enc.Tags
+	}
+	return ""
 }

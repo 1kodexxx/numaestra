@@ -16,12 +16,14 @@ import (
 
 func testNow() time.Time { return time.Now().UTC() }
 
-// orderCols — 23 колонки в SELECT-ах orders (в порядке Scan).
+// orderCols — колонки в SELECT-ах orders (в порядке Scan).
 var orderCols = []string{
 	"id", "invoice_id", "customer_email", "customer_phone", "brief", "category_id", "suno_prompt",
 	"amount_kopecks", "currency", "payment_status", "generation_status", "generation_phase", "generation_progress", "tracks_ready",
 	"assigned_account_id",
-	"failure_reason", "access_token", "admin_feedback", "admin_feedback_at", "created_at", "updated_at", "paid_at", "completed_at",
+	"failure_reason", "access_token", "admin_feedback", "admin_feedback_at",
+	"consent_given_at", "consent_doc_version",
+	"created_at", "updated_at", "paid_at", "completed_at",
 }
 
 // orderRowValues — одна строка заказа для pgxmock (без треков, без nullable-времён).
@@ -32,7 +34,8 @@ func orderRowValues(id uuid.UUID, invoice int64) []any {
 		int64(200000), "RUB", domain.PaymentStatusPaid, domain.GenerationStatusCompleted,
 		domain.GenerationPhaseCompleted, 100, 4,
 		(*uuid.UUID)(nil),
-		"", "tok", "", (*time.Time)(nil), now, now, (*time.Time)(nil), (*time.Time)(nil),
+		"", "tok", "", (*time.Time)(nil), (*time.Time)(nil), "",
+		now, now, (*time.Time)(nil), (*time.Time)(nil),
 	}
 }
 

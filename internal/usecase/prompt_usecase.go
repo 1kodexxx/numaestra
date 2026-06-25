@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 // PromptBuilder — порт для работы с категориями и генерацией промптов.
@@ -91,11 +92,13 @@ func (uc *PromptUseCase) BuildFinalPrompt(ctx context.Context, categoryID string
 		return "", err
 	}
 
-	finalPrompt := category.BasePromptTemplate()
+	template := category.BasePromptTemplate()
 	for key, value := range userAnswers {
 		placeholder := "[" + key + "]"
-		finalPrompt = strings.ReplaceAll(finalPrompt, placeholder, value)
+		template = strings.ReplaceAll(template, placeholder, value)
 	}
 
-	return finalPrompt, nil
+	tags := suno.BuildStyleTagsFromAnswers(userAnswers)
+	description := suno.FormatQuizDescription(category.Title(), template, userAnswers["EXTRA"])
+	return suno.EncodePrompt(tags, description), nil
 }

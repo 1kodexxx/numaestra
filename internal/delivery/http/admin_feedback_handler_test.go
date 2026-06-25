@@ -46,7 +46,7 @@ func TestAdminHandler_SendOrderFeedback_Success(t *testing.T) {
 	h, orders, notifier := newTestAdminHandlerWithNotifier(t)
 	router := adminTestRouter(h)
 
-	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = orders.Create(context.Background(), order)
 
 	body := `{"message":"Уточните, пожалуйста, дату праздника"}`
@@ -97,7 +97,7 @@ func TestAdminHandler_SendOrderFeedback_EmptyMessage(t *testing.T) {
 	h, orders, _ := newTestAdminHandlerWithNotifier(t)
 	router := adminTestRouter(h)
 
-	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = orders.Create(context.Background(), order)
 
 	body := `{"message":""}`

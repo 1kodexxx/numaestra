@@ -131,7 +131,7 @@ func mustOrder(t *testing.T, pool *pgxpool.Pool) *domain.Order {
 	if err != nil {
 		t.Fatalf("invoice id: %v", err)
 	}
-	order, err := domain.NewOrder(inv, "user@example.com", "", "Бриф", "", "", 150000)
+	order, err := domain.NewOrder(inv, "user@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 150000)
 	if err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
@@ -522,7 +522,7 @@ func TestIntegration_ListByPhone(t *testing.T) {
 	ctx := context.Background()
 
 	inv, _ := repo.NextInvoiceID(ctx)
-	order, _ := domain.NewOrder(inv, "", "+79991234567", "Бриф по телефону", "", "", 150000)
+	order, _ := domain.NewOrder(inv, "", "+79991234567", "Бриф по телефону", "", "", domain.CurrentConsentDocVersion, 150000)
 	if err := repo.Create(ctx, order); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

@@ -89,7 +89,7 @@ export function AdminCategoriesPage() {
               value={basePromptTemplate}
               onChange={setBasePromptTemplate}
               multiline rows={3} required
-              placeholder="Create a [MOOD] [GENRE] song about [NAME]..."
+              placeholder="Create a [MOOD] [GENRE] song with [VOCAL]. The lyrics must be in Russian language. Story facts: [NAME] … [EXTRA] подставятся автоматически; стиль уйдёт в Suno tags."
               supportingText="Плейсхолдеры [KEY] заменяются ответами на вопросы квиза."
               surfaceColor={A.surface}
             />

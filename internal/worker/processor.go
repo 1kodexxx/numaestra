@@ -21,7 +21,7 @@ import (
 // задача могла бы держать слот воркера бесконечно. Жёсткий дедлайн гарантирует
 // освобождение слота и последующий retry задачи.
 const (
-	// generateTaskTimeout покрывает обращение к LLM и запуск генерации в Suno.
+	// generateTaskTimeout покрывает запуск генерации в Suno.
 	generateTaskTimeout = 90 * time.Second
 	// statusCheckTaskTimeout покрывает опрос статуса в Suno и перезаливку
 	// готовых треков в S3 (несколько файлов по 3–5 МБ).

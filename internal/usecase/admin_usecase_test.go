@@ -117,7 +117,7 @@ func TestAdminUseCase_ListOrders_Pagination(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
 	for i := int64(1); i <= 5; i++ {
-		o, _ := domain.NewOrder(i, "u@a.com", "", "бриф", "", "", 100)
+		o, _ := domain.NewOrder(i, "u@a.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 100)
 		_ = orders.Create(context.Background(), o)
 	}
 
@@ -149,7 +149,7 @@ func TestAdminUseCase_ListOrders_DefaultsOnInvalidParams(t *testing.T) {
 func TestAdminUseCase_GetOrder_Found(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
-	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "", "", 500)
+	o, _ := domain.NewOrder(1, "a@b.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 500)
 	_ = orders.Create(context.Background(), o)
 
 	got, err := uc.GetOrder(context.Background(), o.ID())
@@ -178,7 +178,7 @@ func TestAdminUseCase_RefundOrder_Success(t *testing.T) {
 	rk := &mockRefunder{}
 	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, nil, testLogger())
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 10000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 
@@ -195,7 +195,7 @@ func TestAdminUseCase_RefundOrder_Success(t *testing.T) {
 func TestAdminUseCase_RefundOrder_NotPaid(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	// Заказ не оплачен (статус pending).
 	_ = orders.Create(context.Background(), o)
 
@@ -276,7 +276,7 @@ func TestAdminUseCase_RefundOrder_NotFound(t *testing.T) {
 func TestAdminUseCase_RefundOrder_UpdateError(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 10000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 
@@ -294,7 +294,7 @@ func TestAdminUseCase_RefundOrder_RobokassaFailure(t *testing.T) {
 	rk := &mockRefunder{err: errors.New("Robokassa 500")}
 	uc := NewAdminUseCase(orders, accounts, nil, rk, nil, nil, testLogger())
 
-	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", 10000)
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 10000)
 	_ = o.MarkPaid()
 	_ = orders.Create(context.Background(), o)
 
@@ -313,7 +313,7 @@ func TestAdminUseCase_RefundOrder_RobokassaFailure(t *testing.T) {
 
 func TestAdminUseCase_RegenerateOrder(t *testing.T) {
 	orders := newInMemOrderRepo()
-	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 	_ = o.StartProcessing(uuid.New())
@@ -338,7 +338,7 @@ func TestAdminUseCase_RegenerateOrder(t *testing.T) {
 
 func TestAdminUseCase_RegenerateOrder_NotFailed(t *testing.T) {
 	orders := newInMemOrderRepo()
-	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid() // paid, но не failed
 	orders.save(o)
 
@@ -350,7 +350,7 @@ func TestAdminUseCase_RegenerateOrder_NotFailed(t *testing.T) {
 
 func TestAdminUseCase_DeleteOrder_RemovesFromRepoAndStorage(t *testing.T) {
 	orders := newInMemOrderRepo()
-	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	orders.save(o)
 
 	var deletedID uuid.UUID
@@ -380,7 +380,7 @@ func TestAdminUseCase_DeleteOrder_ReleasesProcessingSlot(t *testing.T) {
 	_ = acc.AcquireSlot(time.Now().UTC())
 	_ = accounts.Create(context.Background(), acc)
 
-	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 	_ = o.StartProcessing(acc.ID())
@@ -406,7 +406,7 @@ func TestAdminUseCase_DeleteOrder_NotFound(t *testing.T) {
 
 func TestAdminUseCase_DeleteOrder_WithoutStorage_DeletesFromDB(t *testing.T) {
 	orders := newInMemOrderRepo()
-	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	orders.save(o)
 
 	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger())
@@ -420,7 +420,7 @@ func TestAdminUseCase_DeleteOrder_WithoutStorage_DeletesFromDB(t *testing.T) {
 
 func TestAdminUseCase_DeleteOrder_StorageFailure_KeepsOrder(t *testing.T) {
 	orders := newInMemOrderRepo()
-	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	orders.save(o)
 
 	storage := &mockStorage{

@@ -37,15 +37,17 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
 		queryOrder := `
-			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, created_at, updated_at, paid_at, completed_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, consent_given_at, consent_doc_version, created_at, updated_at, paid_at, completed_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 		`
 		_, err := db.Exec(ctx, queryOrder,
 			snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
 			nullableString(snap.CategoryID), nullableString(snap.SunoPrompt),
 			snap.AmountKopecks, snap.Currency, snap.PaymentStatus, snap.GenerationStatus,
 			snap.GenerationPhase, snap.GenerationProgress, snap.TracksReady,
-			snap.AssignedAccountID, snap.FailureReason, snap.AccessToken, snap.CreatedAt, snap.UpdatedAt,
+			snap.AssignedAccountID, snap.FailureReason, snap.AccessToken,
+			snap.ConsentGivenAt, nullableString(snap.ConsentDocVersion),
+			snap.CreatedAt, snap.UpdatedAt,
 			snap.PaidAt, snap.CompletedAt,
 		)
 		if err != nil {
@@ -60,19 +62,8 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 }
 
 func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
-	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE id = $1
-	`
-	var snap domain.OrderSnapshot
-	err := r.conn(ctx).QueryRow(ctx, query, id).Scan(
-		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-		&snap.CategoryID, &snap.SunoPrompt,
-		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-		&snap.PaidAt, &snap.CompletedAt,
-	)
+	query := `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
+	snap, err := scanOrderSnapshot(r.conn(ctx).QueryRow(ctx, query, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrOrderNotFound
 	}
@@ -90,19 +81,8 @@ func (r *OrderRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Or
 }
 
 func (r *OrderRepository) GetByInvoiceID(ctx context.Context, invoiceID int64) (*domain.Order, error) {
-	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE invoice_id = $1
-	`
-	var snap domain.OrderSnapshot
-	err := r.conn(ctx).QueryRow(ctx, query, invoiceID).Scan(
-		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-		&snap.CategoryID, &snap.SunoPrompt,
-		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-		&snap.PaidAt, &snap.CompletedAt,
-	)
+	query := `SELECT ` + orderSelectColumns + ` FROM orders WHERE invoice_id = $1`
+	snap, err := scanOrderSnapshot(r.conn(ctx).QueryRow(ctx, query, invoiceID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrOrderNotFound
 	}
@@ -166,55 +146,12 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 }
 
 func (r *OrderRepository) ListByCustomerEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, error) {
-	// 1. Загружаем заказы клиента одним запросом с пагинацией.
-	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE customer_email = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`
+	orderQuery := `SELECT ` + orderSelectColumns + ` FROM orders WHERE customer_email = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
 	rows, err := r.conn(ctx).Query(ctx, orderQuery, email, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list orders by email: %w", err)
 	}
-	defer rows.Close()
-
-	var snaps []domain.OrderSnapshot
-	var orderIDs []uuid.UUID
-	for rows.Next() {
-		var snap domain.OrderSnapshot
-		err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-			&snap.CategoryID, &snap.SunoPrompt,
-			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-			&snap.PaidAt, &snap.CompletedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan order row: %w", err)
-		}
-		snaps = append(snaps, snap)
-		orderIDs = append(orderIDs, snap.ID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate order rows: %w", err)
-	}
-	if len(snaps) == 0 {
-		return nil, nil
-	}
-
-	// 2. Загружаем треки для всех заказов одним батч-запросом (вместо N отдельных).
-	tracksByOrder, err := r.getTracksForOrders(ctx, orderIDs)
-	if err != nil {
-		return nil, fmt.Errorf("batch load tracks: %w", err)
-	}
-
-	// 3. Раскладываем треки по снапшотам и восстанавливаем агрегаты.
-	orders := make([]*domain.Order, 0, len(snaps))
-	for _, snap := range snaps {
-		snap.Tracks = tracksByOrder[snap.ID]
-		orders = append(orders, domain.RestoreOrder(snap))
-	}
-	return orders, nil
+	return r.ordersFromRows(ctx, rows)
 }
 
 // getTracksForOrders загружает треки для набора заказов одним запросом.
@@ -247,70 +184,44 @@ func (r *OrderRepository) getTracksForOrders(ctx context.Context, orderIDs []uui
 	return result, nil
 }
 
-func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*domain.Order, error) {
-	orderQuery := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3
-	`
-	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("list orders by phone: %w", err)
-	}
+func (r *OrderRepository) ordersFromRows(ctx context.Context, rows pgx.Rows) ([]*domain.Order, error) {
 	defer rows.Close()
-
-	var snaps []domain.OrderSnapshot
-	var orderIDs []uuid.UUID
-	for rows.Next() {
-		var snap domain.OrderSnapshot
-		err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-			&snap.CategoryID, &snap.SunoPrompt,
-			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-			&snap.PaidAt, &snap.CompletedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan order row: %w", err)
-		}
-		snaps = append(snaps, snap)
-		orderIDs = append(orderIDs, snap.ID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate order rows: %w", err)
+	snaps, err := scanOrderRows(rows)
+	if err != nil {
+		return nil, err
 	}
 	if len(snaps) == 0 {
 		return nil, nil
 	}
-
-	tracksByOrder, err := r.getTracksForOrders(ctx, orderIDs)
-	if err != nil {
-		return nil, fmt.Errorf("batch load tracks: %w", err)
+	ids := make([]uuid.UUID, len(snaps))
+	for i, s := range snaps {
+		ids[i] = s.ID
 	}
-
+	tracksMap, err := r.getTracksForOrders(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("load tracks for orders: %w", err)
+	}
 	orders := make([]*domain.Order, 0, len(snaps))
 	for _, snap := range snaps {
-		snap.Tracks = tracksByOrder[snap.ID]
+		snap.Tracks = tracksMap[snap.ID]
 		orders = append(orders, domain.RestoreOrder(snap))
 	}
 	return orders, nil
 }
 
+func (r *OrderRepository) ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*domain.Order, error) {
+	orderQuery := `SELECT ` + orderSelectColumns + ` FROM orders WHERE customer_phone = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+	rows, err := r.conn(ctx).Query(ctx, orderQuery, phone, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list orders by phone: %w", err)
+	}
+	return r.ordersFromRows(ctx, rows)
+}
+
 // GetByAccessToken находит заказ по токену доступа клиента.
 func (r *OrderRepository) GetByAccessToken(ctx context.Context, token string) (*domain.Order, error) {
-	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders WHERE access_token = $1
-	`
-	var snap domain.OrderSnapshot
-	err := r.conn(ctx).QueryRow(ctx, query, token).Scan(
-		&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-		&snap.CategoryID, &snap.SunoPrompt,
-		&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-		&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-		&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-		&snap.PaidAt, &snap.CompletedAt,
-	)
+	query := `SELECT ` + orderSelectColumns + ` FROM orders WHERE access_token = $1`
+	snap, err := scanOrderSnapshot(r.conn(ctx).QueryRow(ctx, query, token))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrOrderNotFound
@@ -370,54 +281,12 @@ func (r *OrderRepository) saveTracks(ctx context.Context, db dbConn, orderID uui
 
 // ListAll возвращает страницу всех заказов для Admin API (без фильтрации по клиенту).
 func (r *OrderRepository) ListAll(ctx context.Context, limit, offset int) ([]*domain.Order, error) {
-	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt,
-		       amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id,
-		       failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`
+	query := `SELECT ` + orderSelectColumns + ` FROM orders ORDER BY created_at DESC LIMIT $1 OFFSET $2`
 	rows, err := r.conn(ctx).Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list all orders: %w", err)
 	}
-	defer rows.Close()
-
-	var snaps []domain.OrderSnapshot
-	for rows.Next() {
-		var snap domain.OrderSnapshot
-		if err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-			&snap.CategoryID, &snap.SunoPrompt,
-			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-			&snap.PaidAt, &snap.CompletedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan order row: %w", err)
-		}
-		snaps = append(snaps, snap)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate orders: %w", err)
-	}
-
-	ids := make([]uuid.UUID, len(snaps))
-	for i, s := range snaps {
-		ids[i] = s.ID
-	}
-	tracksMap, err := r.getTracksForOrders(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("load tracks for orders: %w", err)
-	}
-
-	orders := make([]*domain.Order, 0, len(snaps))
-	for _, snap := range snaps {
-		snap.Tracks = tracksMap[snap.ID]
-		orders = append(orders, domain.RestoreOrder(snap))
-	}
-	return orders, nil
+	return r.ordersFromRows(ctx, rows)
 }
 
 // CountAll возвращает общее количество заказов для пагинации в Admin API.
@@ -468,57 +337,12 @@ func (r *OrderRepository) ListStuckQueued(ctx context.Context, olderThan time.Ti
 // (condition подставляется из доверенных литералов вызывающих методов, не из
 // пользовательского ввода) и порогу времени по updated_at.
 func (r *OrderRepository) listStuckByCondition(ctx context.Context, condition string, olderThan time.Time) ([]*domain.Order, error) {
-	query := `
-		SELECT id, invoice_id, customer_email, customer_phone, brief, COALESCE(category_id, '') AS category_id, COALESCE(suno_prompt, '') AS suno_prompt,
-		       amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id,
-		       failure_reason, access_token, COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at, created_at, updated_at, paid_at, completed_at
-		FROM orders
-		WHERE ` + condition + ` AND updated_at < $1
-		ORDER BY updated_at ASC
-	`
+	query := `SELECT ` + orderSelectColumns + ` FROM orders WHERE ` + condition + ` AND updated_at < $1 ORDER BY updated_at ASC`
 	rows, err := r.conn(ctx).Query(ctx, query, olderThan)
 	if err != nil {
 		return nil, fmt.Errorf("list stuck orders: %w", err)
 	}
-	defer rows.Close()
-
-	var snaps []domain.OrderSnapshot
-	for rows.Next() {
-		var snap domain.OrderSnapshot
-		if err := rows.Scan(
-			&snap.ID, &snap.InvoiceID, &snap.CustomerEmail, &snap.CustomerPhone, &snap.Brief,
-			&snap.CategoryID, &snap.SunoPrompt,
-			&snap.AmountKopecks, &snap.Currency, &snap.PaymentStatus, &snap.GenerationStatus,
-			&snap.GenerationPhase, &snap.GenerationProgress, &snap.TracksReady,
-			&snap.AssignedAccountID, &snap.FailureReason, &snap.AccessToken, &snap.AdminFeedback, &snap.AdminFeedbackAt, &snap.CreatedAt, &snap.UpdatedAt,
-			&snap.PaidAt, &snap.CompletedAt,
-		); err != nil {
-			return nil, fmt.Errorf("scan stuck order row: %w", err)
-		}
-		snaps = append(snaps, snap)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate stuck orders: %w", err)
-	}
-	if len(snaps) == 0 {
-		return nil, nil
-	}
-
-	ids := make([]uuid.UUID, len(snaps))
-	for i, s := range snaps {
-		ids[i] = s.ID
-	}
-	tracksMap, err := r.getTracksForOrders(ctx, ids)
-	if err != nil {
-		return nil, fmt.Errorf("load tracks for stuck orders: %w", err)
-	}
-
-	orders := make([]*domain.Order, 0, len(snaps))
-	for _, snap := range snaps {
-		snap.Tracks = tracksMap[snap.ID]
-		orders = append(orders, domain.RestoreOrder(snap))
-	}
-	return orders, nil
+	return r.ordersFromRows(ctx, rows)
 }
 
 func (r *OrderRepository) getTracksForOrder(ctx context.Context, orderID uuid.UUID) ([]domain.Track, error) {

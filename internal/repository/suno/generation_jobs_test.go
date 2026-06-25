@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 func TestIsStructuredLyrics(t *testing.T) {
-	if !isStructuredLyrics("[Verse 1]\nТекст куплета\n[Chorus]\nПрипев") {
+	if !suno.IsStructuredLyricsText("[Verse 1]\nТекст куплета\n[Chorus]\nПрипев") {
 		t.Error("ожидали structured lyrics")
 	}
-	if isStructuredLyrics("Create a happy pop song about birthday") {
+	if suno.IsStructuredLyricsText("Create a happy pop song about birthday") {
 		t.Error("английский промпт квиза не должен считаться lyrics")
 	}
 }
@@ -53,6 +54,23 @@ func TestGenerationJobs_LegacySingleBrief(t *testing.T) {
 	}
 	if jobs[0].Description != "один текст" || jobs[1].Description != "один текст" {
 		t.Errorf("legacy: обе задачи должны использовать один brief, %+v", jobs)
+	}
+}
+
+func TestGenerationJobs_EncodedPromptSplitsTags(t *testing.T) {
+	encoded := suno.EncodePrompt("modern pop, male vocals", "Russian birthday song for Kolya.")
+	jobs := generationJobs(domain.MusicGenerationRequest{
+		Briefs:     []string{encoded},
+		TrackCount: 2,
+	})
+	if len(jobs) != 1 {
+		t.Fatalf("ожидали 1 задачу, получили %d", len(jobs))
+	}
+	if jobs[0].Tags != "modern pop, male vocals" {
+		t.Errorf("tags: %q", jobs[0].Tags)
+	}
+	if jobs[0].Description == "" {
+		t.Errorf("ожидали description, получили %+v", jobs[0])
 	}
 }
 

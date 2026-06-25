@@ -5,6 +5,7 @@ import { useCatalog } from "@features/load-catalog";
 import { EXAMPLE_SONGS } from "@shared/data/examples";
 import { categoryCover } from "@shared/lib/categoryCover";
 import { useSeo } from "@shared/lib/seo";
+import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { Button, TextField } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import {
@@ -215,6 +216,7 @@ function buildBrief(
 }
 
 export function CategoryPage() {
+  const publicConfig = usePublicConfig();
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isMobile, isDesktop } = useBreakpoint();
@@ -288,6 +290,7 @@ export function CategoryPage() {
       brief: preview,
       category_id: id,
       answers: mergedAnswers,
+      consent_doc_version: publicConfig.consent_doc_version,
     });
   }
 
@@ -478,7 +481,7 @@ export function CategoryPage() {
       }}
     >
       <Button size="lg" fullWidth onClick={() => setShowContact(true)}>
-        Заказать песню — 2 000 ₽ →
+        Заказать песню — {publicConfig.price_label} →
       </Button>
     </div>
   );
@@ -487,6 +490,7 @@ export function CategoryPage() {
     <ContactModal
       loading={submitting}
       error={submitError}
+      priceLabel={publicConfig.price_label}
       onClose={() => setShowContact(false)}
       onSubmit={handleOrder}
     />

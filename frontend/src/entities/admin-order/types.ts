@@ -15,6 +15,8 @@ export interface AdminOrder {
   tracks: AdminTrack[]
   admin_feedback?: string
   admin_feedback_at?: string
+  consent_given_at?: string
+  consent_doc_version?: string
   created_at: string
 }
 

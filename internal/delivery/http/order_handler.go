@@ -136,8 +136,9 @@ type CreateOrderRequest struct {
 	Email      string            `json:"email"`
 	Phone      string            `json:"phone"`
 	Brief      string            `json:"brief"`
-	CategoryID string            `json:"category_id"`
-	Answers    map[string]string `json:"answers"`
+	CategoryID          string            `json:"category_id"`
+	ConsentDocVersion   string            `json:"consent_doc_version"`
+	Answers             map[string]string `json:"answers"`
 }
 
 type OrderResponse struct {
@@ -171,8 +172,16 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "поле brief слишком длинное")
 		return
 	}
+	if err := domain.ValidateConsentDocVersion(req.ConsentDocVersion); err != nil {
+		if errors.Is(err, domain.ErrInvalidConsentVersion) {
+			respondError(w, r, http.StatusBadRequest, "устаревшая версия согласия, обновите страницу")
+			return
+		}
+		respondError(w, r, http.StatusBadRequest, "необходимо согласие с условиями и обработкой персональных данных")
+		return
+	}
 
-	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.CategoryID, req.Answers)
+	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.CategoryID, req.ConsentDocVersion, req.Answers)
 	if err != nil {
 		if errors.Is(err, domain.ErrBriefTooLong) {
 			respondError(w, r, http.StatusBadRequest, "поле brief слишком длинное")

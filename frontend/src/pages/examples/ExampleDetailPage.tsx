@@ -5,6 +5,7 @@ import { MusicPlayer } from '@widgets/player'
 import { Button, Spinner } from '@shared/ui'
 import { synthDemoTrack, hashStr } from '@shared/lib/demoAudio'
 import { useSeo } from '@shared/lib/seo'
+import { usePublicConfig } from '@shared/lib/usePublicConfig'
 import type { Track } from '@entities/order'
 
 const ACCENT = '#00e5c0'
@@ -23,6 +24,7 @@ const MOOD_ICON: Record<string, string> = {
 export function ExampleDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { price_label } = usePublicConfig()
 
   const example = EXAMPLE_SONGS.find((e) => e.id === id)
   const [tracks, setTracks] = useState<Track[] | null>(null)
@@ -175,7 +177,7 @@ export function ExampleDetailPage() {
           Хотите такую же — но про вас?
         </div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '20px' }}>
-          4 уникальные версии за 10 минут · 2 000 ₽
+          4 уникальные версии за 10 минут · {price_label}
         </div>
         <Button size="lg" fullWidth onClick={() => navigate('/')}>
           Заказать свою песню →

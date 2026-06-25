@@ -1,5 +1,7 @@
 import type { Category } from "@entities/category";
 import { genreApi } from "@entities/genre";
+import type { GenreOption } from "@shared/lib/sunoPrompt";
+import { composeCatalogBrief } from "@shared/lib/sunoPrompt";
 import { exampleApi } from "@entities/example";
 import { useCreateOrder } from "@features/create-order";
 import { useCatalog } from "@features/load-catalog";
@@ -13,6 +15,7 @@ import {
 } from "@shared/lib/demoAudio";
 import { useSeo } from "@shared/lib/seo";
 import { Button, TextField, useRipple } from "@shared/ui";
+import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { ContactModal } from "@widgets/contact-modal";
 import { FloatingPlayer } from "@widgets/floating-player";
 import { Footer } from "@widgets/footer";
@@ -25,9 +28,6 @@ const ACCENT = "#00e5c0";
 const BORDER = "rgba(255,255,255,0.07)";
 const TEXT2 = "rgba(255,255,255,0.48)";
 const TEXT3 = "rgba(255,255,255,0.2)";
-
-/* Фиксированная цена продукта (та же, что в Hero и конструкторе). */
-const PRICE_LABEL = "2 000 ₽";
 
 /* ─── breakpoints ─── */
 function useBreakpoint() {
@@ -155,7 +155,7 @@ function Equalizer() {
 }
 
 /* ─── hero ─── */
-function Hero({ compact }: { compact: boolean }) {
+function Hero({ compact, priceLabel }: { compact: boolean; priceLabel: string }) {
   return (
     <div
       style={{
@@ -272,7 +272,7 @@ function Hero({ compact }: { compact: boolean }) {
           {[
             "4 версии трека",
             "Готово за 10 минут",
-            "2 000 ₽ · без подписок",
+            `${priceLabel} · без подписок`,
           ].map((t) => (
             <div
               key={t}
@@ -421,9 +421,19 @@ const MOODS = [
   "Спокойствие",
   "Драйв",
 ];
-const GENRES_FALLBACK = [
-  "Поп", "Баллада", "Рок", "Рэп", "Хип-хоп", "Джаз", "R&B", "Электроника",
-  "Шансон", "Акустика", "Фолк", "Кантри",
+const GENRES_FALLBACK: GenreOption[] = [
+  { label: "Поп", sunoValue: "modern pop" },
+  { label: "Баллада", sunoValue: "pop ballad" },
+  { label: "Рок", sunoValue: "rock" },
+  { label: "Рэп", sunoValue: "rap" },
+  { label: "Хип-хоп", sunoValue: "hip hop" },
+  { label: "Джаз", sunoValue: "smooth jazz" },
+  { label: "R&B", sunoValue: "contemporary rnb" },
+  { label: "Электроника", sunoValue: "electronic dance" },
+  { label: "Шансон", sunoValue: "russian chanson" },
+  { label: "Акустика", sunoValue: "acoustic guitar" },
+  { label: "Фолк", sunoValue: "folk" },
+  { label: "Кантри", sunoValue: "modern country" },
 ];
 const TEMPOS = ["Медленный", "Средний", "Быстрый"];
 const VOCALS = ["Мужской", "Женский", "Дуэт", "Хор", "Без вокала"];
@@ -450,19 +460,9 @@ const EMPTY_FORM: PromptForm = {
   customText: "",
 };
 
-/* Собираем структурированный, читаемый промпт для Suno из выбранных полей. */
-function composeBrief(f: PromptForm): string {
-  const lines: string[] = [];
-  if (f.occasion.trim()) lines.push(`Повод: ${f.occasion.trim()}`);
-  if (f.genres.length) lines.push(`Жанр: ${f.genres.join(", ")}`);
-  if (f.moods.length) lines.push(`Настроение: ${f.moods.join(", ")}`);
-  if (f.tempo) lines.push(`Темп: ${f.tempo}`);
-  if (f.vocal) lines.push(`Вокал: ${f.vocal}`);
-  if (f.details.trim()) lines.push(`Детали: ${f.details.trim()}`);
-  if (f.customText.trim())
-    lines.push(`Текст песни (использовать дословно):\n${f.customText.trim()}`);
-  lines.push("Язык исполнения: русский");
-  return lines.join("\n");
+/* Собираем Suno-промпт: style tags (англ.) + понятное описание для генерации. */
+function composeBrief(f: PromptForm, genreOptions: GenreOption[]): string {
+  return composeCatalogBrief(f, genreOptions);
 }
 
 /* ─── section label with optional hint ─── */
@@ -510,13 +510,15 @@ function PromptBuilder({
   onBack,
   onSubmit,
   canSubmit,
+  priceLabel,
 }: {
   form: PromptForm;
   update: <K extends keyof PromptForm>(key: K, value: PromptForm[K]) => void;
-  genres: string[];
+  genres: GenreOption[];
   onBack: () => void;
   onSubmit: () => void;
   canSubmit: boolean;
+  priceLabel: string;
 }) {
   const toggleMulti = (key: "moods" | "genres", val: string) => {
     const arr = form[key];
@@ -525,7 +527,7 @@ function PromptBuilder({
       arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val],
     );
   };
-  const preview = composeBrief(form);
+  const preview = composeBrief(form, genres);
 
   return (
     <div style={{ width: "100%", maxWidth: "640px" }} className="fade-in">
@@ -615,10 +617,10 @@ function PromptBuilder({
         <Section label="Жанр" hint="можно несколько">
           {genres.map((g) => (
             <Chip
-              key={g}
-              label={g}
-              selected={form.genres.includes(g)}
-              onClick={() => toggleMulti("genres", g)}
+              key={g.label}
+              label={g.label}
+              selected={form.genres.includes(g.label)}
+              onClick={() => toggleMulti("genres", g.label)}
             />
           ))}
         </Section>
@@ -729,7 +731,7 @@ function PromptBuilder({
           </div>
         )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
-          Продолжить — 2 000 ₽ →
+          Продолжить — {priceLabel} →
         </Button>
       </div>
     </div>
@@ -741,10 +743,12 @@ function CategoryCard({
   cat,
   index,
   onClick,
+  priceLabel,
 }: {
   cat: Category;
   index: number;
   onClick: () => void;
+  priceLabel: string;
 }) {
   const [h, setH] = useState(false);
   const icon = getIcon(cat, index);
@@ -840,7 +844,7 @@ function CategoryCard({
             transition: "all 0.2s",
           }}
         >
-          {PRICE_LABEL}
+          {priceLabel}
         </span>
       </div>
       {rippleEl}
@@ -913,10 +917,12 @@ function PopularCard({
   cat,
   rank,
   onClick,
+  priceLabel,
 }: {
   cat: Category;
   rank: number;
   onClick: () => void;
+  priceLabel: string;
 }) {
   const [h, setH] = useState(false);
   return (
@@ -1020,7 +1026,7 @@ function PopularCard({
           transition: "all 0.2s",
         }}
       >
-        {PRICE_LABEL}
+        {priceLabel}
       </span>
     </button>
   );
@@ -1129,12 +1135,13 @@ function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
 
 /* ─── main ─── */
 export function CatalogPage() {
+  const publicConfig = usePublicConfig();
   const { categories, loading } = useCatalog();
   const navigate = useNavigate();
   const { isMobile, isShort } = useBreakpoint();
   const [briefOpen, setBriefOpen] = useState(false);
   const [form, setForm] = useState<PromptForm>(EMPTY_FORM);
-  const [genres, setGenres] = useState<string[]>(GENRES_FALLBACK);
+  const [genres, setGenres] = useState<GenreOption[]>(GENRES_FALLBACK);
   const [showContact, setShowContact] = useState(false);
   const [playing, setPlaying] = useState<ExampleSong | null>(null);
   const [track, setTrack] = useState<{ url: string; duration: number } | null>(
@@ -1172,7 +1179,9 @@ export function CatalogPage() {
       .list()
       .then((items) => {
         if (items.length === 0) return;
-        setGenres(items.map((g) => g.label));
+        setGenres(
+          items.map((g) => ({ label: g.label, sunoValue: g.suno_value })),
+        );
       })
       .catch(() => {
         /* остаёмся на резервном списке */
@@ -1239,8 +1248,15 @@ export function CatalogPage() {
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
   async function handleCustomOrder(email: string, phone: string) {
-    const brief = composeBrief(form);
-    await submit({ email, phone, brief, category_id: "", answers: {} });
+    const brief = composeBrief(form, genres);
+    await submit({
+      email,
+      phone,
+      brief,
+      category_id: "",
+      answers: {},
+      consent_doc_version: publicConfig.consent_doc_version,
+    });
   }
 
   const gridCols = isMobile
@@ -1277,6 +1293,7 @@ export function CatalogPage() {
           canSubmit={
             form.occasion.trim().length > 0 && form.details.trim().length > 0
           }
+          priceLabel={publicConfig.price_label}
         />
       </div>
     </div>
@@ -1288,6 +1305,7 @@ export function CatalogPage() {
         <ContactModal
           loading={submitting}
           error={submitError}
+          priceLabel={publicConfig.price_label}
           onClose={() => setShowContact(false)}
           onSubmit={handleCustomOrder}
         />
@@ -1323,7 +1341,7 @@ export function CatalogPage() {
         >
           {/* Hero */}
           <div style={{ marginBottom: isMobile ? "8px" : "4px" }}>
-            <Hero compact={isMobile || isShort} />
+            <Hero compact={isMobile || isShort} priceLabel={publicConfig.price_label} />
           </div>
 
           {/* Search → конструктор */}
@@ -1356,6 +1374,7 @@ export function CatalogPage() {
                     key={cat.id}
                     cat={cat}
                     rank={i + 1}
+                    priceLabel={publicConfig.price_label}
                     onClick={() => navigate(`/category/${cat.id}`)}
                   />
                 ))}
@@ -1410,6 +1429,7 @@ export function CatalogPage() {
                       <CategoryCard
                         cat={cat}
                         index={i}
+                        priceLabel={publicConfig.price_label}
                         onClick={() => navigate(`/category/${cat.id}`)}
                       />
                     </div>

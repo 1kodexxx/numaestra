@@ -63,6 +63,8 @@ func TestLoad_OverridesFromEnv(t *testing.T) {
 	t.Setenv("ROBOKASSA_PASS1", "real-pass-1")
 	t.Setenv("ROBOKASSA_PASS2", "real-pass-2")
 	t.Setenv("ROBOKASSA_ALLOWED_IPS", "185.59.216.0/24")
+	t.Setenv("REDIS_PASSWORD", "redis-secret")
+	t.Setenv("SESSION_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 
 	cfg, err := Load()
 	if err != nil {
@@ -133,7 +135,7 @@ func TestLoad_SunoKeyRequired_NonDev(t *testing.T) {
 	}
 }
 
-func TestLoad_OpenAIKeyRequired_NonDev(t *testing.T) {
+func TestLoad_OpenAIOptional_NonDev(t *testing.T) {
 	t.Setenv("APP_ENV", "staging")
 	t.Setenv("ADMIN_TOKEN", "tok")
 	t.Setenv("ADMIN_LOGIN", "owner")
@@ -141,11 +143,16 @@ func TestLoad_OpenAIKeyRequired_NonDev(t *testing.T) {
 	t.Setenv("ADMIN_SESSION_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 	t.Setenv("SUNO_API_KEY", "suno-key")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("REDIS_PASSWORD", "redis-secret")
+	t.Setenv("SESSION_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 	t.Setenv("S3_ACCESS_KEY", "s3-access")
 	t.Setenv("S3_SECRET_KEY", "s3-secret")
-	_, err := Load()
-	if err == nil {
-		t.Fatal("ожидали ошибку: OPENAI_API_KEY обязателен в staging")
+	t.Setenv("ROBOKASSA_MERCHANT_LOGIN", "real-shop")
+	t.Setenv("ROBOKASSA_PASS1", "real-pass1")
+	t.Setenv("ROBOKASSA_PASS2", "real-pass2")
+	t.Setenv("ROBOKASSA_ALLOWED_IPS", "127.0.0.1")
+	if _, err := Load(); err != nil {
+		t.Fatalf("OPENAI_API_KEY не обязателен при отключённом LLM: %v", err)
 	}
 }
 
@@ -206,6 +213,8 @@ func setValidNonDevEnv(t *testing.T) {
 	t.Setenv("ROBOKASSA_PASS2", "real-pass-2")
 	t.Setenv("ROBOKASSA_ALLOWED_IPS", "185.59.216.0/24")
 	t.Setenv("ROBOKASSA_IS_TEST", "false")
+	t.Setenv("REDIS_PASSWORD", "redis-secret")
+	t.Setenv("SESSION_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd")
 }
 
 func TestLoad_NonDev_Success(t *testing.T) {

@@ -20,7 +20,7 @@ func newAdminUCWithNotifier(t *testing.T) (*AdminUseCase, *inMemOrderRepo, *mock
 
 func TestAdminUseCase_SendOrderFeedback_Success(t *testing.T) {
 	uc, orders, notifier := newAdminUCWithNotifier(t)
-	order, err := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", 100)
+	order, err := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	if err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestAdminUseCase_SendOrderFeedback_OrderNotFound(t *testing.T) {
 
 func TestAdminUseCase_SendOrderFeedback_EmptyMessage(t *testing.T) {
 	uc, orders, _ := newAdminUCWithNotifier(t)
-	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = orders.Create(context.Background(), order)
 
 	if err := uc.SendOrderFeedback(context.Background(), order.ID(), "   "); err == nil {
@@ -73,7 +73,7 @@ func TestAdminUseCase_SendOrderFeedback_EmptyMessage(t *testing.T) {
 
 func TestAdminUseCase_SendOrderFeedback_NotifierError(t *testing.T) {
 	uc, orders, notifier := newAdminUCWithNotifier(t)
-	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", 100)
+	order, _ := domain.NewOrder(1, "client@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
 	_ = orders.Create(context.Background(), order)
 	notifier.feedbackErr = errors.New("smtp down")
 

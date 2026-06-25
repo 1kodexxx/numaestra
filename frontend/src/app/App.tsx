@@ -4,13 +4,17 @@ import { Navbar } from '@widgets/navbar'
 import { Footer } from '@widgets/footer'
 import { AppRouter } from './router/AppRouter'
 import { ErrorBoundary } from './ErrorBoundary'
+import { usePublicConfig } from '@shared/lib/usePublicConfig'
 
 /* Структурированные данные (JSON-LD) для поисковиков — инжектим один раз
    с актуальным origin, поэтому корректно при любом домене. */
 function useStructuredData() {
+  const { price_kopecks } = usePublicConfig()
+
   useEffect(() => {
     if (document.getElementById('ld-json')) return
     const origin = window.location.origin
+    const priceRub = String(Math.round(price_kopecks / 100))
     const data = [
       {
         '@context': 'https://schema.org',
@@ -35,7 +39,7 @@ function useStructuredData() {
         provider: { '@type': 'Organization', name: 'Numaestra', url: origin },
         areaServed: 'RU',
         description: 'Уникальная песня под ваш повод — 4 готовые версии трека за 10 минут.',
-        offers: { '@type': 'Offer', price: '2000', priceCurrency: 'RUB' },
+        offers: { '@type': 'Offer', price: priceRub, priceCurrency: 'RUB' },
       },
     ]
     const s = document.createElement('script')
@@ -43,7 +47,7 @@ function useStructuredData() {
     s.type = 'application/ld+json'
     s.text = JSON.stringify(data)
     document.head.appendChild(s)
-  }, [])
+  }, [price_kopecks])
 }
 
 function PublicChrome({ children }: { children: React.ReactNode }) {

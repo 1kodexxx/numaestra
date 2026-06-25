@@ -111,6 +111,12 @@ export function AdminOrderDetailPage() {
           <Info label="Телефон" value={order.phone || '—'} />
           <Info label="Сумма" value={`${(order.amount_kopecks / 100).toFixed(0)} ₽`} />
           <Info label="Создан" value={new Date(order.created_at).toLocaleString('ru-RU')} />
+          {order.consent_doc_version && (
+            <Info
+              label="Согласие"
+              value={`${order.consent_doc_version}${order.consent_given_at ? ` · ${new Date(order.consent_given_at).toLocaleString('ru-RU')}` : ''}`}
+            />
+          )}
           <div className="admin-info-grid__full">
             <Info label="Бриф" value={order.brief} />
           </div>

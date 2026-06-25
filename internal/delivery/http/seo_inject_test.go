@@ -14,8 +14,10 @@ const seoTestTemplate = `<!DOCTYPE html><html lang="ru"><head>
 <meta name="robots" content="index, follow, max-image-preview:large" />
 <meta property="og:title" content="OG def" />
 <meta property="og:description" content="OG desc def" />
+<meta property="og:image" content="/og-image.png" />
 <meta name="twitter:title" content="TW def" />
 <meta name="twitter:description" content="TW desc def" />
+<meta name="twitter:image" content="/og-image.png" />
 </head><body><div id="root"></div></body></html>`
 
 func newSEOInjector(pb *stubPromptBuilder) *SEOInjector {
@@ -156,5 +158,8 @@ func TestSEOInjector_ShareSong(t *testing.T) {
 	}
 	if !strings.Contains(html, `href="https://numaestra.ru/s/8e250afe-894e-4d70-8a64-54bdc474117a"`) {
 		t.Error("canonical должен указывать на конкретную ссылку шеринга")
+	}
+	if !strings.Contains(html, `property="og:image" content="https://numaestra.ru/og-image.png"`) {
+		t.Error("og:image должен быть абсолютным PNG для превью в мессенджерах")
 	}
 }

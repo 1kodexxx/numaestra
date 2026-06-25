@@ -196,6 +196,8 @@ type adminOrderResponse struct {
 	Tracks           []adminTrackDTO `json:"tracks"`
 	AdminFeedback    string          `json:"admin_feedback,omitempty"`
 	AdminFeedbackAt  string          `json:"admin_feedback_at,omitempty"`
+	ConsentGivenAt   string          `json:"consent_given_at,omitempty"`
+	ConsentDocVersion string         `json:"consent_doc_version,omitempty"`
 	CreatedAt        string          `json:"created_at"`
 }
 
@@ -221,7 +223,11 @@ func orderToAdminResponse(o *domain.Order) adminOrderResponse {
 		GenerationStatus: string(snap.GenerationStatus),
 		Tracks:           tracks,
 		AdminFeedback:    snap.AdminFeedback,
+		ConsentDocVersion: snap.ConsentDocVersion,
 		CreatedAt:        snap.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+	if snap.ConsentGivenAt != nil {
+		resp.ConsentGivenAt = snap.ConsentGivenAt.Format("2006-01-02T15:04:05Z")
 	}
 	if snap.AdminFeedbackAt != nil {
 		resp.AdminFeedbackAt = snap.AdminFeedbackAt.Format("2006-01-02T15:04:05Z")

@@ -3,11 +3,13 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 // --- in-memory CategoryRepository ---
@@ -237,21 +239,29 @@ func TestPromptUseCase_GetCategoryWizard_NotFound(t *testing.T) {
 func TestPromptUseCase_BuildFinalPrompt_SubstitutesPlaceholders(t *testing.T) {
 	repo := newInMemCategoryRepo(domain.CategorySnapshot{
 		ID:                 "bday",
-		BasePromptTemplate: "Поздравь [name] с [age]-летием в стиле [style].",
+		Title:              "День рождения",
+		BasePromptTemplate: "Create a [MOOD] [GENRE] song with [VOCAL]. The lyrics must be in Russian language. Birthday person is [name], age [age].",
 	})
 	uc := NewPromptUseCase(repo)
 
 	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
-		"name":  "Колю",
+		"name":  "Коля",
 		"age":   "40",
-		"style": "джаз",
+		"GENRE": "jazz lounge",
+		"MOOD":  "warm, friendly",
+		"VOCAL": "male vocals",
 	})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	want := "Поздравь Колю с 40-летием в стиле джаз."
-	if prompt != want {
-		t.Errorf("ожидали %q, получили %q", want, prompt)
+	if !strings.Contains(prompt, suno.TagsMarker) {
+		t.Errorf("ожидали кодированный промпт с tags, получили %q", prompt)
+	}
+	if !strings.Contains(prompt, "jazz lounge") {
+		t.Errorf("tags не содержат жанр: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Коля") {
+		t.Errorf("описание не содержит имя: %q", prompt)
 	}
 }
 
@@ -268,16 +278,16 @@ func TestPromptUseCase_BuildFinalPrompt_UnknownCategory(t *testing.T) {
 func TestPromptUseCase_BuildFinalPrompt_MissingAnswerLeavesPlaceholder(t *testing.T) {
 	repo := newInMemCategoryRepo(domain.CategorySnapshot{
 		ID:                 "tpl",
-		BasePromptTemplate: "Привет [name], тебе [age]!",
+		Title:              "Тест",
+		BasePromptTemplate: "The song is about [name], age [age].",
 	})
 	uc := NewPromptUseCase(repo)
 
-	// Только один ключ — [age] остаётся как есть.
 	prompt, err := uc.BuildFinalPrompt(context.Background(), "tpl", map[string]string{"name": "Вася"})
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
-	if prompt != "Привет Вася, тебе [age]!" {
+	if !strings.Contains(prompt, "Вася") || !strings.Contains(prompt, "[age]") {
 		t.Errorf("незаменённый плейсхолдер должен остаться, получили %q", prompt)
 	}
 }

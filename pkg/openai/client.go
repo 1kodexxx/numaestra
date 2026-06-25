@@ -53,6 +53,12 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
+const lyricSystemPrompt = "You write song lyrics optimized for Suno AI music generation. " +
+	"Output ONLY lyrics with English section tags: [Verse 1], [Verse 2], [Chorus], [Bridge], [Outro]. " +
+	"All sung lines must be in Russian. Keep lines rhythmic and singable (about 6–10 syllables). " +
+	"Use every name and fact from the user's brief. Match genre, mood, tempo, and vocals from the brief. " +
+	"No titles, explanations, or markdown."
+
 func (c *httpClient) GenerateLyrics(ctx context.Context, facts string) (string, error) {
 	reqData := chatRequest{
 		// Используем дешевую и очень умную модель (можно поменять на anthropic/claude-3-haiku)
@@ -60,7 +66,7 @@ func (c *httpClient) GenerateLyrics(ctx context.Context, facts string) (string, 
 		Messages: []message{
 			{
 				Role:    "system",
-				Content: "Ты гениальный поэт-песенник. Преврати факты пользователя в хит на русском языке. Обязательно используй мета-теги структуры: [Verse 1], [Chorus], [Guitar Solo]. Пиши с юмором, ритмично и без лишних вступлений.",
+				Content: lyricSystemPrompt,
 			},
 			{
 				Role:    "user",
@@ -128,10 +134,10 @@ func (c *httpClient) GenerateLyricsVariants(ctx context.Context, facts string, c
 			{
 				Role: "system",
 				Content: fmt.Sprintf(
-					"Ты гениальный поэт-песенник. По фактам пользователя напиши %d РАЗНЫХ варианта текста песни на русском языке. "+
-						"Каждый вариант — полноценная песня с мета-тегами [Verse 1], [Chorus], [Guitar Solo] и т.д. "+
-						"Варианты должны отличаться текстом, припевом и рифмами, но сохранять одну тему и настроение. "+
-						"Разделяй варианты строго маркером %s на отдельной строке. Без вступлений и пояснений.",
+					"You write song lyrics for Suno AI. Write %d DIFFERENT Russian song variants from the user's brief. "+
+						"Each variant: full song with English tags [Verse 1], [Chorus], etc. "+
+						"Variants must differ in chorus and rhymes but share the same theme, mood, and style. "+
+						"Separate variants with %s on its own line. No introductions.",
 					count, lyricVariantSeparator,
 				),
 			},

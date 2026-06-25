@@ -119,6 +119,9 @@ type Order struct {
 	adminFeedback   string
 	adminFeedbackAt *time.Time
 
+	consentGivenAt    *time.Time
+	consentDocVersion string
+
 	createdAt   time.Time
 	updatedAt   time.Time
 	paidAt      *time.Time
@@ -126,7 +129,7 @@ type Order struct {
 }
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
-func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, sunoPrompt string, amountKopecks int64) (*Order, error) {
+func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, sunoPrompt, consentDocVersion string, amountKopecks int64) (*Order, error) {
 	if customerEmail == "" && customerPhone == "" {
 		return nil, errors.New("должен быть указан хотя бы один контакт клиента")
 	}
@@ -139,8 +142,12 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, 
 	if amountKopecks <= 0 {
 		return nil, errors.New("сумма заказа должна быть положительной")
 	}
+	if err := ValidateConsentDocVersion(consentDocVersion); err != nil {
+		return nil, err
+	}
 
 	now := time.Now().UTC()
+	consentAt := now
 
 	token, err := generateAccessToken()
 	if err != nil {
@@ -160,6 +167,8 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, 
 		paymentStatus:    PaymentStatusPending,
 		generationStatus: GenerationStatusNew,
 		accessToken:      token,
+		consentGivenAt:   &consentAt,
+		consentDocVersion: consentDocVersion,
 		createdAt:        now,
 		updatedAt:        now,
 	}, nil
@@ -196,6 +205,8 @@ type OrderSnapshot struct {
 	AccessToken       string
 	AdminFeedback     string
 	AdminFeedbackAt   *time.Time
+	ConsentGivenAt    *time.Time
+	ConsentDocVersion string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	PaidAt            *time.Time
@@ -215,6 +226,8 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		accessToken:     s.AccessToken,
 		adminFeedback:   s.AdminFeedback,
 		adminFeedbackAt: s.AdminFeedbackAt,
+		consentGivenAt:    s.ConsentGivenAt,
+		consentDocVersion: s.ConsentDocVersion,
 		createdAt:       s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 	}
 }
@@ -241,6 +254,8 @@ func (o *Order) FailureReason() string              { return o.failureReason }
 func (o *Order) AccessToken() string                { return o.accessToken }
 func (o *Order) AdminFeedback() string              { return o.adminFeedback }
 func (o *Order) AdminFeedbackAt() *time.Time        { return o.adminFeedbackAt }
+func (o *Order) ConsentGivenAt() *time.Time         { return o.consentGivenAt }
+func (o *Order) ConsentDocVersion() string          { return o.consentDocVersion }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
@@ -469,6 +484,8 @@ func (o *Order) Snapshot() OrderSnapshot {
 		AccessToken:       o.accessToken,
 		AdminFeedback:     o.adminFeedback,
 		AdminFeedbackAt:   o.adminFeedbackAt,
+		ConsentGivenAt:    o.consentGivenAt,
+		ConsentDocVersion: o.consentDocVersion,
 		CreatedAt:         o.createdAt,
 		UpdatedAt:         o.updatedAt,
 		PaidAt:            o.paidAt,

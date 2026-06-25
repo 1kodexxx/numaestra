@@ -51,12 +51,19 @@ func webhookSig(outSum, invID string) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:]))
 }
 
+func validOrderBody(extra string) string {
+	if extra != "" && !strings.HasPrefix(extra, ",") {
+		extra = "," + extra
+	}
+	return fmt.Sprintf(`{"email":"user@example.com","brief":"Песня","consent_doc_version":%q%s}`, domain.CurrentConsentDocVersion, extra)
+}
+
 // --- CreateOrder ---
 
 func TestHandler_CreateOrder_Success(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 
-	body := `{"email":"user@example.com","brief":"Песня"}`
+	body := validOrderBody("")
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -84,7 +91,7 @@ func TestHandler_CreateOrder_IgnoresClientAmount(t *testing.T) {
 
 	// Клиент пытается занизить цену через amount_kopecks — поле игнорируется,
 	// цена берётся из серверного тарифа.
-	body := `{"email":"user@example.com","brief":"Песня","amount_kopecks":1}`
+	body := validOrderBody(`"amount_kopecks":1`)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -109,7 +116,7 @@ func TestHandler_CreateOrder_InvalidJSON(t *testing.T) {
 func TestHandler_CreateOrder_BriefTooLong(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 	longBrief := strings.Repeat("я", domain.MaxBriefLength+1)
-	body := fmt.Sprintf(`{"email":"user@example.com","brief":%q}`, longBrief)
+	body := fmt.Sprintf(`{"email":"user@example.com","brief":%q,"consent_doc_version":%q}`, longBrief, domain.CurrentConsentDocVersion)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -154,6 +161,17 @@ func TestHandler_CreateOrder_MissingFields(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("case %d: ожидали 400, получили %d", i, rec.Code)
 		}
+	}
+}
+
+func TestHandler_CreateOrder_MissingConsent(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+	body := `{"email":"user@example.com","brief":"Песня"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d (%s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -550,7 +568,7 @@ func TestHandler_WithIdempotency_SecondCallReturnsCached(t *testing.T) {
 	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithIdempotency(store)
 	router := h.Routes()
 
-	body := `{"email":"idem@example.com","brief":"Идемпотентный заказ"}`
+	body := fmt.Sprintf(`{"email":"idem@example.com","brief":"Идемпотентный заказ","consent_doc_version":%q}`, domain.CurrentConsentDocVersion)
 	const idempotencyKey = "unique-order-key-1"
 
 	// Первый запрос — создаёт заказ, кешируется ответ.
@@ -640,7 +658,7 @@ func TestHandler_GetOrder_InvalidUUID(t *testing.T) {
 func TestHandler_ListOrders_ByPhone(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	// Создаём заказ только с телефоном (без email)
-	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", nil)
+	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, nil)
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
@@ -672,7 +690,7 @@ func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithRedis(rdb)
 	router := h.Routes()
 
-	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", nil)
+	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
 	if err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
@@ -738,7 +756,7 @@ func TestHandler_Webhook_PaymentWindowExpired(t *testing.T) {
 
 func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief string) *domain.Order {
 	t.Helper()
-	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, "", nil)
+	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, "", domain.CurrentConsentDocVersion, nil)
 	if err != nil {
 		t.Fatalf("подготовка заказа: %v", err)
 	}

@@ -148,7 +148,9 @@ func run(ctx context.Context) error {
 	sunoClient := suno.NewClientWithBreaker(cfg.Suno.APIURL, cfg.Suno.APIKey, cfg.Suno.Model)
 	musicProvider := sunorepo.NewProviderAdapter(sunoClient)
 
-	llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
+	// LLM (ChatGPT/OpenRouter) отключён — тексты пишет Suno в Inspiration Mode.
+	// llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
+	llmClient := openai.NewNoopClient()
 
 	s3Client := s3.NewResilientClient(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
 
@@ -403,6 +405,7 @@ func newRouter(
 
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
+	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks).Routes())
 	r.Mount("/api/v1/genres", genreHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
 	r.Mount("/api/v1/reviews", reviewHandler.Routes())

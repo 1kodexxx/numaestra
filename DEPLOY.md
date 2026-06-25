@@ -68,8 +68,8 @@ nano .env
 ```
 
 Заполните как минимум (прод требует их при старте, иначе фатальная ошибка):
-`POSTGRES_PASSWORD`, `SESSION_ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ADMIN_LOGIN`,
-`ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, `SUNO_API_KEY`, `OPENAI_API_KEY`,
+`POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `SESSION_ENCRYPTION_KEY`, `ADMIN_TOKEN`, `ADMIN_LOGIN`,
+`ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, `SUNO_API_KEY`,
 `S3_*`, `ROBOKASSA_*`, `DOMAIN`, `ACME_EMAIL`. Также добавьте строку:
 
 ```env

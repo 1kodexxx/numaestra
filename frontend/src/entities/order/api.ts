@@ -7,6 +7,7 @@ export interface CreateOrderPayload {
   brief: string
   category_id: string
   answers: Record<string, string>
+  consent_doc_version: string
 }
 
 export const orderApi = {

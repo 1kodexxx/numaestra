@@ -7,7 +7,7 @@ import (
 )
 
 func TestUpdateGenerationProgress_Monotonic(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	o.UpdateGenerationProgress(GenerationPhaseGenerating, 40, 1)
 	o.UpdateGenerationProgress(GenerationPhaseGenerating, 30, 0) // откат внутри той же фазы
 	if o.GenerationProgress() != 40 {
@@ -20,7 +20,7 @@ func TestUpdateGenerationProgress_Monotonic(t *testing.T) {
 }
 
 func TestEnqueue_SetsQueuedProgress(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	if err := o.Enqueue(); err != nil {
 		t.Fatalf("Enqueue: %v", err)
@@ -31,7 +31,7 @@ func TestEnqueue_SetsQueuedProgress(t *testing.T) {
 }
 
 func TestStartProcessing_SetsPreparingProgress(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 	acc := uuid.New()
@@ -44,7 +44,7 @@ func TestStartProcessing_SetsPreparingProgress(t *testing.T) {
 }
 
 func TestComplete_SetsFullProgress(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 	_ = o.StartProcessing(uuid.New())
@@ -58,7 +58,7 @@ func TestComplete_SetsFullProgress(t *testing.T) {
 }
 
 func TestRequeueForRetry_ResetsProgress(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 	_ = o.StartProcessing(uuid.New())
@@ -71,7 +71,7 @@ func TestRequeueForRetry_ResetsProgress(t *testing.T) {
 }
 
 func TestRegenerate_ResetsProgress(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	_ = o.MarkPaid()
 	_ = o.Enqueue()
 	_ = o.StartProcessing(uuid.New())
@@ -87,7 +87,7 @@ func TestRegenerate_ResetsProgress(t *testing.T) {
 }
 
 func TestSnapshot_RoundTripsProgressFields(t *testing.T) {
-	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", 100)
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
 	o.UpdateGenerationProgress(GenerationPhaseLyrics, 15, 0)
 	restored := RestoreOrder(o.Snapshot())
 	if restored.GenerationPhase() != GenerationPhaseLyrics || restored.GenerationProgress() != 15 {

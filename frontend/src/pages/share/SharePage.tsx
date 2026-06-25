@@ -6,6 +6,7 @@ import { ApiError } from '@shared/api'
 import { Spinner, Button } from '@shared/ui'
 import { MusicPlayer } from '@widgets/player'
 import { useSeo } from '@shared/lib/seo'
+import { usePublicConfig } from '@shared/lib/usePublicConfig'
 
 const ACCENT = '#00e5c0'
 const TEXT2 = 'rgba(255,255,255,0.55)'
@@ -16,6 +17,7 @@ const TEXT2 = 'rgba(255,255,255,0.55)'
  * для шеринга: получатель слушает песню, но не получает доступ к заказу.
  */
 export function SharePage() {
+  const { price_label } = usePublicConfig()
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [tracks, setTracks] = useState<Track[] | null>(null)
@@ -63,7 +65,7 @@ export function SharePage() {
         <div style={{ textAlign: 'center', marginTop: '32px' }}>
           <Button size="lg" onClick={() => navigate('/')}>Заказать свою песню →</Button>
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.32)', marginTop: '10px' }}>
-            4 версии трека · готово за 10 минут · 2 000 ₽
+            4 версии трека · готово за 10 минут · {price_label}
           </div>
         </div>
       </div>

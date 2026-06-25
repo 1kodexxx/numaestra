@@ -1,30 +1,12 @@
 package sunorepo
 
 import (
-	"strings"
-
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
-// isStructuredLyrics определяет, что строка — готовый текст песни с секциями,
-// а не свободное описание для Inspiration Mode.
-func isStructuredLyrics(s string) bool {
-	lower := strings.ToLower(s)
-	return strings.Contains(lower, "[verse") ||
-		strings.Contains(lower, "[chorus") ||
-		strings.Contains(lower, "[куплет") ||
-		strings.Contains(lower, "[припев")
-}
-
 func musicInputFromBrief(brief, style string, instrumental bool) suno.MusicInput {
-	in := suno.MusicInput{Tags: style, Instrumental: instrumental}
-	if isStructuredLyrics(brief) {
-		in.Lyrics = brief
-	} else {
-		in.Description = brief
-	}
-	return in
+	return suno.ResolveMusicInput(brief, style, instrumental)
 }
 
 // generationJobs строит список Suno-заданий для запроса.

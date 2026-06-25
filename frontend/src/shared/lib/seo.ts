@@ -44,7 +44,7 @@ export function useSeo({ title, description, image, noindex }: SeoOptions) {
     const desc = description || DEFAULT_DESC
     const origin = window.location.origin
     const url = origin + window.location.pathname
-    const img = image ? (image.startsWith('http') ? image : origin + image) : origin + '/og-image.svg'
+    const img = image ? (image.startsWith('http') ? image : origin + image) : origin + '/og-image.png'
 
     document.title = fullTitle
     setMeta('name', 'description', desc)

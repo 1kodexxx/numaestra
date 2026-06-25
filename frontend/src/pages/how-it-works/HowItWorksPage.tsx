@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
+import { usePublicConfig } from '@shared/lib/usePublicConfig'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.08)'
@@ -33,7 +35,7 @@ const STEPS: Step[] = [
   {
     icon: '💳',
     title: 'Оплатите заказ',
-    text: 'Фиксированная цена — 2 000 ₽ за 4 версии песни, без подписок и доплат. Оплата проходит безопасно через Robokassa; сумму определяет сервер.',
+    text: 'Фиксированная цена за 4 версии песни, без подписок и доплат. Оплата проходит безопасно через Robokassa; сумму определяет сервер.',
   },
   {
     icon: '🤖',
@@ -49,6 +51,15 @@ const STEPS: Step[] = [
 
 export function HowItWorksPage() {
   const navigate = useNavigate()
+  const { price_label } = usePublicConfig()
+
+  const steps = useMemo(
+    () =>
+      STEPS.map((s, i) =>
+        i === 3 ? { ...s, text: `Фиксированная цена — ${price_label} за 4 версии песни, без подписок и доплат. Оплата проходит безопасно через Robokassa; сумму определяет сервер.` } : s,
+      ),
+    [price_label],
+  )
 
   useSeo({
     title: 'Как это работает — заказать песню за 6 шагов | Numaestra',
@@ -77,13 +88,13 @@ export function HowItWorksPage() {
             От идеи до готовой песни — <span className="gradient-text">за 6 шагов</span>
           </h1>
           <p style={{ fontSize: '15px', color: TEXT2, lineHeight: 1.6, maxWidth: 480, margin: '0 auto' }}>
-            Весь процесс занимает около 10 минут. Регистрация не нужна, оплата один раз — 2 000 ₽ за 4 версии трека.
+            Весь процесс занимает около 10 минут. Регистрация не нужна, оплата один раз — {price_label} за 4 версии трека.
           </p>
         </div>
 
         {/* Алгоритм */}
         <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <li
               key={i}
               style={{
@@ -120,7 +131,7 @@ export function HowItWorksPage() {
           <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '14px' }}>Готовы начать?</div>
           <Button size="lg" onClick={() => navigate('/')}>Заказать песню →</Button>
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '12px' }}>
-            4 версии трека · готово за 10 минут · 2 000 ₽ без подписок
+            4 версии трека · готово за 10 минут · {price_label} без подписок
           </div>
         </div>
       </div>

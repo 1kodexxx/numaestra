@@ -209,9 +209,13 @@ func Load() (*Config, error) {
 		if cfg.Suno.APIKey == "" {
 			return nil, fmt.Errorf("SUNO_API_KEY обязателен в окружении %q", cfg.Env)
 		}
-		if cfg.OpenAI.APIKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY обязателен в окружении %q", cfg.Env)
+		if cfg.Redis.Password == "" {
+			return nil, fmt.Errorf("REDIS_PASSWORD обязателен в окружении %q", cfg.Env)
 		}
+		if cfg.SessionEncryptionKey == "" {
+			return nil, fmt.Errorf("SESSION_ENCRYPTION_KEY обязателен в окружении %q (openssl rand -hex 32)", cfg.Env)
+		}
+		// OPENAI_API_KEY не обязателен: LLM-генерация текстов отключена, Suno пишет слова сам.
 		if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" {
 			return nil, fmt.Errorf("S3_ACCESS_KEY и S3_SECRET_KEY обязательны в окружении %q", cfg.Env)
 		}

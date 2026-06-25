@@ -74,8 +74,10 @@ var (
 	reRobots    = regexp.MustCompile(`<meta name="robots" content="[^"]*"\s*/?>`)
 	reOgTitle   = regexp.MustCompile(`<meta property="og:title" content="[^"]*"\s*/?>`)
 	reOgDesc    = regexp.MustCompile(`<meta property="og:description" content="[^"]*"\s*/?>`)
+	reOgImage   = regexp.MustCompile(`<meta property="og:image" content="[^"]*"\s*/?>`)
 	reTwTitle   = regexp.MustCompile(`<meta name="twitter:title" content="[^"]*"\s*/?>`)
 	reTwDesc    = regexp.MustCompile(`<meta name="twitter:description" content="[^"]*"\s*/?>`)
+	reTwImage   = regexp.MustCompile(`<meta name="twitter:image" content="[^"]*"\s*/?>`)
 	reRootEmpty = regexp.MustCompile(`<div id="root">\s*</div>`)
 )
 
@@ -107,6 +109,13 @@ func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
 	}
 	if data.noindex {
 		out = reRobots.ReplaceAllLiteralString(out, `<meta name="robots" content="noindex, nofollow" />`)
+	}
+
+	// Telegram / VK / WhatsApp требуют абсолютный URL и растр (PNG/JPEG), не SVG.
+	if baseURL != "" {
+		ogImage := baseURL + "/og-image.png"
+		out = reOgImage.ReplaceAllLiteralString(out, `<meta property="og:image" content="`+attr(ogImage)+`" />`)
+		out = reTwImage.ReplaceAllLiteralString(out, `<meta name="twitter:image" content="`+attr(ogImage)+`" />`)
 	}
 
 	// canonical + og:url + JSON-LD — перед </head>.
