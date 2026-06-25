@@ -366,3 +366,21 @@ func TestOrder_Regenerate(t *testing.T) {
 		t.Error("привязка аккаунта должна сброситься")
 	}
 }
+
+func TestSameCustomer(t *testing.T) {
+	a, _ := NewOrder(1, "User@Mail.com", "", "a", "", "", 100)
+	b, _ := NewOrder(2, "user@mail.com", "", "b", "", "", 100)
+	c, _ := NewOrder(3, "other@mail.com", "", "c", "", "", 100)
+	p1, _ := NewOrder(4, "", "+7999", "p1", "", "", 100)
+	p2, _ := NewOrder(5, "", "+7999", "p2", "", "", 100)
+
+	if !SameCustomer(a, b) {
+		t.Error("одинаковый email (разный регистр) — один клиент")
+	}
+	if SameCustomer(a, c) {
+		t.Error("разные email — разные клиенты")
+	}
+	if !SameCustomer(p1, p2) {
+		t.Error("одинаковый телефон — один клиент")
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/pkg/circuitbreaker"
 )
@@ -111,5 +113,28 @@ func TestResilientClient_CircuitOpensAfterThresholdFailures(t *testing.T) {
 	}
 	if innerCalls != callsBefore {
 		t.Errorf("после открытия автомата inner не должен вызываться (было %d, стало %d)", callsBefore, innerCalls)
+	}
+}
+
+func TestResilientClient_DeleteOrderTracks_Success(t *testing.T) {
+	orderID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	var deleteCount int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			atomic.AddInt32(&deleteCount, 1)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer srv.Close()
+
+	c := newResilientTestClient(srv, 3, time.Minute)
+	if err := c.DeleteOrderTracks(context.Background(), orderID); err != nil {
+		t.Fatalf("DeleteOrderTracks: %v", err)
+	}
+	if deleteCount != int32(domain.DefaultTrackCount) {
+		t.Fatalf("ожидали %d DELETE, получили %d", domain.DefaultTrackCount, deleteCount)
 	}
 }

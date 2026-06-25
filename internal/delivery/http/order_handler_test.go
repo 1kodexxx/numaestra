@@ -287,14 +287,49 @@ func TestHandler_GetOrder_TokenForDifferentOrder(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	order := mustCreate(t, h, "user@example.com", "", "Бриф")
 
-	// Токен валиден, но в URL чужой ID.
+	// Несуществующий ID — 404.
 	req := httptest.NewRequest(http.MethodGet, "/"+uuid.NewString(), nil)
 	req.Header.Set("X-Access-Token", order.AccessToken())
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404 для несуществующего заказа, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_GetOrder_SiblingOrderSameEmail(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	first := mustCreate(t, h, "user@example.com", "", "Первый")
+	second := mustCreate(t, h, "user@example.com", "", "Второй")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+second.ID().String(), nil)
+	req.Header.Set("X-Access-Token", first.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200 для заказа того же клиента, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp OrderDetailResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.ID != second.ID().String() {
+		t.Errorf("ожидали заказ %s, получили %s", second.ID(), resp.ID)
+	}
+}
+
+func TestHandler_GetOrder_DifferentCustomerForbidden(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	owner := mustCreate(t, h, "owner@example.com", "", "Мой")
+	other := mustCreate(t, h, "other@example.com", "", "Чужой")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+other.ID().String(), nil)
+	req.Header.Set("X-Access-Token", owner.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("ожидали 403 при несоответствии токена и ID, получили %d", rec.Code)
+		t.Fatalf("ожидали 403 для чужого заказа, получили %d", rec.Code)
 	}
 }
 
@@ -335,8 +370,23 @@ func TestHandler_GetPaymentURL_TokenForDifferentOrder(t *testing.T) {
 	req.Header.Set("X-Access-Token", order.AccessToken())
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("ожидали 403 при чужом ID, получили %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404 для несуществующего заказа, получили %d", rec.Code)
+	}
+}
+
+func TestHandler_GetPaymentURL_SiblingOrderSameEmail(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	first := mustCreate(t, h, "user@example.com", "", "Первый")
+	second := mustCreate(t, h, "user@example.com", "", "Второй")
+
+	req := httptest.NewRequest(http.MethodGet, "/"+second.ID().String()+"/payment-url", nil)
+	req.Header.Set("X-Access-Token", first.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
 	}
 }
 
@@ -833,6 +883,18 @@ func (r *hOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*dom
 }
 func (r *hOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
+}
+
+func (r *hOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	delete(r.orders, id)
+	delete(r.byInvoice, snap.InvoiceID)
+	return nil
 }
 
 var _ domain.OrderRepository = (*hOrderRepo)(nil)

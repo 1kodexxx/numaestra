@@ -13,6 +13,8 @@ import {
   processingOrder,
 } from '@test/fixtures/orders'
 
+const OTHER_ORDER_ID = '22222222-2222-4222-8222-222222222222'
+
 vi.mock('@entities/order', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@entities/order')>()
   return {
@@ -155,5 +157,35 @@ describe('StatusPage', () => {
       expect(screen.getByText('Ваша песня готова!')).toBeInTheDocument()
     })
     expect(orderApi.getById).toHaveBeenCalledWith(ORDER_ID, undefined)
+  })
+
+  it('переключается между заказами по клику в списке', async () => {
+    vi.mocked(orderApi.getById).mockImplementation(async (id) => {
+      if (id === ORDER_ID) return completedOrder()
+      return { ...completedOrder(), id: OTHER_ORDER_ID, invoice_id: 4243 }
+    })
+    vi.mocked(orderApi.list).mockResolvedValue([
+      { id: ORDER_ID, invoice_id: 4242, brief: 'Первый заказ', payment_status: 'paid', generation_status: 'completed', tracks_count: 4 },
+      { id: OTHER_ORDER_ID, invoice_id: 4243, brief: 'Второй заказ', payment_status: 'paid', generation_status: 'completed', tracks_count: 4 },
+    ])
+    orderStorage.saveOrder(ORDER_ID, ACCESS_TOKEN)
+
+    renderWithRouter(<StatusPage />, {
+      route: `/status/${ORDER_ID}`,
+      path: '/status/:orderId',
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Ваши заказы · 2')).toBeInTheDocument()
+    })
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /#4243/ }))
+
+    await waitFor(() => {
+      expect(orderApi.getById).toHaveBeenCalledWith(OTHER_ORDER_ID, ACCESS_TOKEN)
+      expect(orderStorage.getOrderId()).toBe(OTHER_ORDER_ID)
+    })
+    expect(screen.getByText(/Нажмите на заказ, чтобы переключиться/)).toBeInTheDocument()
   })
 })

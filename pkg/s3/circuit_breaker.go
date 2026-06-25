@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/numaestra/numaestra/pkg/circuitbreaker"
 )
 
@@ -53,6 +55,13 @@ func (r *ResilientClient) UploadFromURL(ctx context.Context, sourceURL, key, con
 		return lastErr
 	})
 	return publicURL, err
+}
+
+// DeleteOrderTracks удаляет MP3-объекты заказа из S3.
+func (r *ResilientClient) DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error {
+	return r.breaker.Do(func() error {
+		return r.inner.DeleteOrderTracks(ctx, orderID)
+	})
 }
 
 // Upload загружает готовые байты под фиксированным ключом (идемпотентно),

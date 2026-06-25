@@ -611,6 +611,31 @@ func TestGetOrderByToken_Empty(t *testing.T) {
 	}
 }
 
+func TestGetOrderForCustomer_SiblingSameEmail(t *testing.T) {
+	f := newFixture(t)
+	first, _ := f.uc.CreateOrder(context.Background(), "sib@test.com", "", "первый", "", nil)
+	second, _ := f.uc.CreateOrder(context.Background(), "sib@test.com", "", "второй", "", nil)
+
+	got, err := f.uc.GetOrderForCustomer(context.Background(), first, second.ID())
+	if err != nil {
+		t.Fatalf("GetOrderForCustomer: %v", err)
+	}
+	if got.ID() != second.ID() {
+		t.Errorf("ожидали %s, получили %s", second.ID(), got.ID())
+	}
+}
+
+func TestGetOrderForCustomer_DifferentCustomerDenied(t *testing.T) {
+	f := newFixture(t)
+	owner, _ := f.uc.CreateOrder(context.Background(), "a@test.com", "", "мой", "", nil)
+	other, _ := f.uc.CreateOrder(context.Background(), "b@test.com", "", "чужой", "", nil)
+
+	_, err := f.uc.GetOrderForCustomer(context.Background(), owner, other.ID())
+	if !errors.Is(err, domain.ErrOrderAccessDenied) {
+		t.Fatalf("ожидали ErrOrderAccessDenied, получили %v", err)
+	}
+}
+
 func TestGetOrder_Found(t *testing.T) {
 	f := newFixture(t)
 	order, err := f.uc.CreateOrder(context.Background(), "get@test.com", "", "бриф", "", nil)

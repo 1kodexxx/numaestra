@@ -211,6 +211,18 @@ func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {
 	return len(r.orders), nil
 }
 
+func (r *inMemOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	delete(r.orders, id)
+	delete(r.byInvoice, snap.InvoiceID)
+	return nil
+}
+
 var _ domain.OrderRepository = (*inMemOrderRepo)(nil)
 
 // --- passthrough TransactionManager ---
@@ -418,6 +430,7 @@ var _ domain.MusicProvider = (*mockProvider)(nil)
 
 type mockStorage struct {
 	uploadFn func(ctx context.Context, sourceURL, key, contentType string) (string, error)
+	deleteFn func(ctx context.Context, orderID uuid.UUID) error
 }
 
 func (m *mockStorage) UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (string, error) {
@@ -425,6 +438,13 @@ func (m *mockStorage) UploadFromURL(ctx context.Context, sourceURL, key, content
 		return m.uploadFn(ctx, sourceURL, key, contentType)
 	}
 	return "https://s3.local/" + key, nil
+}
+
+func (m *mockStorage) DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error {
+	if m.deleteFn != nil {
+		return m.deleteFn(ctx, orderID)
+	}
+	return nil
 }
 
 var _ domain.TrackStorage = (*mockStorage)(nil)

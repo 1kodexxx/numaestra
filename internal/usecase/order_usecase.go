@@ -580,6 +580,25 @@ func (uc *OrderUseCase) GetOrderByToken(ctx context.Context, token string) (*dom
 	return order, nil
 }
 
+// GetOrderForCustomer возвращает заказ по ID, если он принадлежит тому же
+// клиенту, что и owner (определён по токену в middleware).
+func (uc *OrderUseCase) GetOrderForCustomer(ctx context.Context, owner *domain.Order, orderID uuid.UUID) (*domain.Order, error) {
+	if owner == nil {
+		return nil, domain.ErrOrderUnauthorized
+	}
+	if owner.ID() == orderID {
+		return owner, nil
+	}
+	target, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	if !domain.SameCustomer(owner, target) {
+		return nil, domain.ErrOrderAccessDenied
+	}
+	return target, nil
+}
+
 // ==========================================
 // 3. ФОНОВОЕ ОБСЛУЖИВАНИЕ (Вызывается по расписанию)
 // ==========================================

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -344,5 +345,95 @@ func TestAdminUseCase_RegenerateOrder_NotFailed(t *testing.T) {
 	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithQueue(&mockQueue{})
 	if err := uc.RegenerateOrder(context.Background(), o.ID()); err == nil {
 		t.Error("перегенерация не-failed заказа должна вернуть ошибку")
+	}
+}
+
+func TestAdminUseCase_DeleteOrder_RemovesFromRepoAndStorage(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	orders.save(o)
+
+	var deletedID uuid.UUID
+	storage := &mockStorage{
+		deleteFn: func(_ context.Context, id uuid.UUID) error {
+			deletedID = id
+			return nil
+		},
+	}
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithStorage(storage)
+
+	if err := uc.DeleteOrder(context.Background(), o.ID()); err != nil {
+		t.Fatalf("DeleteOrder: %v", err)
+	}
+	if deletedID != o.ID() {
+		t.Errorf("ожидали очистку хранилища для %s, получили %s", o.ID(), deletedID)
+	}
+	if _, err := orders.GetByID(context.Background(), o.ID()); !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Error("заказ должен исчезнуть из репозитория")
+	}
+}
+
+func TestAdminUseCase_DeleteOrder_ReleasesProcessingSlot(t *testing.T) {
+	orders := newInMemOrderRepo()
+	accounts := newInMemAccountRepo()
+	acc, _ := domain.NewSunoAccount("suno@x.com", "enc", 2)
+	_ = acc.AcquireSlot(time.Now().UTC())
+	_ = accounts.Create(context.Background(), acc)
+
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	_ = o.MarkPaid()
+	_ = o.Enqueue()
+	_ = o.StartProcessing(acc.ID())
+	orders.save(o)
+
+	uc := NewAdminUseCase(orders, accounts, nil, &mockRefunder{}, nil, nil, testLogger())
+	if err := uc.DeleteOrder(context.Background(), o.ID()); err != nil {
+		t.Fatalf("DeleteOrder: %v", err)
+	}
+	got, _ := accounts.GetByID(context.Background(), acc.ID())
+	if got.ConcurrentTasks() != 0 {
+		t.Errorf("ожидали освобождённый слот, concurrent_tasks=%d", got.ConcurrentTasks())
+	}
+}
+
+func TestAdminUseCase_DeleteOrder_NotFound(t *testing.T) {
+	uc := NewAdminUseCase(newInMemOrderRepo(), newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger())
+	err := uc.DeleteOrder(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Fatalf("ожидали ErrOrderNotFound, получили %v", err)
+	}
+}
+
+func TestAdminUseCase_DeleteOrder_WithoutStorage_DeletesFromDB(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	orders.save(o)
+
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger())
+	if err := uc.DeleteOrder(context.Background(), o.ID()); err != nil {
+		t.Fatalf("DeleteOrder: %v", err)
+	}
+	if _, err := orders.GetByID(context.Background(), o.ID()); !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Error("заказ должен быть удалён даже без storage")
+	}
+}
+
+func TestAdminUseCase_DeleteOrder_StorageFailure_KeepsOrder(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", 100)
+	orders.save(o)
+
+	storage := &mockStorage{
+		deleteFn: func(context.Context, uuid.UUID) error {
+			return errors.New("s3 down")
+		},
+	}
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithStorage(storage)
+
+	if err := uc.DeleteOrder(context.Background(), o.ID()); err == nil {
+		t.Fatal("ожидали ошибку при сбое S3")
+	}
+	if _, err := orders.GetByID(context.Background(), o.ID()); err != nil {
+		t.Error("при ошибке хранилища заказ должен остаться в БД")
 	}
 }

@@ -330,6 +330,40 @@ func TestOrderRepository_SetAdminFeedback_NotFound(t *testing.T) {
 	}
 }
 
+func TestOrderRepository_Delete_Success(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	id := uuid.New()
+	mock.ExpectExec("DELETE FROM orders").WithArgs(anyArgs(1)...).WillReturnResult(pgxmock.NewResult("DELETE", 1))
+
+	repo := NewOrderRepository(mock)
+	if err := repo.Delete(context.Background(), id); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestOrderRepository_Delete_NotFound(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	mock.ExpectExec("DELETE FROM orders").WithArgs(anyArgs(1)...).WillReturnResult(pgxmock.NewResult("DELETE", 0))
+
+	repo := NewOrderRepository(mock)
+	if err := repo.Delete(context.Background(), uuid.New()); !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Fatalf("ожидали ErrOrderNotFound, получили %v", err)
+	}
+}
+
 func TestOrderRepository_NextInvoiceID(t *testing.T) {
 	mock, err := pgxmock.NewPool()
 	if err != nil {

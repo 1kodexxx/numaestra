@@ -7,6 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/numaestra/numaestra/internal/domain"
 )
 
 // allowLoopbackDownloads отключает SSRF-guard у клиента: httptest-серверы
@@ -133,5 +137,54 @@ func TestSignV4_Deterministic(t *testing.T) {
 	}
 	if !strings.Contains(sig1, "Signature=") {
 		t.Errorf("подпись должна содержать Signature=, получили %q", sig1)
+	}
+}
+
+func TestDeleteOrderTracks_Success(t *testing.T) {
+	orderID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	var deleted []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleted = append(deleted, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret")
+	if err := c.DeleteOrderTracks(context.Background(), orderID); err != nil {
+		t.Fatalf("DeleteOrderTracks: %v", err)
+	}
+	if len(deleted) != domain.DefaultTrackCount {
+		t.Fatalf("ожидали %d DELETE, получили %d: %v", domain.DefaultTrackCount, len(deleted), deleted)
+	}
+}
+
+func TestDeleteOrderTracks_NotFoundIsOK(t *testing.T) {
+	orderID := uuid.New()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret")
+	if err := c.DeleteOrderTracks(context.Background(), orderID); err != nil {
+		t.Fatalf("404 не должен быть ошибкой: %v", err)
+	}
+}
+
+func TestDeleteOrderTracks_S3Error(t *testing.T) {
+	orderID := uuid.New()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret")
+	if err := c.DeleteOrderTracks(context.Background(), orderID); err == nil {
+		t.Fatal("ожидали ошибку при HTTP 500 от S3")
 	}
 }

@@ -92,7 +92,16 @@ export function StatusPage() {
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
       />
-      <OrdersOverview currentId={order.id} />
+      <OrdersOverview
+        currentId={order.id}
+        onSelect={(id) => {
+          const token = orderStorage.getAccessToken()
+          if (token) orderStorage.saveOrder(id, token)
+          setActive(id)
+          setInput(id)
+          navigate(`/status/${id}`, { replace: true })
+        }}
+      />
     </div>
   )
 }
@@ -109,13 +118,13 @@ function summaryBadge(o: OrderSummary): { label: string; color: string; bg: stri
   }
 }
 
-function OrdersOverview({ currentId }: { currentId: string }) {
+function OrdersOverview({ currentId, onSelect }: { currentId: string; onSelect: (id: string) => void }) {
   const [orders, setOrders] = useState<OrderSummary[] | null>(null)
 
   useEffect(() => {
     const token = orderStorage.getAccessToken() ?? undefined
     orderApi.list(token).then(setOrders).catch(() => setOrders([]))
-  }, [])
+  }, [currentId])
 
   if (!orders || orders.length < 2) return null
 
@@ -129,12 +138,33 @@ function OrdersOverview({ currentId }: { currentId: string }) {
           const b = summaryBadge(o)
           const isCurrent = o.id === currentId
           return (
-            <div key={o.id} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-              background: isCurrent ? 'rgba(0,229,192,0.06)' : '#0f0f0f',
-              border: `1px solid ${isCurrent ? 'rgba(0,229,192,0.3)' : BORDER}`,
-              borderRadius: '14px', padding: '13px 16px',
-            }}>
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => { if (!isCurrent) onSelect(o.id) }}
+              disabled={isCurrent}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                width: '100%', textAlign: 'left', fontFamily: 'inherit',
+                background: isCurrent ? 'rgba(0,229,192,0.06)' : '#0f0f0f',
+                border: `1px solid ${isCurrent ? 'rgba(0,229,192,0.3)' : BORDER}`,
+                borderRadius: '14px', padding: '13px 16px',
+                cursor: isCurrent ? 'default' : 'pointer',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+              onMouseEnter={(e) => {
+                if (!isCurrent) {
+                  e.currentTarget.style.borderColor = 'rgba(0,229,192,0.2)'
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isCurrent) {
+                  e.currentTarget.style.borderColor = BORDER
+                  e.currentTarget.style.background = '#0f0f0f'
+                }
+              }}
+            >
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                   <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff' }}>#{o.invoice_id}</span>
@@ -150,12 +180,12 @@ function OrdersOverview({ currentId }: { currentId: string }) {
               }}>
                 {b.label}
               </span>
-            </div>
+            </button>
           )
         })}
       </div>
       <div style={{ fontSize: '11px', color: TEXT3, marginTop: '10px', padding: '0 4px' }}>
-        Чтобы открыть другой заказ, используйте ссылку из письма о нём.
+        Нажмите на заказ, чтобы переключиться между ними.
       </div>
     </div>
   )

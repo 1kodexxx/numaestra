@@ -24,6 +24,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/numaestra/numaestra/internal/domain"
 )
 
 // Client загружает объекты в S3-совместимое хранилище.
@@ -98,6 +102,90 @@ func (c *Client) Upload(ctx context.Context, key, contentType string, data []byt
 		return "", fmt.Errorf("загрузка в S3 (key=%s): %w", key, err)
 	}
 	return fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key), nil
+}
+
+// DeleteOrderTracks удаляет все MP3-объекты заказа (tracks/{id}/1..N.mp3).
+// Отсутствие объекта (HTTP 404) не считается ошибкой.
+func (c *Client) DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error {
+	for i := 1; i <= domain.DefaultTrackCount; i++ {
+		if err := c.delete(ctx, domain.OrderTrackS3Key(orderID, i)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// delete выполняет DELETE-запрос к S3 с AWS Signature V4 (пустое тело).
+func (c *Client) delete(ctx context.Context, key string) error {
+	objectURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
+
+	now := time.Now().UTC()
+	dateStamp := now.Format("20060102")
+	amzDate := now.Format("20060102T150405Z")
+	payloadHash := hexSHA256(nil)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, objectURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-amz-content-sha256", payloadHash)
+	req.Header.Set("x-amz-date", amzDate)
+
+	authHeader := c.signV4EmptyBody(req, dateStamp, amzDate, payloadHash)
+	req.Header.Set("Authorization", authHeader)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	respBody, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("S3 DELETE %s: HTTP %d: %s", key, resp.StatusCode, string(respBody))
+}
+
+// signV4EmptyBody подписывает запрос без тела (DELETE и аналоги).
+func (c *Client) signV4EmptyBody(req *http.Request, dateStamp, amzDate, payloadHash string) string {
+	parsedURL, _ := url.Parse(req.URL.String())
+	canonicalURI := parsedURL.EscapedPath()
+	if canonicalURI == "" {
+		canonicalURI = "/"
+	}
+
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	canonicalHeaders := fmt.Sprintf(
+		"host:%s\nx-amz-content-sha256:%s\nx-amz-date:%s\n",
+		parsedURL.Host,
+		payloadHash,
+		amzDate,
+	)
+	canonicalRequest := strings.Join([]string{
+		req.Method,
+		canonicalURI,
+		"",
+		canonicalHeaders,
+		signedHeaders,
+		payloadHash,
+	}, "\n")
+
+	credentialScope := fmt.Sprintf("%s/%s/s3/aws4_request", dateStamp, c.region)
+	stringToSign := strings.Join([]string{
+		"AWS4-HMAC-SHA256",
+		amzDate,
+		credentialScope,
+		hexSHA256([]byte(canonicalRequest)),
+	}, "\n")
+
+	signingKey := deriveSigningKey(c.secretKey, dateStamp, c.region, "s3")
+	signature := hex.EncodeToString(hmacSHA256(signingKey, []byte(stringToSign)))
+
+	return fmt.Sprintf(
+		"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
+		c.accessKey, credentialScope, signedHeaders, signature,
+	)
 }
 
 // isDisallowedIP сообщает, что адрес принадлежит небезопасной для SSRF зоне:

@@ -298,16 +298,26 @@ type OrderDetailResponse struct {
 }
 
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
-	order := r.Context().Value(ctxKeyOrder).(*domain.Order)
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
 
-	idParam := chi.URLParam(r, "id")
-	orderID, err := uuid.Parse(idParam)
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
 		return
 	}
-	if order.ID() != orderID {
-		respondError(w, r, http.StatusForbidden, "токен не соответствует этому заказу")
+
+	order, err := h.uc.GetOrderForCustomer(r.Context(), owner, orderID)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrOrderAccessDenied) {
+			respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
+			return
+		}
+		h.log.Error("ошибка получения заказа", "order_id", orderID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 
@@ -349,16 +359,26 @@ func (h *OrderHandler) buildPaymentURL(order *domain.Order) string {
 // сорвалась. Доступ по X-Access-Token (через requireOrderAccess).
 // GET /api/v1/orders/{id}/payment-url
 func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
-	order := r.Context().Value(ctxKeyOrder).(*domain.Order)
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
 
-	idParam := chi.URLParam(r, "id")
-	orderID, err := uuid.Parse(idParam)
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
 		return
 	}
-	if order.ID() != orderID {
-		respondError(w, r, http.StatusForbidden, "токен не соответствует этому заказу")
+
+	order, err := h.uc.GetOrderForCustomer(r.Context(), owner, orderID)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrOrderAccessDenied) {
+			respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
+			return
+		}
+		h.log.Error("ошибка получения заказа для оплаты", "order_id", orderID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
 		return
 	}
 	if order.PaymentStatus() != domain.PaymentStatusPending {

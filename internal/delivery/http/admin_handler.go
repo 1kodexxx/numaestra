@@ -88,6 +88,7 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Post("/{id}/refund", h.RefundOrder)
 		r.Post("/{id}/feedback", h.SendOrderFeedback)
 		r.Post("/{id}/regenerate", h.RegenerateOrder)
+		r.Delete("/{id}", h.DeleteOrder)
 	})
 
 	r.Route("/categories", func(r chi.Router) {
@@ -395,6 +396,28 @@ func (h *AdminHandler) RegenerateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Error("admin: ошибка перегенерации заказа", "order_id", id, "error", err)
 		respondError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteOrder безвозвратно удаляет заказ и MP3-треки в хранилище.
+// DELETE /api/v1/admin/orders/{id}
+func (h *AdminHandler) DeleteOrder(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID заказа")
+		return
+	}
+
+	if err := h.uc.DeleteOrder(r.Context(), id); err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		h.log.Error("admin: ошибка удаления заказа", "order_id", id, "error", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось удалить заказ")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

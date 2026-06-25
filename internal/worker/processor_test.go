@@ -311,6 +311,17 @@ func (r *wOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*dom
 func (r *wOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }
+func (r *wOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	delete(r.orders, id)
+	delete(r.byInv, snap.InvoiceID)
+	return nil
+}
 
 var _ domain.OrderRepository = (*wOrderRepo)(nil)
 
@@ -403,6 +414,7 @@ type wStorage struct{}
 func (s *wStorage) UploadFromURL(_ context.Context, _, key, _ string) (string, error) {
 	return "https://s3/" + key, nil
 }
+func (s *wStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID) error { return nil }
 
 var _ domain.TrackStorage = (*wStorage)(nil)
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { adminOrderApi } from '@entities/admin-order'
 import type { AdminOrder } from '@entities/admin-order'
 import { Spinner, Button, TextField } from '@shared/ui'
@@ -8,6 +8,7 @@ import { A, Panel, ErrorBanner, SuccessBanner, paymentBadge, generationBadge } f
 
 export function AdminOrderDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [order, setOrder] = useState<AdminOrder | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -22,6 +23,9 @@ export function AdminOrderDetailPage() {
 
   const [regenerating, setRegenerating] = useState(false)
   const [regenError, setRegenError] = useState<string | null>(null)
+
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   function load() {
     setLoading(true)
@@ -70,6 +74,19 @@ export function AdminOrderDetailPage() {
       setRegenError(err instanceof ApiError ? err.message : 'Не удалось перегенерировать')
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Удалить заказ безвозвратно? Треки в хранилище и запись в БД будут удалены.')) return
+    setDeleteError(null); setDeleting(true)
+    try {
+      await adminOrderApi.remove(id)
+      navigate('/admin/orders')
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Не удалось удалить заказ')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -179,6 +196,22 @@ export function AdminOrderDetailPage() {
           </Button>
           {!order.email && <div style={{ fontSize: '12px', color: A.txt3 }}>У заказа не указан email — отправка недоступна.</div>}
         </form>
+      </Panel>
+
+      <Panel style={{ padding: '20px 24px', marginTop: '16px' }}>
+        <SectionTitle>Удаление заказа</SectionTitle>
+        <div style={{ fontSize: '13px', color: A.txt2, marginBottom: '14px' }}>
+          Полностью удалить заказ из базы и MP3-треки из хранилища. Действие необратимо.
+        </div>
+        <Button
+          variant="outlined"
+          onClick={handleDelete}
+          loading={deleting}
+          style={{ color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}
+        >
+          Удалить заказ
+        </Button>
+        {deleteError && <div style={{ marginTop: '12px' }}><ErrorBanner>{deleteError}</ErrorBanner></div>}
       </Panel>
     </div>
   )

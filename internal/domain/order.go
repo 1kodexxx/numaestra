@@ -61,6 +61,7 @@ var (
 	ErrInvalidGenerationTransition = errors.New("недопустимый переход статуса генерации")
 	ErrInvalidPaymentTransition    = errors.New("недопустимый переход статуса оплаты")
 	ErrOrderUnauthorized           = errors.New("неверный или отсутствующий токен доступа")
+	ErrOrderAccessDenied           = errors.New("нет доступа к этому заказу")
 )
 
 // Track - один из сгенерированных вариантов песни (обычно 4 версии на заказ).
@@ -243,6 +244,23 @@ func (o *Order) AdminFeedbackAt() *time.Time        { return o.adminFeedbackAt }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
+
+// SameCustomer сообщает, что два заказа принадлежат одному клиенту (один email
+// или один телефон). Используется для доступа к «соседним» заказам по любому
+// валидному токену владельца.
+func SameCustomer(a, b *Order) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	ae := strings.TrimSpace(strings.ToLower(a.CustomerEmail()))
+	be := strings.TrimSpace(strings.ToLower(b.CustomerEmail()))
+	if ae != "" && ae == be {
+		return true
+	}
+	ap := strings.TrimSpace(a.CustomerPhone())
+	bp := strings.TrimSpace(b.CustomerPhone())
+	return ap != "" && ap == bp
+}
 
 // --- Стейт-машина оплаты ---
 
@@ -501,6 +519,14 @@ type OrderRepository interface {
 	// (ушла в archived) и заказ навсегда завис в «В очереди». Recovery повторно
 	// ставит для них задачу генерации.
 	ListStuckQueued(ctx context.Context, olderThan time.Time) ([]*Order, error)
+
+	// Delete безвозвратно удаляет заказ и связанные треки (CASCADE в БД).
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// OrderTrackS3Key возвращает ключ MP3-трека заказа в объектном хранилище.
+func OrderTrackS3Key(orderID uuid.UUID, index int) string {
+	return fmt.Sprintf("tracks/%s/%d.mp3", orderID, index)
 }
 
 // TrackStorage - порт для долгосрочного хранения готовых треков.
@@ -509,4 +535,6 @@ type TrackStorage interface {
 	// UploadFromURL скачивает файл по sourceURL и сохраняет под ключом key.
 	// Возвращает постоянную публичную ссылку на объект в хранилище.
 	UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (publicURL string, err error)
+	// DeleteOrderTracks удаляет все MP3-объекты заказа по шаблону tracks/{id}/{n}.mp3.
+	DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error
 }

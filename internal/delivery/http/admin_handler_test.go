@@ -188,6 +188,18 @@ func (r *adminOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*dom
 	return nil, nil
 }
 
+func (r *adminOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[id]
+	if !ok {
+		return domain.ErrOrderNotFound
+	}
+	delete(r.orders, id)
+	delete(r.byInv, snap.InvoiceID)
+	return nil
+}
+
 var _ domain.OrderRepository = (*adminOrderRepo)(nil)
 
 type adminAccRepo struct {
@@ -721,4 +733,86 @@ func TestAdminAuth_EmptyTokenBlocksAll(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("пустой токен должен блокировать все запросы, получили %d", w.Code)
 	}
+}
+
+func TestAdminHandler_DeleteOrder_Success(t *testing.T) {
+	h, orders, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	o, _ := domain.NewOrder(1, "del@e.c", "", "бриф", "", "", 100)
+	_ = orders.Create(context.Background(), o)
+
+	r := httptest.NewRequest(http.MethodDelete, "/admin/orders/"+o.ID().String(), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("ожидали 204, получили %d (%s)", w.Code, w.Body.String())
+	}
+	if _, err := orders.GetByID(context.Background(), o.ID()); !errors.Is(err, domain.ErrOrderNotFound) {
+		t.Error("заказ должен быть удалён")
+	}
+}
+
+func TestAdminHandler_DeleteOrder_NotFound(t *testing.T) {
+	h, _, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodDelete, "/admin/orders/"+uuid.New().String(), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("ожидали 404, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_DeleteOrder_InvalidUUID(t *testing.T) {
+	h, _, _ := newTestAdminHandler(t)
+	router := adminTestRouter(h)
+
+	r := httptest.NewRequest(http.MethodDelete, "/admin/orders/not-a-uuid", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d", w.Code)
+	}
+}
+
+func TestAdminHandler_DeleteOrder_WithStorage(t *testing.T) {
+	orders := newAdminOrderRepo()
+	accounts := newAdminAccRepo()
+	storage := &deleteTrackingStorage{}
+	uc := usecase.NewAdminUseCase(orders, accounts, nil, &noopRefunder{}, nil, nil, discardAdminLogger()).
+		WithStorage(storage)
+	h := NewAdminHandler(uc, discardAdminLogger())
+	router := adminTestRouter(h)
+
+	o, _ := domain.NewOrder(1, "stor@e.c", "", "бриф", "", "", 100)
+	_ = orders.Create(context.Background(), o)
+
+	r := httptest.NewRequest(http.MethodDelete, "/admin/orders/"+o.ID().String(), nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("ожидали 204, получили %d (%s)", w.Code, w.Body.String())
+	}
+	if !storage.called {
+		t.Error("ожидали вызов DeleteOrderTracks перед удалением из БД")
+	}
+}
+
+type deleteTrackingStorage struct {
+	called bool
+}
+
+func (s *deleteTrackingStorage) UploadFromURL(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+
+func (s *deleteTrackingStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID) error {
+	s.called = true
+	return nil
 }

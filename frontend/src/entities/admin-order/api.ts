@@ -22,4 +22,8 @@ export const adminOrderApi = {
   sendFeedback(id: string, message: string) {
     return apiFetch<void>(`/admin/orders/${id}/feedback`, { method: 'POST', body: { message } })
   },
+
+  remove(id: string) {
+    return apiFetch<void>(`/admin/orders/${id}`, { method: 'DELETE' })
+  },
 }

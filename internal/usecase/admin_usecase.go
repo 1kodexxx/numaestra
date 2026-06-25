@@ -41,12 +41,19 @@ type AdminUseCase struct {
 	categoryCache categoryCacheInvalidator
 	notifier      notify.Notifier
 	queue         domain.QueuePublisher // nil → перегенерация недоступна
+	storage       domain.TrackStorage   // nil → удаление только из БД
 	log           *slog.Logger
 }
 
 // WithQueue включает перегенерацию заказов (постановку задачи генерации в очередь).
 func (uc *AdminUseCase) WithQueue(q domain.QueuePublisher) *AdminUseCase {
 	uc.queue = q
+	return uc
+}
+
+// WithStorage включает очистку MP3-треков заказа в объектном хранилище при удалении.
+func (uc *AdminUseCase) WithStorage(s domain.TrackStorage) *AdminUseCase {
+	uc.storage = s
 	return uc
 }
 
@@ -232,6 +239,41 @@ func (uc *AdminUseCase) RegenerateOrder(ctx context.Context, orderID uuid.UUID) 
 		return fmt.Errorf("постановка задачи генерации: %w", err)
 	}
 	uc.log.Info("admin: заказ отправлен на перегенерацию", "order_id", orderID)
+	return nil
+}
+
+// DeleteOrder безвозвратно удаляет заказ: освобождает слот Suno-аккаунта (если
+// заказ в processing), чистит MP3 в хранилище и удаляет запись из БД.
+func (uc *AdminUseCase) DeleteOrder(ctx context.Context, orderID uuid.UUID) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("получение заказа для удаления: %w", err)
+	}
+
+	if order.GenerationStatus() == domain.GenerationStatusProcessing && order.AssignedAccountID() != nil {
+		acc, err := uc.accountRepo.GetByID(ctx, *order.AssignedAccountID())
+		if err != nil {
+			uc.log.Warn("не удалось загрузить аккаунт для освобождения слота при удалении заказа",
+				"order_id", orderID, "account_id", *order.AssignedAccountID(), "err", err)
+		} else {
+			acc.ReleaseSlot()
+			if err := uc.accountRepo.Update(ctx, acc); err != nil {
+				return fmt.Errorf("освобождение слота аккаунта: %w", err)
+			}
+		}
+	}
+
+	if uc.storage != nil {
+		if err := uc.storage.DeleteOrderTracks(ctx, orderID); err != nil {
+			return fmt.Errorf("очистка треков в хранилище: %w", err)
+		}
+	}
+
+	if err := uc.orderRepo.Delete(ctx, orderID); err != nil {
+		return fmt.Errorf("удаление заказа из БД: %w", err)
+	}
+
+	uc.log.Info("admin: заказ удалён", "order_id", orderID)
 	return nil
 }
 

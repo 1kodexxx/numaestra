@@ -94,3 +94,12 @@ func TestSnapshot_RoundTripsProgressFields(t *testing.T) {
 		t.Errorf("прогресс не сохранился в snapshot: %s/%d", restored.GenerationPhase(), restored.GenerationProgress())
 	}
 }
+
+func TestOrderTrackS3Key(t *testing.T) {
+	id := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	key := OrderTrackS3Key(id, 2)
+	want := "tracks/11111111-1111-4111-8111-111111111111/2.mp3"
+	if key != want {
+		t.Errorf("ожидали %q, получили %q", want, key)
+	}
+}

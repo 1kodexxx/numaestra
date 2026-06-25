@@ -540,3 +540,14 @@ func (r *OrderRepository) getTracksForOrder(ctx context.Context, orderID uuid.UU
 	}
 	return tracks, nil
 }
+
+func (r *OrderRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	tag, err := r.conn(ctx).Exec(ctx, `DELETE FROM orders WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete order: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrOrderNotFound
+	}
+	return nil
+}

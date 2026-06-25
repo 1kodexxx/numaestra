@@ -277,7 +277,7 @@ func run(ctx context.Context) error {
 	genreHandler := apphttp.NewGenreHandler(genreUC, log)
 	exampleHandler := apphttp.NewExampleHandler(exampleUC, log)
 	reviewHandler := apphttp.NewReviewHandler(reviewUC, log)
-	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log).WithQueue(queuePublisher), log).
+	adminHandler := apphttp.NewAdminHandler(usecase.NewAdminUseCase(orderRepo, accountRepo, categoryRepo, robokassa.NewRefunderWithBreaker(rkClient), promptUC, notifier, log).WithQueue(queuePublisher).WithStorage(s3Client), log).
 		WithGenres(genreUC).
 		WithExamples(exampleUC).
 		WithReviews(reviewUC).
