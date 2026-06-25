@@ -261,8 +261,8 @@ func (o *Order) AdminFeedback() string              { return o.adminFeedback }
 func (o *Order) AdminFeedbackAt() *time.Time        { return o.adminFeedbackAt }
 func (o *Order) ConsentGivenAt() *time.Time         { return o.consentGivenAt }
 func (o *Order) ConsentDocVersion() string          { return o.consentDocVersion }
-func (o *Order) ShareRevoked() bool                   { return o.shareRevokedAt != nil }
-func (o *Order) ShareRevokedAt() *time.Time           { return o.shareRevokedAt }
+func (o *Order) ShareRevoked() bool                 { return o.shareRevokedAt != nil }
+func (o *Order) ShareRevokedAt() *time.Time         { return o.shareRevokedAt }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
