@@ -24,6 +24,7 @@ import (
 
 	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
+	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/robokassa"
 )
 
@@ -36,7 +37,7 @@ const (
 func newTestHandler(t *testing.T) (*OrderHandler, http.Handler, *hOrderRepo) {
 	t.Helper()
 	repo := newHOrderRepo()
-	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
+	uc := usecase.NewOrderUseCase(repo, nil, &hQueue{}, nil, nil, notify.NewLogNotifier(discardLogger()), nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
 	rk := robokassa.New(hMerchant, hPass1, hPass2, true)
 	h := NewOrderHandler(uc, discardLogger(), rk, nil)
 	return h, h.Routes(), repo
@@ -514,6 +515,28 @@ func TestHandler_GetPublicStatus_PendingWithoutToken(t *testing.T) {
 	_ = json.Unmarshal(rec2.Body.Bytes(), &resp)
 	if resp.PaymentStatus != string(domain.PaymentStatusPaid) {
 		t.Errorf("ожидали paid после MarkPaid, получили %s", resp.PaymentStatus)
+	}
+}
+
+func TestHandler_RequestAccessLink_AlwaysOK(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	body := `{"email":"user@example.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/"+order.ID().String()+"/access-link", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// Неверный email — тот же ответ, без утечки.
+	body2 := `{"email":"other@example.com"}`
+	req2 := httptest.NewRequest(http.MethodPost, "/"+order.ID().String()+"/access-link", strings.NewReader(body2))
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("ожидали 200 при несовпадении email, получили %d", rec2.Code)
 	}
 }
 

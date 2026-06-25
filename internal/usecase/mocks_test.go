@@ -473,6 +473,10 @@ func (m *mockNotifier) NotifyAdminFeedback(_ context.Context, n notify.AdminFeed
 	return m.feedbackErr
 }
 
+func (m *mockNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
+	return m.err
+}
+
 var _ notify.Notifier = (*mockNotifier)(nil)
 
 // --- mock LLM client ---

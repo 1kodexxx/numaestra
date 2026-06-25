@@ -32,6 +32,10 @@ func (n *feedbackNotifier) NotifyAdminFeedback(_ context.Context, m notify.Admin
 	return n.err
 }
 
+func (n *feedbackNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
+	return nil
+}
+
 var _ notify.Notifier = (*feedbackNotifier)(nil)
 
 func newTestAdminHandlerWithNotifier(t *testing.T) (*AdminHandler, *adminOrderRepo, *feedbackNotifier) {

@@ -284,6 +284,21 @@ func SameCustomer(a, b *Order) bool {
 	return ap != "" && ap == bp
 }
 
+// NormalizeCustomerEmail приводит email к каноническому виду для сравнения.
+func NormalizeCustomerEmail(email string) string {
+	return strings.TrimSpace(strings.ToLower(email))
+}
+
+// CustomerEmailMatches проверяет, что email совпадает с email заказа.
+func CustomerEmailMatches(order *Order, email string) bool {
+	if order == nil {
+		return false
+	}
+	oe := NormalizeCustomerEmail(order.CustomerEmail())
+	ie := NormalizeCustomerEmail(email)
+	return oe != "" && oe == ie
+}
+
 // --- Стейт-машина оплаты ---
 
 // MarkPaid фиксирует успешную оплату по уведомлению Robokassa (ResultURL).

@@ -8,6 +8,7 @@ import { orderApi } from '@entities/order'
 import { useSeo } from '@shared/lib/seo'
 import { downloadFile } from '@shared/lib/download'
 import { ShareBar } from '@widgets/share-bar'
+import { AccessRecoveryForm } from '@widgets/access-recovery'
 import { GenerationProgress } from './GenerationProgress'
 import type { OrderDetail, OrderSummary } from '@entities/order'
 
@@ -80,6 +81,10 @@ export function StatusPage() {
             </div>
             <Button size="lg" onClick={() => setActive(input.trim())}>Найти</Button>
           </div>
+
+          {input.trim().length >= 8 && (
+            <AccessRecoveryForm orderId={input.trim()} compact />
+          )}
         </div>
       </div>
     )
@@ -310,21 +315,13 @@ function OrderCard({ order, justPaid, canManage, onClear, onBack }: { order: Ord
         </div>
 
         {/* Ожидание оплаты — кнопка повторного перехода к оплате */}
-        {ps === 'pending' && (
+        {ps === 'pending' && canManage && (
           <div style={{ marginTop: '28px' }}>
-            {canManage ? (
-              <>
-                <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
-                {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
-                <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
-                  Первая попытка не прошла? Оплатите ещё раз — заказ сохранён.
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: '13px', color: TEXT2, lineHeight: 1.5 }}>
-                Для оплаты откройте полную ссылку из письма после оформления заказа — в ней есть секретный токен доступа.
-              </div>
-            )}
+            <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
+            {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
+            <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+              Первая попытка не прошла? Оплатите ещё раз — заказ сохранён.
+            </div>
           </div>
         )}
 
@@ -428,6 +425,12 @@ function OrderCard({ order, justPaid, canManage, onClear, onBack }: { order: Ord
       )}
 
       {/* Actions */}
+      {!canManage && (
+        <div style={{ marginBottom: '16px' }}>
+          <AccessRecoveryForm orderId={order.id} />
+        </div>
+      )}
+
       {isTerminal && (
         <div style={{ display: 'flex', gap: '10px' }}>
           <Button variant="outlined" size="lg" fullWidth onClick={onClear}>Новый заказ</Button>

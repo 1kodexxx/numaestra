@@ -607,6 +607,27 @@ func (uc *OrderUseCase) SetShareRevoked(ctx context.Context, owner *domain.Order
 	return uc.orderRepo.Update(ctx, order)
 }
 
+// SendAccessLinkEmail отправляет на email ссылку с access_token, если она совпадает
+// с email заказа. При несовпадении или отсутствии заказа молча ничего не делает —
+// защита от перебора чужих заказов.
+func (uc *OrderUseCase) SendAccessLinkEmail(ctx context.Context, orderID uuid.UUID, email string) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			return nil
+		}
+		return err
+	}
+	if !domain.CustomerEmailMatches(order, email) {
+		return nil
+	}
+	return uc.notifier.NotifyAccessLink(ctx, notify.AccessLinkNotification{
+		OrderID:     order.ID().String(),
+		AccessToken: order.AccessToken(),
+		Email:       order.CustomerEmail(),
+	})
+}
+
 // ==========================================
 // 3. ФОНОВОЕ ОБСЛУЖИВАНИЕ (Вызывается по расписанию)
 // ==========================================

@@ -54,4 +54,11 @@ export const orderApi = {
       accessToken,
     })
   },
+
+  requestAccessLink(id: string, email: string) {
+    return apiFetch<{ message: string }>(`/orders/${id}/access-link`, {
+      method: 'POST',
+      body: { email },
+    })
+  },
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -92,6 +93,8 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Use(clientLimiter)
 		r.Get("/{id}/share", h.GetPublicShare)
 		r.Get("/{id}/status", h.GetPublicStatus)
+		r.With(APIRateLimiter(h.rdb, 5, time.Hour, 1, 3)).
+			Post("/{id}/access-link", h.RequestAccessLink)
 	})
 
 	r.Group(func(r chi.Router) {
@@ -518,6 +521,46 @@ func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 		PaidAt:             paidAt,
 		ShareRevoked:       order.ShareRevoked(),
 		Tracks:             tracks,
+	})
+}
+
+type requestAccessLinkBody struct {
+	Email string `json:"email"`
+}
+
+// RequestAccessLink отправляет на email ссылку с access_token, если email совпадает
+// с заказом. Всегда отвечает одинаково — без раскрытия факта существования заказа.
+// POST /api/v1/orders/{id}/access-link
+func (h *OrderHandler) RequestAccessLink(w http.ResponseWriter, r *http.Request) {
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	var req requestAccessLinkBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, r, http.StatusBadRequest, "неверный формат JSON")
+		return
+	}
+	email := domain.NormalizeCustomerEmail(req.Email)
+	if email == "" {
+		respondError(w, r, http.StatusBadRequest, "укажите email")
+		return
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный email")
+		return
+	}
+
+	if err := h.uc.SendAccessLinkEmail(r.Context(), orderID, email); err != nil {
+		h.log.Error("ошибка отправки ссылки доступа", "order_id", orderID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "не удалось отправить письмо")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"message": "Если заказ с указанным email существует, мы отправили ссылку для управления заказом. Проверьте почту и папку «Спам».",
 	})
 }
 

@@ -428,6 +428,10 @@ func (n *wNotifier) NotifyAdminFeedback(_ context.Context, _ notify.AdminFeedbac
 	return nil
 }
 
+func (n *wNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
+	return nil
+}
+
 var _ notify.Notifier = (*wNotifier)(nil)
 
 type wLLM struct{}

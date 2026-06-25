@@ -21,6 +21,10 @@ type Notifier interface {
 	// (ответ на вопрос, уточнение деталей и т.п.). Email может быть пустым,
 	// если у заказа указан только телефон — реализация молча пропускает отправку.
 	NotifyAdminFeedback(ctx context.Context, n AdminFeedbackNotification) error
+
+	// NotifyAccessLink отправляет клиенту ссылку на управление заказом (оплата, share).
+	// Email должен быть непустым — вызывающий код проверяет совпадение с заказом.
+	NotifyAccessLink(ctx context.Context, n AccessLinkNotification) error
 }
 
 // OrderCompleteNotification содержит данные для уведомления о завершении заказа.
@@ -38,6 +42,13 @@ type AdminFeedbackNotification struct {
 	OrderID string
 	Email   string
 	Message string
+}
+
+// AccessLinkNotification — письмо со ссылкой на страницу статуса с access_token.
+type AccessLinkNotification struct {
+	OrderID     string
+	AccessToken string
+	Email       string
 }
 
 // LogNotifier — заглушка: логирует уведомление вместо реальной отправки.
@@ -66,6 +77,15 @@ func (n *LogNotifier) NotifyAdminFeedback(_ context.Context, notification AdminF
 		"order_id", notification.OrderID,
 		"email", notification.Email,
 		"message", notification.Message,
+	)
+	return nil
+}
+
+func (n *LogNotifier) NotifyAccessLink(_ context.Context, notification AccessLinkNotification) error {
+	n.log.Info("ссылка на управление заказом (stub — реальная отправка не настроена)",
+		"order_id", notification.OrderID,
+		"email", notification.Email,
+		"access_token", notification.AccessToken,
 	)
 	return nil
 }
