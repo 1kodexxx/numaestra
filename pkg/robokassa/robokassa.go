@@ -29,12 +29,12 @@ const (
 
 // Client инкапсулирует учётные данные мерчанта и методы работы с Robokassa.
 type Client struct {
-	merchantLogin string
-	password1     string // для генерации ссылки оплаты
-	password2     string // для проверки подписи вебхука и OpStateExt
-	password3     string // для JWT API возвратов
-	isTest        bool
-	httpClient    *http.Client
+	merchantLogin   string
+	password1       string // для генерации ссылки оплаты
+	password2       string // для проверки подписи вебхука и OpStateExt
+	password3       string // для JWT API возвратов
+	isTest          bool
+	httpClient      *http.Client
 	opStateURL      string // переопределяется в тестах
 	refundCreateURL string // переопределяется в тестах
 	refundStateURL  string // переопределяется в тестах

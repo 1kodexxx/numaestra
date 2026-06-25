@@ -44,7 +44,7 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     }
   }, [])
 
-  const fetchOnce = useCallback(async (id: string) => {
+  const fetchOnce = useCallback(async (id: string): Promise<boolean> => {
     const token = orderStorage.getAccessToken() ?? undefined
 
     if (token) {
@@ -53,7 +53,7 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
         setState({ order, loading: false, error: null, canManage: true })
         const terminal = order.generation_status === 'completed' || order.generation_status === 'failed'
         if (terminal) stopPolling()
-        return
+        return !terminal
       } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           orderStorage.clear()
@@ -61,7 +61,7 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
           const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
           setState({ order: null, loading: false, error: message, canManage: false })
           stopPolling()
-          return
+          return false
         }
       }
     }
@@ -71,10 +71,12 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
       setState({ order, loading: false, error: null, canManage: false })
       const terminal = order.generation_status === 'completed' || order.generation_status === 'failed'
       if (terminal) stopPolling()
+      return !terminal
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
       setState({ order: null, loading: false, error: message, canManage: false })
       stopPolling()
+      return false
     }
   }, [stopPolling])
 
@@ -108,20 +110,23 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
           }
         }
       }
-      await fetchOnce(orderId)
-      startPolling(orderId)
+      const keepPolling = await fetchOnce(orderId)
+      if (keepPolling) {
+        startPolling(orderId)
+      }
     })()
 
     return stopPolling
   }, [orderId, confirmPayment, fetchOnce, startPolling, stopPolling])
 
-  // Переключаем интервал с быстрого на обычный после подтверждения оплаты.
+  // После подтверждения оплаты переключаем интервал с 2 с на 10 с.
   useEffect(() => {
-    if (!orderId || !state.order) return
-    if (state.order.payment_status !== 'pending') {
-      startPolling(orderId)
-    }
-  }, [orderId, state.order?.payment_status, startPolling])
+    if (!confirmPayment || !orderId || !state.order) return
+    const terminal =
+      state.order.generation_status === 'completed' || state.order.generation_status === 'failed'
+    if (terminal || state.order.payment_status === 'pending') return
+    startPolling(orderId)
+  }, [confirmPayment, orderId, state.order?.payment_status, state.order?.generation_status, startPolling])
 
   return state
 }
