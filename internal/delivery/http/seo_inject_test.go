@@ -146,6 +146,21 @@ func TestSEOInjector_EscapesAndJSONLDSafe(t *testing.T) {
 	}
 }
 
+func TestSEOInjector_HomeOgImageMeta(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	html := inj.Render(context.Background(), "/", "https://numaestra.ru")
+
+	for _, want := range []string{
+		`property="og:image" content="https://numaestra.ru/og-image.png?v=2"`,
+		`property="og:image:secure_url" content="https://numaestra.ru/og-image.png?v=2"`,
+		`rel="image_src" href="https://numaestra.ru/og-image.png?v=2"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("главная должна содержать %q", want)
+		}
+	}
+}
+
 func TestSEOInjector_ShareSong(t *testing.T) {
 	inj := newSEOInjector(&stubPromptBuilder{})
 	html := inj.Render(context.Background(), "/s/8e250afe-894e-4d70-8a64-54bdc474117a", "https://numaestra.ru")
