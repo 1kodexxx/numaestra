@@ -14,12 +14,24 @@ import (
 // домене без хардкода. Sitemap включает динамические страницы категорий из БД.
 type SeoHandler struct {
 	promptUC usecase.PromptBuilder
+	examples exampleProvider // nil → примеры не включаются в sitemap
 	log      *slog.Logger
 }
 
 func NewSeoHandler(promptUC usecase.PromptBuilder, log *slog.Logger) *SeoHandler {
 	return &SeoHandler{promptUC: promptUC, log: log}
 }
+
+// WithExamples включает страницы примеров (/examples/{id}) в sitemap.xml.
+func (h *SeoHandler) WithExamples(e exampleProvider) *SeoHandler {
+	h.examples = e
+	return h
+}
+
+// legalSitemapSlugs — публичные юридические страницы /legal/{slug}, индексируемые
+// поисковиками. Должны соответствовать слагам в legalDocs (seo_inject.go) и
+// frontend/src/pages/legal/legalContent.ts.
+var legalSitemapSlugs = []string{"offer", "refund", "copyright", "privacy", "consent", "contacts"}
 
 func (h *SeoHandler) baseURL(r *http.Request) string {
 	scheme := "http"
@@ -68,6 +80,7 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 	add(base+"/", "1.0", "weekly")
 	add(base+"/how-it-works", "0.7", "monthly")
 	add(base+"/reviews", "0.6", "weekly")
+	add(base+"/examples", "0.6", "weekly")
 
 	if cats, err := h.promptUC.GetAllCategories(r.Context()); err != nil {
 		h.log.Error("sitemap: не удалось загрузить категории", "err", err)
@@ -75,6 +88,20 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 		for _, c := range cats {
 			add(base+"/category/"+c.ID(), "0.8", "monthly")
 		}
+	}
+
+	if h.examples != nil {
+		if exs, err := h.examples.ListActive(r.Context()); err != nil {
+			h.log.Error("sitemap: не удалось загрузить примеры", "err", err)
+		} else {
+			for _, e := range exs {
+				add(base+"/examples/"+e.ID(), "0.5", "monthly")
+			}
+		}
+	}
+
+	for _, slug := range legalSitemapSlugs {
+		add(base+"/legal/"+slug, "0.3", "yearly")
 	}
 
 	b.WriteString(`</urlset>` + "\n")

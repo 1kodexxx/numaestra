@@ -79,6 +79,59 @@ func TestSeoHandler_Sitemap_WithCategories(t *testing.T) {
 	}
 }
 
+func TestSeoHandler_Sitemap_AlwaysIncludesLegalPages(t *testing.T) {
+	h := newTestSeoHandler(&stubPromptBuilder{})
+	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
+	req.Host = "numaestra.ru"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+
+	h.Sitemap(rec, req)
+
+	body := rec.Body.String()
+	for _, slug := range legalSitemapSlugs {
+		want := "<loc>https://numaestra.ru/legal/" + slug + "</loc>"
+		if !strings.Contains(body, want) {
+			t.Errorf("sitemap должен содержать %q", want)
+		}
+	}
+	if !strings.Contains(body, "<loc>https://numaestra.ru/examples</loc>") {
+		t.Error("sitemap должен содержать страницу /examples")
+	}
+}
+
+func TestSeoHandler_Sitemap_WithExamples(t *testing.T) {
+	ex, err := domain.NewExample("wedding-1", "Свадьба", "wedding", "desc", "joy", "https://s3/a.mp3", "", 1, true)
+	if err != nil {
+		t.Fatalf("NewExample: %v", err)
+	}
+	h := newTestSeoHandler(&stubPromptBuilder{}).WithExamples(stubExampleProvider{active: []*domain.Example{ex}})
+	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
+	req.Host = "numaestra.ru"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+
+	h.Sitemap(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "<loc>https://numaestra.ru/examples/wedding-1</loc>") {
+		t.Errorf("sitemap должен содержать пример из ListActive, got: %s", body)
+	}
+}
+
+func TestSeoHandler_Sitemap_ExamplesLoadError(t *testing.T) {
+	h := newTestSeoHandler(&stubPromptBuilder{}).WithExamples(stubExampleProvider{listErr: errors.New("db down")})
+	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
+	req.Host = "numaestra.ru"
+	rec := httptest.NewRecorder()
+
+	h.Sitemap(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ошибка загрузки примеров не должна ронять весь sitemap, status = %d", rec.Code)
+	}
+}
+
 func TestSeoHandler_Sitemap_CategoryLoadError(t *testing.T) {
 	h := newTestSeoHandler(&stubPromptBuilder{getErr: errors.New("db down")})
 	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)

@@ -317,7 +317,7 @@ func run(ctx context.Context) error {
 	}
 
 	healthChecker := health.New(pgPool, redisOpt)
-	seoHandler := apphttp.NewSeoHandler(promptUC, log)
+	seoHandler := apphttp.NewSeoHandler(promptUC, log).WithExamples(exampleUC)
 
 	// SEO-инъектор: вшивает в index.html серверный title/meta/OG/JSON-LD + блок
 	// текста под маршрут, чтобы краулеры видели контент без исполнения JS.
@@ -326,7 +326,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("чтение index.html для SEO-инъекции: %w", err)
 	}
 	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log).
-		WithReviews(reviewUC)
+		WithReviews(reviewUC).
+		WithExamples(exampleUC)
 
 	router := newRouter(log, orderHandler, categoryHandler, genreHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 

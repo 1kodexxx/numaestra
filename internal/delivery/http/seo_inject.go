@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
 
@@ -43,10 +44,18 @@ type reviewRater interface {
 	RatingStats(ctx context.Context) (count int, avg float64, err error)
 }
 
+// exampleProvider — порт чтения примеров готовых работ для SEO: ListActive нужен
+// SeoHandler (sitemap), Get — SEOInjector (превью отдельного примера по /examples/{id}).
+type exampleProvider interface {
+	ListActive(ctx context.Context) ([]*domain.Example, error)
+	Get(ctx context.Context, id string) (*domain.Example, error)
+}
+
 type SEOInjector struct {
 	template    string
 	promptUC    usecase.PromptBuilder
-	rater       reviewRater // nil → AggregateRating не добавляется
+	rater       reviewRater      // nil → AggregateRating не добавляется
+	examples    exampleProvider  // nil → /examples/{id} получает общий SEO главной
 	priceRubles string
 	log         *slog.Logger
 }
@@ -63,6 +72,14 @@ func NewSEOInjector(indexHTML []byte, promptUC usecase.PromptBuilder, priceKopec
 // WithReviews включает AggregateRating (средняя оценка отзывов) в Organization-разметку на главной.
 func (s *SEOInjector) WithReviews(r reviewRater) *SEOInjector {
 	s.rater = r
+	return s
+}
+
+// WithExamples включает персональный SEO (title/description/canonical) для страниц
+// отдельных примеров /examples/{id}. Без него такие страницы получают общий SEO
+// главной — неверный canonical и заголовок, страница не индексируется отдельно.
+func (s *SEOInjector) WithExamples(e exampleProvider) *SEOInjector {
+	s.examples = e
 	return s
 }
 
@@ -176,6 +193,12 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 			canonical:   baseURL + "/examples",
 			body:        `<main><h1>Примеры готовых работ</h1><p>Послушайте, какие песни Numaestra создаёт под разные поводы.</p></main>`,
 		}
+	case strings.HasPrefix(path, "/examples/"):
+		id := strings.TrimPrefix(path, "/examples/")
+		return s.exampleData(ctx, id, baseURL)
+	case strings.HasPrefix(path, "/legal/"):
+		slug := strings.TrimPrefix(path, "/legal/")
+		return s.legalData(slug, baseURL)
 	case path == "/reviews":
 		return seoData{
 			title:       "Отзывы о Numaestra — что говорят клиенты",
@@ -256,6 +279,65 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 		canonical:   canonical,
 		jsonLD:      s.productJSONLD(cat.Title(), desc, canonical),
 		body:        b.String(),
+	}
+}
+
+// exampleData строит SEO для страницы конкретного примера /examples/{id}. Без
+// этого случая такие URL получали бы canonical и title главной страницы — Google
+// видел бы десятки страниц с одинаковым canonical и не индексировал ни одну как
+// отдельный пример.
+func (s *SEOInjector) exampleData(ctx context.Context, id, baseURL string) seoData {
+	canonical := baseURL + "/examples/" + id
+	if s.examples == nil {
+		return seoData{canonical: canonical}
+	}
+	ex, err := s.examples.Get(ctx, id)
+	if err != nil || ex == nil {
+		return seoData{canonical: canonical}
+	}
+
+	title := ex.Title() + " — пример песни на заказ | " + seoSiteName
+	desc := ex.Description()
+	if desc == "" {
+		desc = "Послушайте пример персональной песни «" + ex.Title() + "», созданной AI-студией Numaestra."
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<main><h1>%s</h1><p>%s</p></main>`, text(ex.Title()), text(desc))
+
+	return seoData{
+		title:       title,
+		description: desc,
+		canonical:   canonical,
+		body:        b.String(),
+	}
+}
+
+// legalDocs — заголовки и описания юридических страниц /legal/{slug} для
+// серверного SEO. Содержимое самих документов рендерится фронтендом
+// (frontend/src/pages/legal/legalContent.ts) — здесь только то, что нужно
+// поисковику до исполнения JS; при изменении текста там держите эти строки в
+// синхроне.
+var legalDocs = map[string]struct{ title, description string }{
+	"offer":     {"Публичная оферта", "Договор оказания услуг по созданию персональной песни сервисом Numaestra."},
+	"refund":    {"Политика возврата", "Условия возврата средств за услугу создания персональной песни."},
+	"copyright": {"Права на треки", "Какие права получает заказчик на созданные песни."},
+	"privacy":   {"Политика конфиденциальности", "Как Numaestra обрабатывает персональные данные пользователей."},
+	"consent":   {"Согласие на обработку персональных данных", "Согласие на обработку персональных данных в соответствии с 152-ФЗ."},
+	"contacts":  {"Реквизиты и контакты", "Реквизиты исполнителя и контакты службы поддержки Numaestra."},
+}
+
+func (s *SEOInjector) legalData(slug, baseURL string) seoData {
+	canonical := baseURL + "/legal/" + slug
+	doc, ok := legalDocs[slug]
+	if !ok {
+		return seoData{canonical: canonical}
+	}
+	return seoData{
+		title:       doc.title + " | " + seoSiteName,
+		description: doc.description,
+		canonical:   canonical,
+		body:        `<main><h1>` + text(doc.title) + `</h1><p>` + text(doc.description) + `</p></main>`,
 	}
 }
 
