@@ -12,7 +12,8 @@ const (
 )
 
 // Стандартные ключи квиза, значения которых уходят в Suno tags (англ.).
-var styleAnswerKeys = []string{"GENRE", "MOOD", "VOCAL", "TEMPO"}
+// VOCAL первым — Suno сильнее учитывает начало tags.
+var styleAnswerKeys = []string{"VOCAL", "GENRE", "MOOD", "TEMPO"}
 
 // EncodedPrompt — разделение style tags и описания для Inspiration Mode Suno.
 type EncodedPrompt struct {
@@ -104,7 +105,7 @@ func BuildStyleTagsFromAnswers(answers map[string]string) string {
 		}
 	}
 	if len(parts) == 0 {
-		return "russian pop, heartfelt, male vocals"
+		return "russian pop, heartfelt"
 	}
 	if !containsRussianLyricsHint(parts) {
 		parts = append(parts, "russian lyrics")
@@ -168,6 +169,16 @@ func FormatQuizDescription(categoryTitle, substituted string, extra string) stri
 	b.WriteString("\n\nMatch the musical style from the separate Suno style tags (genre, mood, vocals, tempo). ")
 	b.WriteString("Make the chorus memorable and emotionally clear.")
 	return b.String()
+}
+
+// VocalRequirementLine — явная инструкция для Suno Inspiration Mode.
+// Теги с типом вокала часто недостаточны; описание должно дублировать требование.
+func VocalRequirementLine(vocal string) string {
+	vocal = strings.TrimSpace(vocal)
+	if vocal == "" {
+		return ""
+	}
+	return "\n\nVocal requirement (mandatory, do not change): " + vocal + "."
 }
 
 func cleanSubstitutedTemplate(s string) string {

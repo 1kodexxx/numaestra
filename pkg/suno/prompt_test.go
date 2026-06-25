@@ -55,6 +55,16 @@ func TestFormatQuizDescription_StripsBoilerplate(t *testing.T) {
 	}
 }
 
+func TestVocalRequirementLine(t *testing.T) {
+	if VocalRequirementLine("") != "" {
+		t.Error("пустой вокал не должен добавлять строку")
+	}
+	line := VocalRequirementLine("female vocals")
+	if !strings.Contains(line, "female vocals") || !strings.Contains(line, "mandatory") {
+		t.Errorf("ожидали явное требование вокала: %q", line)
+	}
+}
+
 func TestResolveMusicInput_EncodedInspiration(t *testing.T) {
 	brief := EncodePrompt("pop ballad", "Russian birthday song for Kolya.")
 	in := ResolveMusicInput(brief, "", false)

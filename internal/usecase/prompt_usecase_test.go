@@ -285,6 +285,26 @@ func TestPromptUseCase_BuildFinalPrompt_IncludesCustomLyrics(t *testing.T) {
 	}
 }
 
+func TestPromptUseCase_BuildFinalPrompt_IncludesVocalRequirement(t *testing.T) {
+	repo := newInMemCategoryRepo(domain.CategorySnapshot{
+		ID:                 "bday",
+		Title:              "День рождения",
+		BasePromptTemplate: "Birthday song for [name].",
+	})
+	uc := NewPromptUseCase(repo)
+
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
+		"name":  "Коля",
+		"VOCAL": "female vocals",
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(prompt, "Vocal requirement") || !strings.Contains(prompt, "female vocals") {
+		t.Errorf("ожидали явное требование женского вокала в описании: %q", prompt)
+	}
+}
+
 func TestPromptUseCase_BuildFinalPrompt_UnknownCategory(t *testing.T) {
 	repo := newInMemCategoryRepo()
 	uc := NewPromptUseCase(repo)

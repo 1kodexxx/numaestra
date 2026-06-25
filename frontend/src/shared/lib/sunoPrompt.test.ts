@@ -30,6 +30,7 @@ describe("sunoPrompt", () => {
     expect(brief).toContain("#SUNO_TAGS#");
     expect(brief).toContain("modern pop");
     expect(brief).toContain("male vocals");
+    expect(brief).toContain("Vocal requirement");
     expect(brief).toContain("#SUNO_DESC#");
     expect(brief).toContain("15 лет вместе");
   });
@@ -58,13 +59,22 @@ describe("sunoPrompt", () => {
       NAME: "Коля",
       GENRE: "modern pop",
       MOOD: "warm, friendly",
-      VOCAL: "male vocals",
+      VOCAL: "female vocals",
     });
     expect(brief).toContain("#SUNO_TAGS#");
     expect(brief).toContain("modern pop");
     expect(brief).toContain("#SUNO_DESC#");
     expect(brief).toContain("Коля");
     expect(brief).not.toContain("Create a");
+    expect(brief).toContain("Vocal requirement");
+  });
+
+  it("buildStyleTagsFromAnswers ставит вокал первым в tags", () => {
+    const tags = buildStyleTagsFromAnswers({
+      GENRE: "modern pop",
+      VOCAL: "female vocals",
+    });
+    expect(tags.indexOf("female vocals")).toBeLessThan(tags.indexOf("modern pop"));
   });
 
   it("buildStyleTagsFromAnswers добавляет russian lyrics один раз", () => {

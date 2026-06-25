@@ -68,6 +68,8 @@ export function buildCatalogStyleTags(
   const labelToSuno = new Map(genreOptions.map((g) => [g.label, g.sunoValue]));
   const parts: string[] = [];
 
+  // Вокал первым — Suno сильнее учитывает начало tags.
+  if (form.vocal) parts.push(VOCAL_SUNO[form.vocal] ?? form.vocal);
   for (const label of form.genres) {
     parts.push(labelToSuno.get(label) ?? label);
   }
@@ -75,9 +77,14 @@ export function buildCatalogStyleTags(
     parts.push(MOOD_SUNO[mood] ?? mood);
   }
   if (form.tempo) parts.push(TEMPO_SUNO[form.tempo] ?? form.tempo);
-  if (form.vocal) parts.push(VOCAL_SUNO[form.vocal] ?? form.vocal);
 
   return uniqueTags(parts);
+}
+
+export function vocalRequirementLine(vocal: string): string {
+  const v = vocal.trim();
+  if (!v) return "";
+  return `\n\nVocal requirement (mandatory, do not change): ${v}.`;
 }
 
 export function buildCatalogDescription(form: CatalogPromptForm): string {
@@ -98,6 +105,9 @@ export function buildCatalogDescription(form: CatalogPromptForm): string {
       "Must-use lyrics (include verbatim where possible):",
       form.customText.trim(),
     );
+  }
+  if (form.vocal) {
+    lines.push(vocalRequirementLine(VOCAL_SUNO[form.vocal] ?? form.vocal));
   }
   lines.push(
     "",
@@ -127,7 +137,7 @@ export function composeCatalogBrief(
   );
 }
 
-const STYLE_ANSWER_KEYS = ["GENRE", "MOOD", "VOCAL", "TEMPO"] as const;
+const STYLE_ANSWER_KEYS = ["VOCAL", "GENRE", "MOOD", "TEMPO"] as const;
 
 function splitTagPieces(s: string): string[] {
   return s
@@ -156,7 +166,7 @@ export function buildStyleTagsFromAnswers(
   }
 
   if (parts.length === 0) {
-    return "russian pop, heartfelt, male vocals";
+    return "russian pop, heartfelt";
   }
   if (!parts.some((p) => p.toLowerCase().includes("russian"))) {
     parts.push("russian lyrics");
@@ -233,9 +243,14 @@ export function composeCategoryBrief(
 ): string {
   const substituted = substituteCategoryTemplate(basePromptTemplate, answers);
   const tags = buildStyleTagsFromAnswers(answers);
-  const description = appendCustomLyrics(
-    formatQuizDescription(categoryTitle, substituted, answers.EXTRA ?? ""),
-    customText,
+  let description = formatQuizDescription(
+    categoryTitle,
+    substituted,
+    answers.EXTRA ?? "",
   );
+  if (answers.VOCAL?.trim()) {
+    description += vocalRequirementLine(answers.VOCAL);
+  }
+  description = appendCustomLyrics(description, customText);
   return encodeSunoPrompt(tags, description);
 }

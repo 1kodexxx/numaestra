@@ -100,6 +100,9 @@ func (uc *PromptUseCase) BuildFinalPrompt(ctx context.Context, categoryID string
 
 	tags := suno.BuildStyleTagsFromAnswers(userAnswers)
 	description := suno.FormatQuizDescription(category.Title(), template, userAnswers["EXTRA"])
+	if vocal := strings.TrimSpace(userAnswers["VOCAL"]); vocal != "" {
+		description += suno.VocalRequirementLine(vocal)
+	}
 	if lyrics := strings.TrimSpace(userAnswers["CUSTOM_LYRICS"]); lyrics != "" {
 		description += "\n\nMust-use lyrics (include verbatim where possible):\n" + lyrics
 	}
