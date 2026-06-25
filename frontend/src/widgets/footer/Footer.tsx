@@ -1,5 +1,6 @@
 import { BUSINESS } from "@shared/config/business";
 import { BrandMark } from "@shared/ui";
+import { useScrollReveal } from "@shared/lib/useScrollReveal";
 import { Link } from "react-router-dom";
 
 const TEXT2 = "rgba(255,255,255,0.5)";
@@ -51,9 +52,10 @@ function ColTitle({ children }: { children: React.ReactNode }) {
 
 export function Footer() {
   const year = new Date().getFullYear();
+  const revealRef = useScrollReveal<HTMLDivElement>();
   return (
-    <footer className="footer-enter" style={{ borderTop: `1px solid ${BORDER}`, marginTop: "40px" }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "44px 24px 0" }}>
+    <footer style={{ borderTop: `1px solid ${BORDER}`, marginTop: "40px" }}>
+      <div ref={revealRef} style={{ maxWidth: 1100, margin: "0 auto", padding: "44px 24px 0" }}>
         <div
           style={{
             display: "flex",
@@ -63,7 +65,11 @@ export function Footer() {
           }}
         >
           {/* Brand */}
-          <div style={{ maxWidth: 320 }}>
+          <div
+            data-reveal
+            className="reveal reveal-up"
+            style={{ maxWidth: 320 }}
+          >
             <div
               className="brand-link"
               style={{
@@ -117,7 +123,11 @@ export function Footer() {
           </div>
 
           {/* Links */}
-          <div style={{ display: "flex", gap: "48px", flexWrap: "wrap" }}>
+          <div
+            data-reveal
+            className="reveal reveal-up"
+            style={{ display: "flex", gap: "48px", flexWrap: "wrap", "--reveal-delay": "90ms" } as React.CSSProperties}
+          >
             <div>
               <ColTitle>Сервис</ColTitle>
               <FootLink to="/">Каталог категорий</FootLink>

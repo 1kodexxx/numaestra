@@ -2,8 +2,8 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
-import { staggerDelay } from '@shared/lib/motion'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
+import { useScrollReveal } from '@shared/lib/useScrollReveal'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.08)'
@@ -53,6 +53,7 @@ const STEPS: Step[] = [
 export function HowItWorksPage() {
   const navigate = useNavigate()
   const { price_label } = usePublicConfig()
+  const revealRef = useScrollReveal<HTMLDivElement>()
 
   const steps = useMemo(
     () =>
@@ -70,7 +71,7 @@ export function HowItWorksPage() {
 
   return (
     <>
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '44px 20px 0' }} className="fade-in">
+      <div ref={revealRef} style={{ maxWidth: 720, margin: '0 auto', padding: '44px 20px 0' }} className="fade-in">
         {/* Hero */}
         <div style={{ textAlign: 'center', marginBottom: '40px' }} className="hero-enter">
           <div
@@ -86,7 +87,7 @@ export function HowItWorksPage() {
             </span>
           </div>
           <h1 style={{ fontSize: 'clamp(26px, 5vw, 40px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: '12px' }}>
-            От идеи до готовой песни — <span className="gradient-text">за 6 шагов</span>
+            От идеи до готовой песни — <span className="gradient-text-flow">за 6 шагов</span>
           </h1>
           <p style={{ fontSize: '15px', color: TEXT2, lineHeight: 1.6, maxWidth: 480, margin: '0 auto' }}>
             Весь процесс занимает около 10 минут. Регистрация не нужна, оплата один раз — {price_label} за 4 версии трека.
@@ -98,12 +99,13 @@ export function HowItWorksPage() {
           {steps.map((s, i) => (
             <li
               key={i}
-              className="fade-up interactive-card"
+              data-reveal
+              className="reveal reveal-up interactive-card glow-hover"
               style={{
                 display: 'flex', gap: '16px', alignItems: 'flex-start',
                 background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px',
-                ...staggerDelay(i, 60, 360),
-              }}
+                '--reveal-delay': `${Math.min(i * 80, 480)}ms`,
+              } as React.CSSProperties}
             >
               {/* Номер шага */}
               <div
@@ -130,7 +132,7 @@ export function HowItWorksPage() {
         </ol>
 
         {/* CTA */}
-        <div style={{ textAlign: 'center', margin: '40px 0 8px' }} className="fade-up hero-enter-d2">
+        <div data-reveal className="reveal reveal-up" style={{ textAlign: 'center', margin: '40px 0 8px' }}>
           <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '14px' }}>Готовы начать?</div>
           <Button size="lg" onClick={() => navigate('/')}>Заказать песню →</Button>
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '12px' }}>

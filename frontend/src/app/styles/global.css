@@ -30,9 +30,12 @@
   --ease-accelerate:  cubic-bezier(0.3, 0, 1, 1);
   --ease-emphasized:  cubic-bezier(0.2, 0, 0, 1);
   --ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Кинематографичный expo-out: быстрый старт, длинное мягкое затухание. */
+  --ease-cinematic:   cubic-bezier(0.16, 1, 0.3, 1);
   --dur-short:  150ms;
   --dur-medium: 250ms;
   --dur-long:   400ms;
+  --dur-reveal: 800ms;
 
   /* ── Material elevation (dark theme: shadow + subtle ambient) ── */
   --elevation-1: 0 1px 2px rgba(0,0,0,0.5), 0 1px 3px 1px rgba(0,0,0,0.3);
@@ -68,6 +71,15 @@ body {
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
+
+/* Живой фон: атмосферные cyan-орбы медленно «дышат» позицией и яркостью.
+   Очень тонко и долго — кинематографичная подложка, не отвлекает от контента. */
+@keyframes ambient-drift {
+  0%   { background-position: 50% -8%, 100% 2%; }
+  50%  { background-position: 46% -4%, 96% 6%; }
+  100% { background-position: 50% -8%, 100% 2%; }
+}
+body { animation: ambient-drift 26s ease-in-out infinite; }
 
 /* #root прозрачен, чтобы атмосферный фон body был виден сквозь страницы. */
 #root { background: transparent; }
@@ -336,4 +348,67 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.25);
   box-shadow: 0 0 0 6px rgba(0,229,192,0.16);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Кинематографичное появление по скроллу (useScrollReveal).
+   Элемент стартует приглушённым/смещённым/размытым и плавно «проявляется»
+   при входе в зону видимости. Stagger задаётся inline через --reveal-delay.
+   ───────────────────────────────────────────────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  filter: blur(8px);
+  will-change: opacity, transform, filter;
+  transition:
+    opacity var(--dur-reveal) var(--ease-cinematic),
+    transform var(--dur-reveal) var(--ease-cinematic),
+    filter var(--dur-reveal) var(--ease-cinematic);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+/* Варианты направления входа. */
+.reveal-scale { transform: translateY(30px) scale(0.94); }
+.reveal-left  { transform: translateX(-44px); }
+.reveal-right { transform: translateX(44px); }
+.reveal-fade  { transform: none; }
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+}
+
+/* Кинематографичный glow для интерактивных карточек: при наведении мягкое
+   cyan-свечение + подсветка границы. Сочетается с .interactive-card. */
+.glow-hover {
+  transition:
+    transform var(--dur-medium) var(--ease-cinematic),
+    box-shadow var(--dur-medium) var(--ease-standard),
+    border-color var(--dur-medium) var(--ease-standard);
+}
+.glow-hover:hover {
+  border-color: rgba(0, 229, 192, 0.35);
+  box-shadow:
+    0 10px 40px -12px rgba(0, 229, 192, 0.28),
+    0 0 0 1px rgba(0, 229, 192, 0.12);
+}
+
+/* Текучий фирменный градиент-текст — медленное кинематографичное мерцание. */
+@keyframes gradient-pan {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@utility gradient-text-flow {
+  background: linear-gradient(120deg, #00e5c0, #00bfa5 40%, #2de2b6 60%, #00e5c0);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: gradient-pan 6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Подстраховка: если JS не успел/выключен — контент остаётся видимым. */
+  .reveal { opacity: 1; transform: none; filter: none; }
 }

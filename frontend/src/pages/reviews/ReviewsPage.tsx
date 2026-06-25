@@ -4,7 +4,7 @@ import type { PublicReview } from '@entities/review'
 import { Button, TextField, Spinner } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { useSeo } from '@shared/lib/seo'
-import { staggerDelay } from '@shared/lib/motion'
+import { useScrollReveal } from '@shared/lib/useScrollReveal'
 
 const ACCENT = '#00e5c0'
 const BORDER = 'rgba(255,255,255,0.08)'
@@ -56,6 +56,7 @@ export function ReviewsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
+  const revealRef = useScrollReveal<HTMLDivElement>()
 
   useSeo({
     title: 'Отзывы о Numaestra — что говорят клиенты',
@@ -95,11 +96,11 @@ export function ReviewsPage() {
 
   return (
     <>
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '40px 20px 0' }} className="fade-in">
+      <div ref={revealRef} style={{ maxWidth: 760, margin: '0 auto', padding: '40px 20px 0' }} className="fade-in">
         {/* Hero */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }} className="hero-enter">
           <h1 style={{ fontSize: 'clamp(26px, 5vw, 38px)', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '10px' }}>
-            Отзывы о <span className="gradient-text">Numaestra</span>
+            Отзывы о <span className="gradient-text-flow">Numaestra</span>
           </h1>
           <p style={{ fontSize: '15px', color: TEXT2, lineHeight: 1.6, maxWidth: 460, margin: '0 auto' }}>
             Что говорят люди, заказавшие персональную песню. Поделитесь и вы — регистрация не нужна.
@@ -160,8 +161,8 @@ export function ReviewsPage() {
 
         {!loading && reviews.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {reviews.map((r, i) => (
-              <article key={r.id} className="fade-up interactive-card" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px', ...staggerDelay(i, 45, 320) }}>
+            {reviews.map((r) => (
+              <article key={r.id} data-reveal className="reveal reveal-up interactive-card glow-hover" style={{ background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                     <span style={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.author_name}</span>
