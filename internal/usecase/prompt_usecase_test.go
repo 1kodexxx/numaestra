@@ -265,6 +265,26 @@ func TestPromptUseCase_BuildFinalPrompt_SubstitutesPlaceholders(t *testing.T) {
 	}
 }
 
+func TestPromptUseCase_BuildFinalPrompt_IncludesCustomLyrics(t *testing.T) {
+	repo := newInMemCategoryRepo(domain.CategorySnapshot{
+		ID:                 "bday",
+		Title:              "День рождения",
+		BasePromptTemplate: "Birthday song for [name].",
+	})
+	uc := NewPromptUseCase(repo)
+
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
+		"name":           "Коля",
+		"CUSTOM_LYRICS":  "Припев: мы вместе навсегда",
+	})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !strings.Contains(prompt, "Припев: мы вместе навсегда") {
+		t.Errorf("custom lyrics не попали в промпт: %q", prompt)
+	}
+}
+
 func TestPromptUseCase_BuildFinalPrompt_UnknownCategory(t *testing.T) {
 	repo := newInMemCategoryRepo()
 	uc := NewPromptUseCase(repo)

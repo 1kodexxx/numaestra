@@ -69,5 +69,29 @@ func (h *CategoryHandler) HandleGetWizard(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	respondJSON(w, http.StatusOK, category)
+	respondJSON(w, http.StatusOK, toCategoryWizardResponse(category))
+}
+
+// categoryWizardJSON — публичный визард: вопросы квиза + шаблон для live-preview на фронте.
+// base_prompt_template не отдаётся в списке категорий (MarshalJSON категории).
+type categoryWizardJSON struct {
+	ID                 string            `json:"id"`
+	Title              string            `json:"title"`
+	Description        string            `json:"description"`
+	CoverImageURL      string            `json:"cover_image_url"`
+	SeoTags            []string          `json:"seo_tags"`
+	Questions          []domain.Question `json:"questions"`
+	BasePromptTemplate string            `json:"base_prompt_template"`
+}
+
+func toCategoryWizardResponse(c *domain.Category) categoryWizardJSON {
+	return categoryWizardJSON{
+		ID:                 c.ID(),
+		Title:              c.Title(),
+		Description:        c.Description(),
+		CoverImageURL:      c.CoverImageURL(),
+		SeoTags:            c.SeoTags(),
+		Questions:          c.Questions(),
+		BasePromptTemplate: c.BasePromptTemplate(),
+	}
 }

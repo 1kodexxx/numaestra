@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import { Navbar } from '@widgets/navbar'
 import { Footer } from '@widgets/footer'
@@ -52,8 +52,17 @@ function useStructuredData() {
 
 function PublicChrome({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation()
+  const scrollRef = useRef<HTMLDivElement>(null)
   const isAdmin = pathname.startsWith('/admin')
   const isFullscreen = pathname === '/' || pathname.startsWith('/category/')
+
+  // При навигации всегда открываем страницу с верха. Скролл живёт во вложенном
+  // контейнере (не в window), поэтому без явного сброса позиция сохраняется.
+  // useLayoutEffect — до отрисовки, без «мигания» контента снизу.
+  useLayoutEffect(() => {
+    scrollRef.current?.scrollTo(0, 0)
+    window.scrollTo(0, 0)
+  }, [pathname])
 
   if (isAdmin) {
     return (
@@ -66,7 +75,7 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Navbar />
-      <div style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
+      <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
         {/* Перемонтируем по pathname → проигрывается плавное появление на каждой навигации */}
         <div key={pathname} className={isFullscreen ? 'route-fade' : 'route-fade-up'} style={{ minHeight: '100%' }}>
           {children}

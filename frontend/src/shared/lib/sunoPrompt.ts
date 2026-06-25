@@ -126,3 +126,116 @@ export function composeCatalogBrief(
     buildCatalogDescription(form),
   );
 }
+
+const STYLE_ANSWER_KEYS = ["GENRE", "MOOD", "VOCAL", "TEMPO"] as const;
+
+function splitTagPieces(s: string): string[] {
+  return s
+    .replace(/;/g, ",")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/** Suno tags из ответов квиза категории (значения option.value уже на англ.). */
+export function buildStyleTagsFromAnswers(
+  answers: Record<string, string>,
+): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+
+  for (const key of STYLE_ANSWER_KEYS) {
+    const v = answers[key]?.trim();
+    if (!v) continue;
+    for (const piece of splitTagPieces(v)) {
+      const low = piece.toLowerCase();
+      if (seen.has(low)) continue;
+      seen.add(low);
+      parts.push(piece);
+    }
+  }
+
+  if (parts.length === 0) {
+    return "russian pop, heartfelt, male vocals";
+  }
+  if (!parts.some((p) => p.toLowerCase().includes("russian"))) {
+    parts.push("russian lyrics");
+  }
+  return parts.join(", ");
+}
+
+function cleanSubstitutedTemplate(s: string): string {
+  let out = s.trim();
+  if (!out) return "";
+  out = out.replace(/^create\s+a\s+.+?(?:\.\s*)/is, "");
+  out = out.replace(
+    /\s*the\s+lyrics\s+must\s+be\s+in\s+russian\s*(?:language)?\.?\s*/gi,
+    "",
+  );
+  out = out.replace(/\s*lyrics\s+in\s+russian\.?\s*/gi, "");
+  out = out.replace(/\s*tempo\s+feel:\s*[^.]+\.?\s*/gi, "");
+  out = out.replace(
+    /\s*optional\s+extra\s+details\s+for\s+lyrics:\s*.+$/gi,
+    "",
+  );
+  return out.trim();
+}
+
+export function substituteCategoryTemplate(
+  template: string,
+  answers: Record<string, string>,
+): string {
+  let result = template;
+  for (const [key, value] of Object.entries(answers)) {
+    result = result.replaceAll(`[${key}]`, value);
+  }
+  return result;
+}
+
+export function formatQuizDescription(
+  categoryTitle: string,
+  substituted: string,
+  extra: string,
+): string {
+  const body = cleanSubstitutedTemplate(substituted);
+  const lines: string[] = [
+    "Write a complete song. All sung lyrics must be in Russian.",
+    "",
+  ];
+  const title = categoryTitle.trim();
+  if (title) {
+    lines.push(`Occasion / song type: ${title}.`, "");
+  }
+  lines.push("What the customer wants to hear (use these facts in the lyrics):");
+  lines.push(body || substituted);
+  if (extra.trim()) {
+    lines.push("", "Must-include names, phrases, or details:", extra.trim());
+  }
+  lines.push(
+    "",
+    "Match the musical style from the separate Suno style tags (genre, mood, vocals, tempo). Make the chorus memorable and emotionally clear.",
+  );
+  return lines.join("\n");
+}
+
+function appendCustomLyrics(description: string, customText: string): string {
+  const lyrics = customText.trim();
+  if (!lyrics) return description;
+  return `${description}\n\nMust-use lyrics (include verbatim where possible):\n${lyrics}`;
+}
+
+/** Итоговый промпт категории — тот же формат, что BuildFinalPrompt на бэкенде. */
+export function composeCategoryBrief(
+  categoryTitle: string,
+  basePromptTemplate: string,
+  answers: Record<string, string>,
+  customText = "",
+): string {
+  const substituted = substituteCategoryTemplate(basePromptTemplate, answers);
+  const tags = buildStyleTagsFromAnswers(answers);
+  const description = appendCustomLyrics(
+    formatQuizDescription(categoryTitle, substituted, answers.EXTRA ?? ""),
+    customText,
+  );
+  return encodeSunoPrompt(tags, description);
+}

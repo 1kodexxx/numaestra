@@ -1,10 +1,11 @@
-import type { Category, Question, WizardData } from "@entities/category";
+import type { Question, WizardData } from "@entities/category";
 import { categoryApi } from "@entities/category";
 import { useCreateOrder } from "@features/create-order";
 import { useCatalog } from "@features/load-catalog";
 import { EXAMPLE_SONGS } from "@shared/data/examples";
 import { categoryCover } from "@shared/lib/categoryCover";
 import { useSeo } from "@shared/lib/seo";
+import { composeCategoryBrief } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { Button, TextField } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
@@ -195,27 +196,6 @@ function QuestionField({
   );
 }
 
-/* ─── собрать промпт ─── */
-function buildBrief(
-  questions: Question[],
-  answers: Record<string, string>,
-  cat: Category | undefined,
-  customText: string,
-  extraNotes: string,
-): string {
-  const parts = questions
-    .filter((q) => answers[q.mapping_key]?.trim())
-    .map((q) => `${q.question_text}: ${answers[q.mapping_key]}`);
-  if (extraNotes.trim()) parts.push(`Дополнительно: ${extraNotes.trim()}`);
-  let base =
-    parts.length > 0
-      ? parts.join(". ")
-      : `Персональная песня — ${cat?.title ?? ""}`;
-  if (customText.trim())
-    base += `\nТекст песни (использовать дословно):\n${customText.trim()}`;
-  return base;
-}
-
 export function CategoryPage() {
   const publicConfig = usePublicConfig();
   const { id = "" } = useParams<{ id: string }>();
@@ -229,7 +209,6 @@ export function CategoryPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({}); // text / select / radio
   const [tagSel, setTagSel] = useState<Record<string, string[]>>({}); // tags (multi)
   const [customText, setCustomText] = useState("");
-  const [extraNotes, setExtraNotes] = useState("");
   const [showContact, setShowContact] = useState(false);
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
@@ -250,7 +229,6 @@ export function CategoryPage() {
     setAnswers({});
     setTagSel({});
     setCustomText("");
-    setExtraNotes("");
     setWizardError(null);
     setQuizError(null);
     setWizardLoading(true);
@@ -275,17 +253,15 @@ export function CategoryPage() {
     return m;
   }, [answers, tagSel]);
 
-  const preview = useMemo(
-    () =>
-      buildBrief(
-        wizard?.questions ?? [],
-        mergedAnswers,
-        category,
-        customText,
-        extraNotes,
-      ),
-    [wizard, mergedAnswers, category, customText, extraNotes],
-  );
+  const preview = useMemo(() => {
+    if (!wizard?.base_prompt_template) return "";
+    return composeCategoryBrief(
+      wizard.title || category?.title || "",
+      wizard.base_prompt_template,
+      mergedAnswers,
+      customText,
+    );
+  }, [wizard, mergedAnswers, category?.title, customText]);
 
   function toggleTag(key: string, val: string, maxSelect?: number) {
     setTagSel((prev) => {
@@ -319,12 +295,16 @@ export function CategoryPage() {
   }
 
   async function handleOrder(email: string, phone: string) {
+    const orderAnswers = { ...mergedAnswers };
+    if (customText.trim()) {
+      orderAnswers.CUSTOM_LYRICS = customText.trim();
+    }
     await submit({
       email,
       phone,
       brief: preview,
       category_id: id,
-      answers: mergedAnswers,
+      answers: orderAnswers,
       consent_doc_version: publicConfig.consent_doc_version,
     });
   }
@@ -407,7 +387,7 @@ export function CategoryPage() {
               textTransform: "uppercase",
             }}
           >
-            Конструктор песни
+            Конструктор промпта для ИИ
           </div>
           <h1
             style={{
@@ -493,15 +473,6 @@ export function CategoryPage() {
           multiline
           rows={3}
           placeholder="Строки или припев, которые должны прозвучать дословно..."
-          surfaceColor={SURFACE}
-        />
-        <TextField
-          label="Дополнительные пожелания (по желанию)"
-          value={extraNotes}
-          onChange={setExtraNotes}
-          multiline
-          rows={2}
-          placeholder="Что ещё учесть: имена, отсылки, чего избегать..."
           surfaceColor={SURFACE}
         />
 

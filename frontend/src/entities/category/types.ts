@@ -34,6 +34,11 @@ export interface Question {
 
 // Ответ GET /api/v1/categories/:id/wizard
 export interface WizardData {
-  category_id: string
+  id: string
+  title: string
+  description: string
+  cover_image_url: string
+  seo_tags: string[]
   questions: Question[]
+  base_prompt_template: string
 }

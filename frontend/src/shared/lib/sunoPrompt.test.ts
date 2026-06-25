@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   composeCatalogBrief,
+  composeCategoryBrief,
   buildCatalogStyleTags,
+  buildStyleTagsFromAnswers,
+  formatQuizDescription,
   type GenreOption,
 } from "./sunoPrompt";
 
@@ -46,5 +49,40 @@ describe("sunoPrompt", () => {
     );
     expect(tags).toContain("pop ballad");
     expect(tags).not.toContain("Баллада");
+  });
+
+  it("composeCategoryBrief кодирует tags и описание как основной конструктор", () => {
+    const template =
+      "Create a [MOOD] [GENRE] song with [VOCAL]. The lyrics must be in Russian language. Birthday person is [NAME].";
+    const brief = composeCategoryBrief("День рождения", template, {
+      NAME: "Коля",
+      GENRE: "modern pop",
+      MOOD: "warm, friendly",
+      VOCAL: "male vocals",
+    });
+    expect(brief).toContain("#SUNO_TAGS#");
+    expect(brief).toContain("modern pop");
+    expect(brief).toContain("#SUNO_DESC#");
+    expect(brief).toContain("Коля");
+    expect(brief).not.toContain("Create a");
+  });
+
+  it("buildStyleTagsFromAnswers добавляет russian lyrics один раз", () => {
+    const tags = buildStyleTagsFromAnswers({
+      GENRE: "modern pop",
+      MOOD: "emotional",
+      VOCAL: "male vocals",
+      TEMPO: "slow tempo",
+    });
+    expect(tags.match(/russian/gi)?.length).toBe(1);
+  });
+
+  it("formatQuizDescription сохраняет extra и убирает бойлерплейт", () => {
+    const subst =
+      "Create a emotional modern pop song with male vocals. The lyrics must be in Russian language. Groom Ivan and bride Maria.";
+    const desc = formatQuizDescription("Свадьба", subst, "фраза «навсегда»");
+    expect(desc).toContain("Ivan");
+    expect(desc).toContain("навсегда");
+    expect(desc).not.toContain("Create a");
   });
 });

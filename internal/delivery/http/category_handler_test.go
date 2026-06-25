@@ -111,8 +111,9 @@ func TestCategoryHandler_GetAll_RepoError(t *testing.T) {
 
 func TestCategoryHandler_GetWizard_Found(t *testing.T) {
 	wizard := domain.RestoreCategory(domain.CategorySnapshot{
-		ID:    "wedding",
-		Title: "Свадьба",
+		ID:                 "wedding",
+		Title:              "Свадьба",
+		BasePromptTemplate: "Create a [MOOD] song about [names].",
 		Questions: []domain.Question{
 			{ID: 1, MappingKey: "names", QuestionText: "Имена молодожёнов?"},
 		},
@@ -131,6 +132,9 @@ func TestCategoryHandler_GetWizard_Found(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp) //nolint:errcheck
 	if resp["id"] != "wedding" {
 		t.Errorf("ожидали id=wedding, получили %v", resp["id"])
+	}
+	if resp["base_prompt_template"] == nil {
+		t.Error("wizard должен включать base_prompt_template для live-preview")
 	}
 }
 
