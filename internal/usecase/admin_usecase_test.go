@@ -192,6 +192,47 @@ func TestAdminUseCase_RefundOrder_Success(t *testing.T) {
 	}
 }
 
+// TestAdminUseCase_RefundOrder_CancelsInFlightGeneration проверяет, что возврат
+// денег за заказ, который ещё находится в processing, останавливает генерацию
+// (статус переходит в failed) и освобождает захваченный слот Suno-аккаунта —
+// иначе клиент получил бы песню бесплатно после возврата, а аккаунт остался бы
+// занятым навсегда.
+func TestAdminUseCase_RefundOrder_CancelsInFlightGeneration(t *testing.T) {
+	orders := newInMemOrderRepo()
+	accounts := newInMemAccountRepo()
+	uc := NewAdminUseCase(orders, accounts, nil, &mockRefunder{}, nil, nil, testLogger())
+
+	acc, _ := domain.NewSunoAccount("acc@suno.com", "enc", 100)
+	_ = acc.AcquireSlot(time.Now().UTC())
+	_ = accounts.Create(context.Background(), acc)
+
+	o, _ := domain.NewOrder(1, "c@d.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 10000)
+	_ = o.MarkPaid()
+	_ = o.Enqueue()
+	_ = o.StartProcessing(acc.ID())
+	_ = orders.Create(context.Background(), o)
+
+	if err := uc.RefundOrder(context.Background(), o.ID()); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+
+	updatedOrder, _ := orders.GetByID(context.Background(), o.ID())
+	if updatedOrder.PaymentStatus() != domain.PaymentStatusRefunded {
+		t.Errorf("ожидали payment_status=refunded, получили %q", updatedOrder.PaymentStatus())
+	}
+	if updatedOrder.GenerationStatus() != domain.GenerationStatusFailed {
+		t.Errorf("ожидали generation_status=failed (генерация остановлена), получили %q", updatedOrder.GenerationStatus())
+	}
+	if updatedOrder.AssignedAccountID() != nil {
+		t.Error("ожидали, что аккаунт отвязан от возвращённого заказа")
+	}
+
+	updatedAcc, _ := accounts.GetByID(context.Background(), acc.ID())
+	if updatedAcc.ConcurrentTasks() != 0 {
+		t.Errorf("ожидали освобождённый слот аккаунта (0), получили %d", updatedAcc.ConcurrentTasks())
+	}
+}
+
 func TestAdminUseCase_RefundOrder_NotPaid(t *testing.T) {
 	uc, orders, _ := newAdminUC(t)
 

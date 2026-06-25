@@ -60,9 +60,18 @@ func (p *AsynqPublisher) EnqueueGenerationTask(ctx context.Context, orderID uuid
 	// (две доставки вебхука) задача для этого заказа уже стоит в очереди, повторная
 	// постановка вернёт ErrTaskIDConflict — трактуем её как успех, чтобы не плодить
 	// дубли генерации и двойной расход кредитов Suno.
+	//
+	// MaxRetry(20): заказ уже оплачен, поэтому исчерпание ретраев — это автоматический
+	// permanent fail (см. worker.HandleDeadTask), требующий ручной перегенерации
+	// администратором. ErrNoAvailableAccount (пул занят) — частый и проходящий за
+	// минуты случай, а не поломка конкретного заказа; с MaxRetry(3) и стандартным
+	// backoff Asynq заказ падал в failed уже через 5-10 минут банальной занятости
+	// пула. 20 ретраев с фиксированной задержкой для ErrNoAvailableAccount (см.
+	// RetryDelayFunc в cmd/server/main.go) дают многочасовое окно терпения, прежде
+	// чем по-настоящему сломанный заказ потребует внимания администратора.
 	opts := []asynq.Option{
 		asynq.Queue("generation"),
-		asynq.MaxRetry(3),
+		asynq.MaxRetry(20),
 		asynq.TaskID("generate:" + orderID.String()),
 	}
 	if _, err := p.client.EnqueueContext(ctx, task, opts...); err != nil {

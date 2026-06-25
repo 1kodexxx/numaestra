@@ -255,7 +255,7 @@ func TestOrderRepository_ApplyPaymentSuccess_Applied(t *testing.T) {
 	defer mock.Close()
 
 	// Первая доставка вебхука: затронута одна строка → переход применён.
-	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(5)...).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(7)...).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
 
 	repo := NewOrderRepository(mock)
 	applied, err := repo.ApplyPaymentSuccess(context.Background(), pendingOrder())
@@ -279,7 +279,7 @@ func TestOrderRepository_ApplyPaymentSuccess_Idempotent(t *testing.T) {
 
 	// Повторная доставка того же вебхука: строка уже не 'pending', RowsAffected=0
 	// → applied=false, без ошибки. Это исключает двойную постановку генерации.
-	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(5)...).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
+	mock.ExpectExec("UPDATE orders").WithArgs(anyArgs(7)...).WillReturnResult(pgxmock.NewResult("UPDATE", 0))
 
 	repo := NewOrderRepository(mock)
 	applied, err := repo.ApplyPaymentSuccess(context.Background(), pendingOrder())
@@ -291,6 +291,50 @@ func TestOrderRepository_ApplyPaymentSuccess_Idempotent(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("неудовлетворённые ожидания: %v", err)
+	}
+}
+
+// TestOrderRepository_ApplyPaymentSuccess_PersistsGenerationPhase проверяет, что
+// ApplyPaymentSuccess сохраняет generation_phase/generation_progress, а не только
+// generation_status. Order.Enqueue() в памяти переводит фазу в "queued" (3%) —
+// до этого фикса SQL-запрос эти колонки не трогал, и страница статуса показывала
+// неверный текст ("Создаём музыку…") пока воркер не забирал задачу в обработку.
+func TestOrderRepository_ApplyPaymentSuccess_PersistsGenerationPhase(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mock.Close()
+
+	order, err := domain.NewOrder(1001, "user@example.com", "", "бриф", "", "", domain.CurrentConsentDocVersion, 200000)
+	if err != nil {
+		t.Fatalf("NewOrder: %v", err)
+	}
+	if err := order.MarkPaid(); err != nil {
+		t.Fatalf("MarkPaid: %v", err)
+	}
+	if err := order.Enqueue(); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if order.GenerationPhase() != domain.GenerationPhaseQueued || order.GenerationProgress() != 3 {
+		t.Fatalf("предусловие теста нарушено: phase=%q progress=%d", order.GenerationPhase(), order.GenerationProgress())
+	}
+
+	args := append([]any{domain.PaymentStatusPaid, domain.GenerationStatusQueued, domain.GenerationPhaseQueued, 3}, anyArgs(3)...)
+	mock.ExpectExec("UPDATE orders").
+		WithArgs(args...).
+		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+
+	repo := NewOrderRepository(mock)
+	applied, err := repo.ApplyPaymentSuccess(context.Background(), order)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if !applied {
+		t.Fatal("ожидали applied=true")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("неудовлетворённые ожидания (generation_phase/progress не переданы в запрос?): %v", err)
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,18 +39,31 @@ type Client struct {
 	opStateURL      string // переопределяется в тестах
 	refundCreateURL string // переопределяется в тестах
 	refundStateURL  string // переопределяется в тестах
+
+	// refundMu/pendingRefunds — защита от повторного создания возврата в Robokassa.
+	// Refund() — составная операция (OpKey → Create → GetState); если она прервётся
+	// после успешного Create (таймаут ожидания, обрыв сети), повторный вызов Refund()
+	// для того же InvId не должен создавать ВТОРОЙ реальный возврат. Кэшируем
+	// requestId, выданный Create, и при повторном вызове сразу переходим к ожиданию
+	// существующего возврата. Кэш только в памяти процесса: после перезапуска сервиса
+	// защита сбрасывается — это осознанный компромисс ради простоты, дублирующий
+	// возврат после рестарта — на порядки менее вероятный сценарий, чем повторный
+	// клик администратора сразу после таймаута.
+	refundMu       sync.Mutex
+	pendingRefunds map[int64]string
 }
 
 // New создаёт клиент Robokassa с переданными учётными данными.
 // password3 нужен для возвратов через Refund API (генерируется отдельно в кабинете).
 func New(merchantLogin, password1, password2, password3 string, isTest bool) *Client {
 	return &Client{
-		merchantLogin: merchantLogin,
-		password1:     password1,
-		password2:     password2,
-		password3:     password3,
-		isTest:        isTest,
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		merchantLogin:  merchantLogin,
+		password1:      password1,
+		password2:      password2,
+		password3:      password3,
+		isTest:         isTest,
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		pendingRefunds: make(map[int64]string),
 	}
 }
 
@@ -170,20 +184,49 @@ func (c *Client) Refund(ctx context.Context, outSum string, invID int64) error {
 		return fmt.Errorf("не задан ROBOKASSA_PASS3 — сгенерируйте Password3 в кабинете Robokassa")
 	}
 
-	opKey, err := c.fetchOpKey(ctx, invID)
-	if err != nil {
-		return fmt.Errorf("получение OpKey: %w", err)
-	}
+	// Если для этого InvId уже есть незавершённый возврат (предыдущий вызов прервался
+	// после Create, например по таймауту GetState) — переиспользуем его requestId
+	// вместо того, чтобы создавать новый возврат повторно.
+	requestID := c.getPendingRefund(invID)
+	if requestID == "" {
+		opKey, err := c.fetchOpKey(ctx, invID)
+		if err != nil {
+			return fmt.Errorf("получение OpKey: %w", err)
+		}
 
-	requestID, err := c.createRefund(ctx, opKey)
-	if err != nil {
-		return err
+		requestID, err = c.createRefund(ctx, opKey)
+		if err != nil {
+			return err
+		}
+		c.setPendingRefund(invID, requestID)
 	}
 
 	if err := c.waitRefundFinished(ctx, requestID); err != nil {
+		// requestID остаётся в кэше — повторный вызов Refund() для этого InvId
+		// продолжит ожидание уже созданного возврата, а не создаст новый.
 		return err
 	}
+
+	c.clearPendingRefund(invID)
 	return nil
+}
+
+func (c *Client) getPendingRefund(invID int64) string {
+	c.refundMu.Lock()
+	defer c.refundMu.Unlock()
+	return c.pendingRefunds[invID]
+}
+
+func (c *Client) setPendingRefund(invID int64, requestID string) {
+	c.refundMu.Lock()
+	defer c.refundMu.Unlock()
+	c.pendingRefunds[invID] = requestID
+}
+
+func (c *Client) clearPendingRefund(invID int64) {
+	c.refundMu.Lock()
+	defer c.refundMu.Unlock()
+	delete(c.pendingRefunds, invID)
 }
 
 // signPayment вычисляет MD5-подпись для генерации ссылки оплаты.

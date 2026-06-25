@@ -193,6 +193,14 @@ func run(ctx context.Context) error {
 					if errors.Is(e, usecase.ErrGenerationNotReady) {
 						return 15 * time.Second
 					}
+					// Нехватка свободных Suno-аккаунтов — обычно вопрос минут (текущие
+					// генерации освобождают слоты), а не повод копить экспоненциальный
+					// backoff по умолчанию. Фиксированная небольшая задержка даёт оплаченному
+					// заказу больше реальных попыток в пределах MaxRetry, прежде чем он
+					// автоматически уйдёт в failed (см. asynq.MaxRetry в EnqueueGenerationTask).
+					if errors.Is(e, domain.ErrNoAvailableAccount) {
+						return 30 * time.Second
+					}
 					return asynq.DefaultRetryDelayFunc(n, e, t)
 				},
 				ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, t *asynq.Task, err error) {

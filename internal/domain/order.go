@@ -336,6 +336,27 @@ func (o *Order) MarkRefunded() error {
 	return nil
 }
 
+// CancelGenerationForRefund прерывает фоновую генерацию при оформлении возврата,
+// чтобы не продолжать тратить кредиты Suno/хранилище S3 на заказ, за который уже
+// вернули деньги. Применимо только к queued/processing — для completed заказ уже
+// выполнен (трек отдан клиенту до возврата), для failed/new генерации уже нет.
+// Возвращает ID захваченного аккаунта (если был), чтобы вызывающий код освободил
+// его слот — этот метод сам слот не освобождает, так как Order не знает об
+// аккаунтах за пределами их ID.
+func (o *Order) CancelGenerationForRefund() *uuid.UUID {
+	switch o.generationStatus {
+	case GenerationStatusQueued, GenerationStatusProcessing:
+	default:
+		return nil
+	}
+	accountID := o.assignedAccountID
+	o.generationStatus = GenerationStatusFailed
+	o.failureReason = "Заказ возвращён администратором — генерация отменена"
+	o.assignedAccountID = nil
+	o.touch()
+	return accountID
+}
+
 // SetAdminFeedback фиксирует сообщение администратора клиенту по заказу.
 // Не часть стейт-машины оплаты/генерации — это просто аннотация для истории
 // переписки, доступная в любом статусе заказа.

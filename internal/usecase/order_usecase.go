@@ -306,6 +306,13 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 
 	// 2. Привязываем аккаунт к заказу
 	if err := order.StartProcessing(account.ID()); err != nil {
+		// Слот уже захвачен в БД FetchAndLockAvailable — без освобождения он
+		// остался бы занятым навсегда (аккаунт пропал бы из ротации без задачи).
+		account.ReleaseSlot()
+		if releaseErr := uc.accRepo.Update(ctx, account); releaseErr != nil {
+			uc.log.Error("не удалось освободить слот аккаунта после ошибки старта обработки",
+				"order_id", order.ID(), "account_id", account.ID(), "err", releaseErr)
+		}
 		return fmt.Errorf("недопустимый статус для старта: %w", err)
 	}
 	metrics.ActiveWorkerSlots.Inc()

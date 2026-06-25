@@ -133,11 +133,11 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 
 	query := `
 		UPDATE orders
-		SET payment_status = $1, generation_status = $2, updated_at = $3, paid_at = $4
-		WHERE id = $5 AND payment_status = 'pending'
+		SET payment_status = $1, generation_status = $2, generation_phase = $3, generation_progress = $4, updated_at = $5, paid_at = $6
+		WHERE id = $7 AND payment_status = 'pending'
 	`
 	cmd, err := r.conn(ctx).Exec(ctx, query,
-		snap.PaymentStatus, snap.GenerationStatus, snap.UpdatedAt, snap.PaidAt, snap.ID,
+		snap.PaymentStatus, snap.GenerationStatus, snap.GenerationPhase, snap.GenerationProgress, snap.UpdatedAt, snap.PaidAt, snap.ID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("apply payment success: %w", err)

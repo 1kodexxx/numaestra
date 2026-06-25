@@ -203,6 +203,11 @@ func (uc *AdminUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Ord
 // RefundOrder инициирует возврат платежа через Robokassa API и обновляет статус заказа.
 // Возврат допустим только для оплаченных заказов (payment_status = paid).
 // Statuses "completed" тоже допустимы — payment_status у них тоже paid.
+// Если заказ ещё не доставлен (queued/processing), генерация прерывается и
+// захваченный слот Suno-аккаунта освобождается — иначе клиенту, которому уже
+// вернули деньги, всё равно досталась бы песня за счёт компании.
+// uc.rk.Refund сам по себе идемпотентен относительно InvId (см. robokassa.Client.Refund),
+// поэтому повторный вызов RefundOrder после сетевого сбоя безопасен.
 func (uc *AdminUseCase) RefundOrder(ctx context.Context, orderID uuid.UUID) error {
 	order, err := uc.orderRepo.GetByID(ctx, orderID)
 	if err != nil {
@@ -221,12 +226,36 @@ func (uc *AdminUseCase) RefundOrder(ctx context.Context, orderID uuid.UUID) erro
 	if err := order.MarkRefunded(); err != nil {
 		return fmt.Errorf("обновление статуса заказа: %w", err)
 	}
+	releasedAccountID := order.CancelGenerationForRefund()
 
 	if err := uc.orderRepo.Update(ctx, order); err != nil {
 		return fmt.Errorf("сохранение заказа после возврата: %w", err)
 	}
 
+	if releasedAccountID != nil {
+		if err := uc.releaseAccountSlot(ctx, *releasedAccountID); err != nil {
+			// Деньги уже возвращены и статус заказа сохранён — слот аккаунта можно
+			// освободить позже вручную (ResetAccount), не блокируем возврат на этом.
+			uc.log.Error("не удалось освободить слот аккаунта после возврата",
+				"order_id", orderID, "account_id", *releasedAccountID, "err", err)
+		}
+	}
+
 	uc.log.Info("возврат платежа выполнен", "order_id", orderID, "amount", outSum)
+	return nil
+}
+
+// releaseAccountSlot освобождает захваченный слот Suno-аккаунта. Используется при
+// возврате и удалении заказа, чтобы прерванная генерация не оставляла аккаунт Busy.
+func (uc *AdminUseCase) releaseAccountSlot(ctx context.Context, accountID uuid.UUID) error {
+	acc, err := uc.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("получение аккаунта: %w", err)
+	}
+	acc.ReleaseSlot()
+	if err := uc.accountRepo.Update(ctx, acc); err != nil {
+		return fmt.Errorf("сохранение освобождённого слота: %w", err)
+	}
 	return nil
 }
 

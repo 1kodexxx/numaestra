@@ -219,6 +219,69 @@ func TestRefund_Success(t *testing.T) {
 	}
 }
 
+// TestRefund_RetryAfterWaitTimeout_DoesNotCreateSecondRefund проверяет защиту от
+// дублирующего возврата: если первый вызов Refund() успешно создал возврат в
+// Robokassa, но оборвался на ожидании (GetState вернул ошибку), повторный вызов
+// для того же InvId должен переиспользовать тот же requestId и НЕ вызывать
+// Refund/Create второй раз.
+func TestRefund_RetryAfterWaitTimeout_DoesNotCreateSecondRefund(t *testing.T) {
+	const opKey = "0005F891-8CCD-434B-8455-816AFFFDBF37-0VOisWikFF"
+	createCalls := 0
+	stateCallsBeforeFinish := 0
+	failState := true
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "OpStateExt"):
+			w.Header().Set("Content-Type", "application/xml")
+			fmt.Fprintf(w, `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><Info><OpKey>%s</OpKey></Info></OperationStateResponse>`, opKey)
+		case strings.HasSuffix(r.URL.Path, "/Refund/Create"):
+			createCalls++
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"success":true,"requestId":"cf15fd52-d2d1-4fc4-b9c0-25310e3bdded"}`)
+		case strings.HasSuffix(r.URL.Path, "/Refund/GetState"):
+			if failState {
+				stateCallsBeforeFinish++
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"requestId":"cf15fd52-d2d1-4fc4-b9c0-25310e3bdded","amount":2000,"label":"finished"}`)
+		default:
+			t.Fatalf("неожиданный путь: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := newTestClient(false)
+	c.httpClient = srv.Client()
+	c.opStateURL = srv.URL + "/OpStateExt"
+	c.refundCreateURL = srv.URL + "/Refund/Create"
+	c.refundStateURL = srv.URL + "/Refund/GetState"
+
+	// Первый вызов: Create проходит, GetState падает (имитация обрыва/таймаута ожидания).
+	if err := c.Refund(context.Background(), "2000.00", 7); err == nil {
+		t.Fatal("ожидали ошибку на этапе ожидания возврата")
+	}
+	if createCalls != 1 {
+		t.Fatalf("ожидали 1 вызов Refund/Create, получили %d", createCalls)
+	}
+	if stateCallsBeforeFinish == 0 {
+		t.Fatal("ожидали хотя бы один неудачный вызов GetState")
+	}
+
+	// Повторный вызов для того же InvId: GetState теперь отвечает успехом.
+	failState = false
+	if err := c.Refund(context.Background(), "2000.00", 7); err != nil {
+		t.Fatalf("ожидали успех при повторном вызове, получили: %v", err)
+	}
+
+	// Главная проверка: Refund/Create не вызывался повторно — переиспользован requestId.
+	if createCalls != 1 {
+		t.Fatalf("повторный Refund() создал ВТОРОЙ возврат: createCalls=%d, ожидали 1", createCalls)
+	}
+}
+
 func TestRefund_MissingPassword3(t *testing.T) {
 	c := New(testMerchantLogin, testPassword1, testPassword2, "", false)
 	err := c.Refund(context.Background(), "2000.00", 7)
