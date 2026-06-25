@@ -6,7 +6,7 @@ import {
   pendingOrder,
   processingOrder,
   queuedOrder,
-} from '../src/test/fixtures/orders'
+} from '../../src/test/fixtures/orders'
 
 type OrderState = 'pending' | 'queued' | 'processing' | 'completed'
 

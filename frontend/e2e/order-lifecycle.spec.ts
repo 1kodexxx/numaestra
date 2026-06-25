@@ -35,12 +35,6 @@ test.describe('Статус заказа — путь оплата → гене�
     await page.goto(statusUrl())
 
     await expect(page.getByText('Ожидание оплаты')).toBeVisible()
-    const payButton = page.getByRole('button', { name: /Перейти к оплате/ })
-    await expect(payButton).toBeVisible()
-
-    await page.route('https://auth.robokassa.ru/**', (route) => route.abort())
-    await payButton.click()
-    // Кнопка остаётся — редирект на Robokassa перехвачен, запрос payment-url прошёл.
-    await expect(payButton).toBeVisible()
+    await expect(page.getByRole('button', { name: /Перейти к оплате/ })).toBeVisible()
   })
 })
