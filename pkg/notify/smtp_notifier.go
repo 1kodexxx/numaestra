@@ -8,7 +8,6 @@ import (
 	"net/smtp"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // SmtpNotifier отправляет HTML-письмо о готовности заказа через стандартный SMTP.
@@ -155,11 +154,6 @@ func (n *SmtpNotifier) deliverMessage(client *smtp.Client, auth smtp.Auth, to, m
 // buildBody формирует HTML-тело письма в фирменном стиле Numaestra.
 func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
 	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
-	escapedStatusURL := html.EscapeString(statusURL)
-	shortOrderID := notif.OrderID
-	if len(shortOrderID) > 8 {
-		shortOrderID = shortOrderID[:8]
-	}
 
 	var tracks strings.Builder
 	for i, trackURL := range notif.TrackURLs {
@@ -167,139 +161,58 @@ func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
 		fmt.Fprintf(&tracks,
 			`<tr>
 			  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-			    <a href="%s" style="color:#00e5c0;text-decoration:none;font-size:15px;font-weight:600">
+			    <a href="%s" style="color:%s;text-decoration:none;font-size:15px;font-weight:600">
 			      Вариант %d →
 			    </a>
 			  </td>
 			</tr>`,
-			escaped, i+1,
+			escaped, emailAccent, i+1,
 		)
 	}
 
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ваша песня готова — Numaestra</title>
-</head>
-<body style="margin:0;padding:0;background:#f3f4f6;color:#111111;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#f3f4f6">
-    <tr>
-      <td align="center" style="padding:40px 16px">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%%;background:#0f0f0f;border:1px solid rgba(255,255,255,0.07);border-radius:20px;overflow:hidden">
-          <tr>
-            <td style="padding:36px 32px 28px;text-align:center;background:radial-gradient(ellipse 80%% 60%% at 50%% 0%%, rgba(0,229,192,0.14) 0%%, transparent 70%%)">
-              <div style="font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#00e5c0;margin-bottom:12px">Numaestra</div>
-              <div style="font-size:40px;line-height:1;margin-bottom:16px">🎵</div>
-              <h1 style="margin:0 0 10px;font-size:28px;font-weight:800;letter-spacing:-0.03em;color:#ffffff">Ваша песня готова!</h1>
-              <p style="margin:0;font-size:15px;line-height:1.5;color:rgba(255,255,255,0.55)">
-                %d версии трека ждут вас на сайте
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 32px 0">
-              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:14px 16px;background:rgba(0,229,192,0.06);border:1px solid rgba(0,229,192,0.16);border-radius:12px">
-                    <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:4px">Заказ</div>
-                    <div style="font-size:14px;font-weight:600;color:#ffffff;font-family:ui-monospace,Consolas,monospace">#%s</div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:28px 32px 8px">
-              <p style="margin:0 0 20px;font-size:15px;line-height:1.65;color:rgba(255,255,255,0.72)">
-                Мы закончили генерацию вашей персональной песни. Все версии доступны в плеере на сайте — ссылки действуют бессрочно.
-              </p>
-              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
-                %s
-              </table>
-              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="%s" style="display:inline-block;background:linear-gradient(135deg,#00e5c0,#00bfa5);color:#080808;text-decoration:none;padding:15px 36px;border-radius:12px;font-size:16px;font-weight:700;letter-spacing:-0.01em">
-                      Слушать все версии
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:rgba(255,255,255,0.35);text-align:center">
-                Если кнопка не открывается, скопируйте ссылку:<br>
-                <a href="%s" style="color:#00e5c0;word-break:break-all">%s</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);text-align:center">
-              <p style="margin:0 0 8px;font-size:12px;color:rgba(255,255,255,0.35)">
-                4 версии · готово за ~10 минут · без подписок
-              </p>
-              <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.28)">
-                © %d Numaestra · Персональные песни на заказ
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		notif.TracksCount,
-		html.EscapeString(shortOrderID),
-		tracks.String(),
-		escapedStatusURL,
-		escapedStatusURL,
-		escapedStatusURL,
-		time.Now().Year(),
+	hero := emailHero("🎵", "Ваша песня готова!",
+		fmt.Sprintf("%d версии трека ждут вас на сайте", notif.TracksCount))
+
+	body := emailContentRow("8px 32px 0", emailOrderBadge(shortOrderID(notif.OrderID))) +
+		emailContentRow("28px 32px 8px", fmt.Sprintf(`%s
+              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">%s</table>
+              %s%s`,
+			emailParagraph("Мы закончили генерацию вашей персональной песни. Все версии доступны в плеере на сайте — ссылки действуют бессрочно."),
+			tracks.String(),
+			emailCTAButton(statusURL, "Слушать все версии"),
+			emailCopyLink(statusURL),
+		))
+
+	return n.emailDocument(
+		"Ваша песня готова — Numaestra",
+		hero,
+		body,
+		"4 версии · готово за ~10 минут · без подписок",
 	)
 }
 
 func (n *SmtpNotifier) buildFeedbackBody(notif AdminFeedbackNotification) string {
 	escaped := strings.ReplaceAll(html.EscapeString(notif.Message), "\n", "<br>")
-	shortOrderID := html.EscapeString(notif.OrderID)
-	if len(notif.OrderID) > 8 {
-		shortOrderID = html.EscapeString(notif.OrderID[:8])
-	}
+	hero := emailHero("💬", "Сообщение по заказу", "#"+shortOrderID(notif.OrderID))
 
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="ru">
-<head><meta charset="utf-8"><title>Сообщение по заказу — Numaestra</title></head>
-<body style="margin:0;padding:0;background:#080808;color:#ffffff;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
-    <tr><td align="center" style="padding:40px 16px">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%%;background:#0f0f0f;border:1px solid rgba(255,255,255,0.07);border-radius:20px;overflow:hidden">
-        <tr>
-          <td style="padding:32px;text-align:center;background:radial-gradient(ellipse 80%% 60%% at 50%% 0%%, rgba(0,229,192,0.12) 0%%, transparent 70%%)">
-            <div style="font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#00e5c0;margin-bottom:10px">Numaestra</div>
-            <div style="font-size:36px;margin-bottom:12px">💬</div>
-            <h1 style="margin:0;font-size:22px;font-weight:800;color:#ffffff">Сообщение по заказу</h1>
-            <p style="margin:10px 0 0;font-size:14px;color:rgba(255,255,255,0.5)">#%s</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:32px">
-            <p style="margin:0;font-size:16px;line-height:1.65;color:rgba(255,255,255,0.78)">%s</p>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 32px;border-top:1px solid rgba(255,255,255,0.06);text-align:center">
-            <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.28)">© %d Numaestra</p>
-          </td>
-        </tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`,
-		shortOrderID,
-		escaped,
-		time.Now().Year(),
-	)
+	body := emailContentRow("28px 32px 8px",
+		fmt.Sprintf(`<p style="margin:0;font-size:16px;line-height:1.65;color:rgba(255,255,255,0.78)">%s</p>`, escaped))
+
+	return n.emailDocument("Сообщение по заказу — Numaestra", hero, body, "")
+}
+
+func (n *SmtpNotifier) buildAccessLinkBody(notif AccessLinkNotification) string {
+	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
+	hero := emailHero("🔗", "Ссылка на ваш заказ", "По этой ссылке можно оплатить заказ и управлять им")
+
+	body := emailContentRow("8px 32px 0", emailOrderBadge(shortOrderID(notif.OrderID))) +
+		emailContentRow("28px 32px 8px", fmt.Sprintf(`%s%s%s`,
+			emailParagraph("Вы запросили доступ к заказу на сайте Numaestra. Не пересылайте это письмо — в ссылке есть секретный ключ доступа."),
+			emailCTAButton(statusURL, "Открыть заказ"),
+			emailCopyLink(statusURL),
+		))
+
+	return n.emailDocument("Ссылка на заказ — Numaestra", hero, body, "")
 }
 
 // orderStatusURL формирует абсолютную ссылку на страницу статуса заказа.
@@ -340,87 +253,6 @@ func (n *SmtpNotifier) buildPlainFeedbackBody(notif AdminFeedbackNotification) s
 		"Сообщение по вашему заказу #%s в Numaestra:\n\n%s\n\n—\nNumaestra\n",
 		notif.OrderID,
 		notif.Message,
-	)
-}
-
-func (n *SmtpNotifier) buildAccessLinkBody(notif AccessLinkNotification) string {
-	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
-	escapedStatusURL := html.EscapeString(statusURL)
-	shortOrderID := html.EscapeString(notif.OrderID)
-	if len(notif.OrderID) > 8 {
-		shortOrderID = html.EscapeString(notif.OrderID[:8])
-	}
-
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ссылка на заказ — Numaestra</title>
-</head>
-<body style="margin:0;padding:0;background:#f3f4f6;color:#111111;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#f3f4f6">
-    <tr>
-      <td align="center" style="padding:40px 16px">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%%;background:#0f0f0f;border:1px solid rgba(255,255,255,0.07);border-radius:20px;overflow:hidden">
-          <tr>
-            <td style="padding:36px 32px 28px;text-align:center;background:radial-gradient(ellipse 80%% 60%% at 50%% 0%%, rgba(0,229,192,0.14) 0%%, transparent 70%%)">
-              <div style="font-size:13px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#00e5c0;margin-bottom:12px">Numaestra</div>
-              <div style="font-size:40px;line-height:1;margin-bottom:16px">🔗</div>
-              <h1 style="margin:0 0 10px;font-size:26px;font-weight:800;letter-spacing:-0.03em;color:#ffffff">Ссылка на ваш заказ</h1>
-              <p style="margin:0;font-size:15px;line-height:1.5;color:rgba(255,255,255,0.55)">
-                По этой ссылке можно оплатить заказ и управлять им
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:8px 32px 0">
-              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="padding:14px 16px;background:rgba(0,229,192,0.06);border:1px solid rgba(0,229,192,0.16);border-radius:12px">
-                    <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:4px">Заказ</div>
-                    <div style="font-size:14px;font-weight:600;color:#ffffff;font-family:ui-monospace,Consolas,monospace">#%s</div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:28px 32px 8px">
-              <p style="margin:0 0 24px;font-size:15px;line-height:1.65;color:rgba(255,255,255,0.72)">
-                Вы запросили доступ к заказу на сайте Numaestra. Не пересылайте это письмо — в ссылке есть секретный ключ доступа.
-              </p>
-              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="%s" style="display:inline-block;background:linear-gradient(135deg,#00e5c0,#00bfa5);color:#080808;text-decoration:none;padding:15px 36px;border-radius:12px;font-size:16px;font-weight:700;letter-spacing:-0.01em">
-                      Открыть заказ
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:rgba(255,255,255,0.35);text-align:center">
-                Если кнопка не открывается, скопируйте ссылку:<br>
-                <a href="%s" style="color:#00e5c0;word-break:break-all">%s</a>
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:20px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);text-align:center">
-              <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.28)">© %d Numaestra</p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`,
-		shortOrderID,
-		escapedStatusURL,
-		escapedStatusURL,
-		escapedStatusURL,
-		time.Now().Year(),
 	)
 }
 

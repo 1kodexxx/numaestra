@@ -165,6 +165,12 @@ func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 	if !strings.Contains(body, "Вариант 1") {
 		t.Error("тело письма должно содержать подпись трека")
 	}
+	if !strings.Contains(body, "email-logo.png") {
+		t.Error("тело письма должно содержать фирменный логотип")
+	}
+	if !strings.Contains(body, ">Numaestra</span>") {
+		t.Error("тело письма должно содержать название бренда Numaestra")
+	}
 }
 
 // --- sendSTARTTLS ---
