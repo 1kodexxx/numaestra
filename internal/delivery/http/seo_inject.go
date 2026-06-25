@@ -54,8 +54,8 @@ type exampleProvider interface {
 type SEOInjector struct {
 	template    string
 	promptUC    usecase.PromptBuilder
-	rater       reviewRater      // nil → AggregateRating не добавляется
-	examples    exampleProvider  // nil → /examples/{id} получает общий SEO главной
+	rater       reviewRater     // nil → AggregateRating не добавляется
+	examples    exampleProvider // nil → /examples/{id} получает общий SEO главной
 	priceRubles string
 	log         *slog.Logger
 }
