@@ -44,6 +44,9 @@ const TEXT2 = theme.text2;
 const TEXT3 = theme.text3;
 const SURFACE = theme.dark;
 
+const MAX_GENRES = 3;
+const MAX_MOODS = 3;
+
 /* ─── icon map: matches Russian and English keywords ─── */
 const ICON_RULES: [string, string][] = [
   ["свадьб", "💍"],
@@ -447,10 +450,10 @@ function Section({
           marginBottom: "10px",
         }}
       >
-        <span style={{ fontSize: "12px", color: TEXT2, fontWeight: 500 }}>
+        <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
           {label}
           {required && (
-            <span style={{ color: "#ef4444", marginLeft: "3px" }}>*</span>
+            <span style={{ color: "#f87171", marginLeft: "3px" }}>*</span>
           )}
         </span>
         {hint && <span style={{ fontSize: "11px", color: TEXT3 }}>{hint}</span>}
@@ -459,6 +462,116 @@ function Section({
         {children}
       </div>
     </div>
+  );
+}
+
+/* ─── multi-select tags with optional custom value ─── */
+function MultiTagSection({
+  label,
+  hint,
+  presets,
+  selected,
+  onToggle,
+  allowCustom,
+  maxSelect,
+  customPlaceholder,
+  limitLabel,
+}: {
+  label: string;
+  hint?: string;
+  presets: string[];
+  selected: string[];
+  onToggle: (val: string) => void;
+  allowCustom?: boolean;
+  maxSelect?: number;
+  customPlaceholder?: string;
+  limitLabel?: string;
+}) {
+  const [customInput, setCustomInput] = useState("");
+  const customValues = selected.filter((v) => !presets.includes(v));
+  const atLimit = maxSelect != null && selected.length >= maxSelect;
+
+  function addCustom() {
+    const v = customInput.trim();
+    if (!v) return;
+    const exists = selected.some((x) => x.toLowerCase() === v.toLowerCase());
+    if (!exists) onToggle(v);
+    setCustomInput("");
+  }
+
+  const resolvedHint =
+    hint ??
+    (allowCustom && maxSelect
+      ? `до ${maxSelect} — выбирайте из списка или добавьте свой`
+      : "можно несколько");
+
+  return (
+    <Section label={label} hint={resolvedHint}>
+      {presets.map((p) => (
+        <Chip
+          key={p}
+          label={p}
+          selected={selected.includes(p)}
+          onClick={() => onToggle(p)}
+        />
+      ))}
+      {customValues.map((v) => (
+        <Chip
+          key={`custom:${v}`}
+          label={`${v} ✕`}
+          selected
+          onClick={() => onToggle(v)}
+        />
+      ))}
+      {allowCustom && (
+        <div
+          style={{
+            display: "flex",
+            gap: "6px",
+            width: "100%",
+            marginTop: "4px",
+          }}
+        >
+          <input
+            value={customInput}
+            onChange={(e) => setCustomInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addCustom();
+              }
+            }}
+            disabled={atLimit}
+            placeholder={
+              atLimit
+                ? `Достигнут лимит — ${maxSelect ?? 0} ${limitLabel ?? ""}`
+                : customPlaceholder
+            }
+            maxLength={40}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: "9px 14px",
+              borderRadius: "20px",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "#fff",
+              fontSize: "13px",
+              fontFamily: "inherit",
+              outline: "none",
+              opacity: atLimit ? 0.5 : 1,
+            }}
+          />
+          <Button
+            size="sm"
+            onClick={addCustom}
+            disabled={atLimit || !customInput.trim()}
+          >
+            Добавить
+          </Button>
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -480,17 +593,32 @@ function PromptBuilder({
   canSubmit: boolean;
   priceLabel: string;
 }) {
-  const toggleMulti = (key: "moods" | "genres", val: string) => {
+  const toggleMulti = (
+    key: "moods" | "genres",
+    val: string,
+    max?: number,
+  ) => {
     const arr = form[key];
-    update(
-      key,
-      arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val],
-    );
+    if (arr.includes(val)) {
+      update(
+        key,
+        arr.filter((x) => x !== val),
+      );
+    } else if (max == null || arr.length < max) {
+      update(key, [...arr, val]);
+    }
   };
   const preview = composeBrief(form, genres);
+  const genrePresets = genres.map((g) => g.label);
+
+  // Прогресс по двум обязательным полям — как в конструкторе категорий.
+  const progressDone =
+    (form.occasion.trim() ? 1 : 0) + (form.details.trim() ? 1 : 0);
+  const progressTotal = 2;
 
   return (
     <div style={{ width: "100%", maxWidth: "640px" }} className="fade-in">
+      {/* Кнопка назад — единообразна с CategoryPage */}
       <button
         onClick={onBack}
         style={{
@@ -499,8 +627,11 @@ function PromptBuilder({
           color: TEXT2,
           fontSize: "13px",
           cursor: "pointer",
-          marginBottom: "18px",
           padding: 0,
+          marginBottom: "18px",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.color = "#fff";
@@ -509,52 +640,104 @@ function PromptBuilder({
           e.currentTarget.style.color = TEXT2;
         }}
       >
-        ← К категориям
+        ← Назад к категориям
       </button>
 
+      {/* Шапка — icon-box + бейдж + заголовок, как в CategoryPage */}
       <div
         style={{
-          display: "inline-flex",
+          display: "flex",
           alignItems: "center",
-          gap: "7px",
-          marginBottom: "12px",
+          gap: "14px",
+          marginBottom: "8px",
         }}
       >
-        <span style={{ fontSize: "12px" }}>🎛️</span>
         <span
           style={{
-            fontSize: "11px",
-            fontWeight: 700,
-            color: ACCENT,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
+            flexShrink: 0,
+            width: 48,
+            height: 48,
+            borderRadius: "14px",
+            background: "linear-gradient(135deg, #00e5c0, #00bfa5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "24px",
+            boxShadow: "0 6px 18px rgba(0,229,192,0.28)",
           }}
         >
-          Конструктор промпта для ИИ
+          🎛️
         </span>
+        <div>
+          <div
+            style={{
+              fontSize: "11px",
+              fontWeight: 700,
+              color: ACCENT,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+            }}
+          >
+            Конструктор промпта для ИИ
+          </div>
+          <h1
+            style={{
+              fontSize: "22px",
+              fontWeight: 800,
+              letterSpacing: "-0.03em",
+              lineHeight: 1.15,
+            }}
+          >
+            Соберите свою песню
+          </h1>
+        </div>
       </div>
-      <div
+
+      <p
         style={{
-          fontSize: "22px",
-          fontWeight: 800,
-          letterSpacing: "-0.02em",
-          marginBottom: "4px",
-          textAlign: "left",
-        }}
-      >
-        Соберите свою песню
-      </div>
-      <div
-        style={{
-          fontSize: "13px",
+          fontSize: "14px",
           color: TEXT2,
-          marginBottom: "26px",
-          textAlign: "left",
-          lineHeight: 1.5,
+          lineHeight: 1.55,
+          marginBottom: "20px",
         }}
       >
         Выберите стиль, опишите детали и при желании впишите свой текст — мы
         превратим это в готовый трек.
+      </p>
+
+      {/* Прогресс обязательных полей — как в CategoryPage */}
+      <div style={{ marginBottom: "20px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: "12px",
+            color: TEXT2,
+            marginBottom: "6px",
+          }}
+        >
+          <span>Заполнено обязательных полей</span>
+          <span>
+            {progressDone} / {progressTotal}
+          </span>
+        </div>
+        <div
+          style={{
+            height: "4px",
+            borderRadius: "2px",
+            background: "rgba(255,255,255,0.08)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${(progressDone / progressTotal) * 100}%`,
+              background: `linear-gradient(90deg, ${ACCENT}, #00bfa5)`,
+              transition: "width 0.25s ease",
+            }}
+          />
+        </div>
       </div>
 
       <div
@@ -574,27 +757,27 @@ function PromptBuilder({
           surfaceColor={SURFACE}
         />
 
-        <Section label="Жанр" hint="можно несколько">
-          {genres.map((g) => (
-            <Chip
-              key={g.label}
-              label={g.label}
-              selected={form.genres.includes(g.label)}
-              onClick={() => toggleMulti("genres", g.label)}
-            />
-          ))}
-        </Section>
+        <MultiTagSection
+          label="Жанр"
+          presets={genrePresets}
+          selected={form.genres}
+          onToggle={(v) => toggleMulti("genres", v, MAX_GENRES)}
+          allowCustom
+          maxSelect={MAX_GENRES}
+          customPlaceholder="Свой жанр…"
+          limitLabel="жанра"
+        />
 
-        <Section label="Настроение" hint="можно несколько">
-          {MOODS.map((m) => (
-            <Chip
-              key={m}
-              label={m}
-              selected={form.moods.includes(m)}
-              onClick={() => toggleMulti("moods", m)}
-            />
-          ))}
-        </Section>
+        <MultiTagSection
+          label="Настроение"
+          presets={[...MOODS]}
+          selected={form.moods}
+          onToggle={(v) => toggleMulti("moods", v, MAX_MOODS)}
+          allowCustom
+          maxSelect={MAX_MOODS}
+          customPlaceholder="Своё настроение…"
+          limitLabel="настроения"
+        />
 
         <Section label="Темп">
           {TEMPOS.map((t) => (
@@ -640,7 +823,7 @@ function PromptBuilder({
           surfaceColor={SURFACE}
         />
 
-        {/* Live preview */}
+        {/* Live preview — идентичен CategoryPage */}
         <div
           style={{
             background: "rgba(0,229,192,0.04)",
@@ -677,7 +860,14 @@ function PromptBuilder({
         </div>
       </div>
 
-      <div style={{ marginTop: "24px" }}>
+      {/* Кнопка-заказ — стиль bar как в CategoryPage */}
+      <div
+        style={{
+          marginTop: "24px",
+          paddingTop: "20px",
+          borderTop: `1px solid ${BORDER}`,
+        }}
+      >
         {!canSubmit && (
           <div
             style={{
@@ -691,7 +881,7 @@ function PromptBuilder({
           </div>
         )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
-          Продолжить — {priceLabel} →
+          Заказать песню — {priceLabel} →
         </Button>
       </div>
     </div>
