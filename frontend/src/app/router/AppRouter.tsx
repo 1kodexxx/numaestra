@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import { Spinner } from '@shared/ui'
 import { CatalogPage } from '@pages/catalog'
 import { AdminRoot } from '@pages/admin'
+import { StatusOrderSkeleton } from '@pages/status'
 import { AdminRoutes } from './AdminRoutes'
 
 const CategoryPage = lazy(() => import('@pages/category').then((m) => ({ default: m.CategoryPage })))
@@ -24,21 +25,46 @@ function PageFallback() {
   )
 }
 
-function Lazy({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<PageFallback />}>{children}</Suspense>
+function StatusFallback() {
+  return (
+    <div style={{ maxWidth: 680, margin: '0 auto', padding: 'clamp(24px, 6vw, 40px) clamp(16px, 4vw, 24px) 60px' }}>
+      <StatusOrderSkeleton />
+    </div>
+  )
+}
+
+function CategoryFallback() {
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: 'clamp(24px, 6vw, 40px) clamp(16px, 4vw, 24px)', display: 'flex', gap: 24 }}>
+      <div style={{ flex: '0 0 240px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="skeleton" style={{ height: 36, borderRadius: 10 }} />
+        ))}
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="skeleton" style={{ height: 28, width: '60%', borderRadius: 8 }} />
+        <div className="skeleton" style={{ height: 120, borderRadius: 12 }} />
+        <div className="skeleton" style={{ height: 52, borderRadius: 12 }} />
+      </div>
+    </div>
+  )
+}
+
+function Lazy({ children, fallback }: { children: React.ReactNode; fallback?: React.ReactNode }) {
+  return <Suspense fallback={fallback ?? <PageFallback />}>{children}</Suspense>
 }
 
 export function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<CatalogPage />} />
-      <Route path="/category/:id" element={<Lazy><CategoryPage /></Lazy>} />
+      <Route path="/category/:id" element={<Lazy fallback={<CategoryFallback />}><CategoryPage /></Lazy>} />
       <Route path="/examples/:id" element={<Lazy><ExampleDetailPage /></Lazy>} />
       <Route path="/reviews" element={<Lazy><ReviewsPage /></Lazy>} />
       <Route path="/how-it-works" element={<Lazy><HowItWorksPage /></Lazy>} />
       <Route path="/s/:id" element={<Lazy><SharePage /></Lazy>} />
-      <Route path="/status/:orderId" element={<Lazy><StatusPage /></Lazy>} />
-      <Route path="/status" element={<Lazy><StatusPage /></Lazy>} />
+      <Route path="/status/:orderId" element={<Lazy fallback={<StatusFallback />}><StatusPage /></Lazy>} />
+      <Route path="/status" element={<Lazy fallback={<StatusFallback />}><StatusPage /></Lazy>} />
       <Route path="/order/success" element={<Lazy><OrderSuccessPage /></Lazy>} />
       <Route path="/order/fail" element={<Lazy><OrderFailPage /></Lazy>} />
       <Route path="/legal/:slug" element={<Lazy><LegalPage /></Lazy>} />

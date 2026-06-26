@@ -329,6 +329,16 @@ function SearchBar({ onOpen }: { onOpen: () => void }) {
         e.currentTarget.style.background = "rgba(255,255,255,0.03)";
         e.currentTarget.style.boxShadow = "none";
       }}
+      onFocus={(e) => {
+        if (!e.currentTarget.matches(":focus-visible")) return;
+        e.currentTarget.style.borderColor = "rgba(0,229,192,0.5)";
+        e.currentTarget.style.boxShadow = "0 0 0 3px rgba(0,229,192,0.2)";
+        e.currentTarget.style.outline = "none";
+      }}
+      onBlur={(e) => {
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+        e.currentTarget.style.boxShadow = "none";
+      }}
       style={{
         display: "flex",
         alignItems: "center",
@@ -342,6 +352,7 @@ function SearchBar({ onOpen }: { onOpen: () => void }) {
         cursor: "pointer",
         transition: "all 0.2s",
         textAlign: "left",
+        outline: "none",
       }}
     >
       <svg
@@ -877,6 +888,8 @@ function PopularCard({
   priceLabel: string;
 }) {
   const [h, setH] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+  const icon = getIcon(cat, rank);
   return (
     <button
       onClick={onClick}
@@ -912,23 +925,30 @@ function PopularCard({
             "linear-gradient(135deg, rgba(0,229,192,0.18), rgba(0,191,165,0.05))",
         }}
       >
-        <img
-          src={
-            categoryCover(cat.id, cat.cover_image_url) ||
-            stockImage(cat.id, "celebration,party")
-          }
-          alt={`Обложка категории ${cat.title}`}
-          loading="lazy"
-          onError={(e) => {
-            e.currentTarget.style.opacity = "0";
-          }}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
-          }}
-        />
+        {imgFailed ? (
+          <div style={{
+            width: "100%", height: "100%", display: "flex",
+            alignItems: "center", justifyContent: "center", fontSize: "36px",
+          }}>
+            {icon}
+          </div>
+        ) : (
+          <img
+            src={
+              categoryCover(cat.id, cat.cover_image_url) ||
+              stockImage(cat.id, "celebration,party")
+            }
+            alt={`Обложка категории ${cat.title}`}
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        )}
         <span
           style={{
             position: "absolute",
@@ -990,6 +1010,7 @@ function PopularCard({
 /* ─── example card (horizontal) ─── */
 function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
   const [h, setH] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   return (
     <button
       onClick={onPlay}
@@ -1023,20 +1044,27 @@ function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
             "linear-gradient(135deg, rgba(0,229,192,0.18), rgba(0,191,165,0.05))",
         }}
       >
-        <img
-          src={ex.coverUrl || stockImage(ex.id, "concert,music")}
-          alt={`Обложка песни «${ex.title}»`}
-          loading="lazy"
-          onError={(e) => {
-            e.currentTarget.style.opacity = "0";
-          }}
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
-          }}
-        />
+        {imgFailed ? (
+          <div style={{
+            width: "100%", height: "100%", display: "flex",
+            alignItems: "center", justifyContent: "center", fontSize: "40px",
+          }}>
+            🎵
+          </div>
+        ) : (
+          <img
+            src={ex.coverUrl || stockImage(ex.id, "concert,music")}
+            alt={`Обложка песни «${ex.title}»`}
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        )}
         <span
           style={{
             position: "absolute",

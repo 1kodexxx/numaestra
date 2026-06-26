@@ -214,11 +214,13 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
             background: 'linear-gradient(90deg, #00bfa5, #00e5c0)',
             position: 'relative',
           }}>
-            <div style={{
-              position: 'absolute', right: '-5px', top: '50%', transform: 'translateY(-50%)',
-              width: '10px', height: '10px', borderRadius: '50%',
-              background: '#00e5c0', boxShadow: '0 0 0 3px rgba(0,229,192,0.2)',
-            }} />
+            {dur > 0 && (
+              <div style={{
+                position: 'absolute', right: '-5px', top: '50%', transform: 'translateY(-50%)',
+                width: '10px', height: '10px', borderRadius: '50%',
+                background: '#00e5c0', boxShadow: '0 0 0 3px rgba(0,229,192,0.2)',
+              }} />
+            )}
           </div>
         </div>
         </div>
@@ -231,7 +233,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
           fontFamily: 'monospace',
         }}>
           <span>{fmt(time)}</span>
-          <span>{fmt(dur)}</span>
+          <span>{dur > 0 ? fmt(dur) : '—'}</span>
         </div>
 
         {/* Controls */}

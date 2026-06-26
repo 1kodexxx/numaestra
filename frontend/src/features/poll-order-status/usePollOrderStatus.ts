@@ -12,11 +12,15 @@ const POLL_INTERVAL_MS =
 
 const FAST_POLL_INTERVAL_MS = 2_000
 
+/** После этого времени (мс) без терминального статуса показываем предупреждение. */
+const STALE_TIMEOUT_MS = 8 * 60 * 1000
+
 interface State {
   order: OrderDetail | null
   loading: boolean
   error: string | null
   canManage: boolean
+  pollingTooLong: boolean
 }
 
 export interface PollOrderOptions {
@@ -31,11 +35,27 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     loading: !!orderId,
     error: null,
     canManage: false,
+    pollingTooLong: false,
   })
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const syncStartedRef = useRef(false)
   const orderRef = useRef<OrderDetail | null>(null)
   orderRef.current = state.order
+
+  const clearStaleTimer = useCallback(() => {
+    if (staleTimerRef.current) {
+      clearTimeout(staleTimerRef.current)
+      staleTimerRef.current = null
+    }
+  }, [])
+
+  const startStaleTimer = useCallback(() => {
+    clearStaleTimer()
+    staleTimerRef.current = setTimeout(() => {
+      setState(s => ({ ...s, pollingTooLong: true }))
+    }, STALE_TIMEOUT_MS)
+  }, [clearStaleTimer])
 
   const stopPolling = useCallback(() => {
     if (timerRef.current) {
@@ -47,20 +67,37 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
   const fetchOnce = useCallback(async (id: string): Promise<boolean> => {
     const token = orderStorage.getAccessToken() ?? undefined
 
+    const applyOrder = (order: OrderDetail, canManage: boolean) => {
+      const terminal = order.generation_status === 'completed' || order.generation_status === 'failed'
+      const activeGeneration = order.payment_status !== 'pending' && !terminal
+      setState(s => ({
+        order,
+        loading: false,
+        error: null,
+        canManage,
+        pollingTooLong: terminal ? false : s.pollingTooLong,
+      }))
+      if (terminal) {
+        stopPolling()
+        clearStaleTimer()
+      } else if (activeGeneration && !staleTimerRef.current) {
+        startStaleTimer()
+      }
+      return !terminal
+    }
+
     if (token) {
       try {
         const order = await orderApi.getById(id, token)
-        setState({ order, loading: false, error: null, canManage: true })
-        const terminal = order.generation_status === 'completed' || order.generation_status === 'failed'
-        if (terminal) stopPolling()
-        return !terminal
+        return applyOrder(order, true)
       } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           orderStorage.clear()
         } else {
           const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
-          setState({ order: null, loading: false, error: message, canManage: false })
+          setState(s => ({ ...s, order: null, loading: false, error: message, canManage: false }))
           stopPolling()
+          clearStaleTimer()
           return false
         }
       }
@@ -68,17 +105,15 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
 
     try {
       const order = await orderApi.getPublicStatus(id)
-      setState({ order, loading: false, error: null, canManage: false })
-      const terminal = order.generation_status === 'completed' || order.generation_status === 'failed'
-      if (terminal) stopPolling()
-      return !terminal
+      return applyOrder(order, false)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
-      setState({ order: null, loading: false, error: message, canManage: false })
+      setState(s => ({ ...s, order: null, loading: false, error: message, canManage: false }))
       stopPolling()
+      clearStaleTimer()
       return false
     }
-  }, [stopPolling])
+  }, [stopPolling, startStaleTimer, clearStaleTimer])
 
   const startPolling = useCallback((id: string) => {
     stopPolling()
@@ -94,7 +129,8 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
   useEffect(() => {
     if (!orderId) {
       syncStartedRef.current = false
-      setState({ order: null, loading: false, error: null, canManage: false })
+      clearStaleTimer()
+      setState({ order: null, loading: false, error: null, canManage: false, pollingTooLong: false })
       return
     }
 
@@ -116,8 +152,8 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
       }
     })()
 
-    return stopPolling
-  }, [orderId, confirmPayment, fetchOnce, startPolling, stopPolling])
+    return () => { stopPolling(); clearStaleTimer() }
+  }, [orderId, confirmPayment, fetchOnce, startPolling, stopPolling, clearStaleTimer])
 
   // После подтверждения оплаты переключаем интервал с 2 с на 10 с.
   useEffect(() => {

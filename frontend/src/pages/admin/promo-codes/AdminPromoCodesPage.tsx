@@ -4,6 +4,7 @@ import type { PromoCode, CreatePromoPayload } from '@entities/admin-promo'
 import { Spinner, Button } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { PageHeader, Panel, ErrorBanner, EmptyState, Field, Select } from '@widgets/admin-layout'
+import { useBreakpoint } from '@shared/lib/useBreakpoint'
 
 const linkBtnStyle: React.CSSProperties = {
   background: 'none', border: 'none', cursor: 'pointer',
@@ -29,6 +30,7 @@ function formatDate(iso?: string): string {
 }
 
 export function AdminPromoCodesPage() {
+  const { isMobile } = useBreakpoint()
   const [promos, setPromos] = useState<PromoCode[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -125,7 +127,7 @@ export function AdminPromoCodesPage() {
       {showForm && (
         <Panel style={{ marginBottom: 20 }}>
           <form onSubmit={handleCreate}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <Field label="Код промокода">
                 <input style={inputStyle} value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SUMMER20" />
               </Field>
@@ -138,7 +140,7 @@ export function AdminPromoCodesPage() {
               <Field label={discountType === 'percent' ? 'Скидка (%)' : 'Скидка (₽)'}>
                 <input style={inputStyle} value={discountValue} onChange={e => setDiscountValue(e.target.value)} placeholder={discountType === 'percent' ? '20' : '500'} type="number" min="1" />
               </Field>
-              <Field label="Лимит использований (пусто = без лимита)">
+              <Field label="Лимит (пусто = без лимита)">
                 <input style={inputStyle} value={maxUses} onChange={e => setMaxUses(e.target.value)} placeholder="100" type="number" min="1" />
               </Field>
               <Field label="Действует до (пусто = бессрочно)">
@@ -164,6 +166,33 @@ export function AdminPromoCodesPage() {
         <Spinner />
       ) : promos.length === 0 ? (
         <EmptyState icon="🎟️" text="Промокодов пока нет" />
+      ) : isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {promos.map(p => (
+            <Panel key={p.id} style={{ padding: '12px 14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                <div>
+                  <code style={{ fontWeight: 700, fontSize: 14 }}>{p.code}</code>
+                  {p.description && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{p.description}</div>}
+                </div>
+                <span style={{ color: p.is_active ? '#00e5c0' : 'rgba(255,255,255,0.3)', fontWeight: 600, fontSize: 12, flexShrink: 0, marginLeft: 8 }}>
+                  {p.is_active ? 'Активен' : 'Отключён'}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 10 }}>
+                <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Скидка: </span>{formatDiscount(p)}</div>
+                <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Исп.: </span>{p.current_uses}{p.max_uses != null ? ` / ${p.max_uses}` : ''}</div>
+                <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'rgba(255,255,255,0.4)' }}>До: </span>{formatDate(p.valid_until)}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <button style={linkBtnStyle} onClick={() => handleToggle(p)}>
+                  {p.is_active ? 'Отключить' : 'Включить'}
+                </button>
+                <button style={{ ...linkBtnStyle, color: '#f87171' }} onClick={() => handleDelete(p.id)}>Удалить</button>
+              </div>
+            </Panel>
+          ))}
+        </div>
       ) : (
         <Panel>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

@@ -629,14 +629,7 @@ export function CategoryPage() {
   if (!isDesktop) {
     const p = isMobile ? "16px" : "24px";
     return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          height: "calc(100dvh - 60px)",
-          overflow: "hidden",
-        }}
-      >
+      <div className="category-mobile-shell">
         {modal}
         <div
           style={

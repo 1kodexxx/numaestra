@@ -81,6 +81,12 @@ body {
 }
 body { animation: ambient-drift 26s ease-in-out infinite; }
 
+/* На мобильных устройствах орб-анимация может вызывать jank — отключаем её.
+   Статичный градиент остаётся (фон body), анимация убирается. */
+@media (max-width: 639px) {
+  body { animation: none; }
+}
+
 /* #root прозрачен, чтобы атмосферный фон body был виден сквозь страницы. */
 #root { background: transparent; }
 
@@ -788,6 +794,27 @@ input[type="range"]::-webkit-slider-thumb:hover {
   }
 }
 
+@media (max-width: 360px) {
+  .status-step-col {
+    flex-basis: 2rem;
+  }
+
+  .status-step-dot {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.5625rem;
+  }
+
+  .status-step-label {
+    display: none;
+  }
+
+  .status-step-line {
+    margin-top: 0.75rem;
+    min-width: 0.125rem;
+  }
+}
+
 /* ── Status skeleton + celebration ── */
 .status-order-skeleton__icon {
   width: 52px;
@@ -992,4 +1019,25 @@ a:focus:not(:focus-visible) {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.48);
   line-height: 1.45;
+}
+
+/* ── CategoryPage mobile shell ── */
+.category-mobile-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 60px);
+  overflow: hidden;
+}
+
+/* На landscape-телефонах (высота < 500px) снимаем fixed height и даём странице скроллиться */
+@media (max-height: 500px) and (orientation: landscape) {
+  .category-mobile-shell {
+    height: auto;
+    min-height: calc(100dvh - 60px);
+    overflow: visible;
+  }
+
+  .category-mobile-shell > div[style] {
+    overflow-y: visible;
+  }
 }
