@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/numaestra/numaestra/internal/domain"
 )
@@ -113,6 +114,10 @@ func (r *PromoCodeRepository) Update(ctx context.Context, promo *domain.PromoCod
 func (r *PromoCodeRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	cmd, err := r.pool.Exec(ctx, `DELETE FROM promo_codes WHERE id = $1`, id)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgErrForeignKeyViolation {
+			return domain.ErrPromoCodeInUse
+		}
 		return fmt.Errorf("delete promo_code: %w", err)
 	}
 	if cmd.RowsAffected() == 0 {

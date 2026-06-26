@@ -208,6 +208,14 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusBadRequest, "категория не найдена")
 			return
 		}
+		if errors.Is(err, domain.ErrPromoCodeNotFound) {
+			respondError(w, r, http.StatusBadRequest, "промокод не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrPromoCodeInvalid) {
+			respondError(w, r, http.StatusBadRequest, "промокод недействителен или исчерпан")
+			return
+		}
 		if errors.Is(err, domain.ErrMissingQuizAnswers) {
 			respondError(w, r, http.StatusBadRequest, "не заполнены обязательные поля квиза")
 			return

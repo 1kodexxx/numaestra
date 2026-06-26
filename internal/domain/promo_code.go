@@ -18,6 +18,7 @@ const (
 var (
 	ErrPromoCodeNotFound = errors.New("промокод не найден")
 	ErrPromoCodeInvalid  = errors.New("промокод недействителен или исчерпан")
+	ErrPromoCodeInUse    = errors.New("промокод используется в заказах и не может быть удалён")
 )
 
 // PromoCode — агрегат промокода со скидкой.

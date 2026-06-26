@@ -86,9 +86,10 @@ type createPromoRequest struct {
 type updatePromoRequest struct {
 	Description string `json:"description"`
 	IsActive    bool   `json:"is_active"`
-	MaxUses     int    `json:"max_uses"`
-	ValidFrom   string `json:"valid_from"`
-	ValidUntil  string `json:"valid_until"`
+	// MaxUses: опускается из JSON → nil (лимит не меняется); 0 → снять лимит; n>0 → установить n.
+	MaxUses    *int   `json:"max_uses,omitempty"`
+	ValidFrom  string `json:"valid_from"`
+	ValidUntil string `json:"valid_until"`
 }
 
 // --- Handlers ---
@@ -175,7 +176,9 @@ func (h *AdminPromoHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ucReq := usecase.UpdatePromoRequest{
-		Description: req.Description, IsActive: req.IsActive, MaxUses: req.MaxUses,
+		Description: req.Description,
+		IsActive:    req.IsActive,
+		MaxUses:     req.MaxUses,
 	}
 	if req.ValidFrom != "" {
 		if t, err := time.Parse(time.RFC3339, req.ValidFrom); err == nil {
@@ -209,6 +212,10 @@ func (h *AdminPromoHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.uc.DeletePromoCode(r.Context(), id); err != nil {
 		if errors.Is(err, domain.ErrPromoCodeNotFound) {
 			respondError(w, r, http.StatusNotFound, "промокод не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrPromoCodeInUse) {
+			respondError(w, r, http.StatusConflict, "промокод используется в заказах и не может быть удалён")
 			return
 		}
 		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")

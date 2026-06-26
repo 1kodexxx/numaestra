@@ -162,7 +162,7 @@ func TestPromoUseCase_UpdateAndGet(t *testing.T) {
 	})
 
 	updated, err := uc.UpdatePromoCode(ctx, p.ID(), UpdatePromoRequest{
-		Description: "обновлено", IsActive: true, MaxUses: 10,
+		Description: "обновлено", IsActive: true, MaxUses: intPtr(10),
 	})
 	if err != nil {
 		t.Fatalf("UpdatePromoCode: %v", err)
@@ -191,7 +191,7 @@ func TestPromoUseCase_UpdateRemovesMaxUses(t *testing.T) {
 		Code: "RM", DiscountType: "percent", DiscountValue: 5, MaxUses: 3,
 	})
 	updated, _ := uc.UpdatePromoCode(ctx, p.ID(), UpdatePromoRequest{
-		IsActive: true, MaxUses: 0, // 0 → снять лимит
+		IsActive: true, MaxUses: intPtr(0), // ptr(0) → снять лимит
 	})
 	if updated.MaxUses() != nil {
 		t.Errorf("ожидали nil MaxUses, получили %v", updated.MaxUses())

@@ -18,6 +18,8 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+func intPtr(n int) *int { return &n }
+
 // --- in-memory OrderRepository ---
 
 type inMemOrderRepo struct {

@@ -70,11 +70,12 @@ func (uc *PromoUseCase) UpdatePromoCode(ctx context.Context, id uuid.UUID, req U
 	}
 	promo.SetDescription(req.Description)
 	promo.SetActive(req.IsActive)
-	if req.MaxUses > 0 {
-		n := req.MaxUses
-		promo.SetMaxUses(&n)
-	} else {
-		promo.SetMaxUses(nil)
+	if req.MaxUses != nil {
+		if *req.MaxUses > 0 {
+			promo.SetMaxUses(req.MaxUses)
+		} else {
+			promo.SetMaxUses(nil)
+		}
 	}
 	if !req.ValidFrom.IsZero() {
 		t := req.ValidFrom
@@ -129,7 +130,8 @@ type CreatePromoRequest struct {
 type UpdatePromoRequest struct {
 	Description string
 	IsActive    bool
-	MaxUses     int
-	ValidFrom   time.Time
-	ValidUntil  time.Time
+	// MaxUses: nil — не изменять текущий лимит; ptr(0) — снять лимит; ptr(n>0) — установить n.
+	MaxUses    *int
+	ValidFrom  time.Time
+	ValidUntil time.Time
 }
