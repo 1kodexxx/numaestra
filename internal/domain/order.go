@@ -640,6 +640,14 @@ type OrderRepository interface {
 	// ставит для них задачу генерации.
 	ListStuckQueued(ctx context.Context, olderThan time.Time) ([]*Order, error)
 
+	// ListPendingPayment возвращает неоплаченные (pending) заказы, созданные в окне
+	// [createdAfter, createdBefore]. Фоновая сверка платежей опрашивает по ним
+	// Robokassa (OpStateExt) и активирует те, что фактически оплачены, но чей вебхук
+	// ResultURL не дошёл (IP-allowlist, сетевой сбой) при не вернувшемся на страницу
+	// клиенте. Нижняя граница окна отсекает свежие заказы (ещё на странице оплаты),
+	// верхняя — выход за платёжное окно.
+	ListPendingPayment(ctx context.Context, createdAfter, createdBefore time.Time) ([]*Order, error)
+
 	// Delete безвозвратно удаляет заказ и связанные треки (CASCADE в БД).
 	Delete(ctx context.Context, id uuid.UUID) error
 }

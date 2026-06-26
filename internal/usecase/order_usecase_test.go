@@ -889,6 +889,101 @@ func TestRecoverOrphanedQueuedOrders_ReenqueuesGenerationTask(t *testing.T) {
 	}
 }
 
+// --- ReconcilePendingPayments ---
+
+// Без подключённого PaymentVerifier сверка — no-op, даже если есть pending-заказы.
+func TestReconcilePendingPayments_NoVerifier_NoOp(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	f.orderRepo.pendingOrders = []*domain.Order{order}
+
+	if err := f.uc.ReconcilePendingPayments(context.Background()); err != nil {
+		t.Fatalf("без verifier сверка не должна падать: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPending {
+		t.Errorf("без verifier заказ должен остаться pending, получили %q", got.PaymentStatus())
+	}
+}
+
+// Оплачен в Robokassa, вебхук не дошёл → сверка активирует заказ и ставит генерацию.
+func TestReconcilePendingPayments_PaidOrder_Activated(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	v := &fakeVerifier{kopecks: order.AmountKopecks(), paid: true}
+	f.uc.WithPaymentVerifier(v)
+	f.orderRepo.pendingOrders = []*domain.Order{order}
+
+	f.queue.mu.Lock()
+	f.queue.genCalls = nil
+	f.queue.mu.Unlock()
+
+	if err := f.uc.ReconcilePendingPayments(context.Background()); err != nil {
+		t.Fatalf("ReconcilePendingPayments: %v", err)
+	}
+
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPaid {
+		t.Errorf("ожидали paid, получили %q", got.PaymentStatus())
+	}
+	if got.GenerationStatus() != domain.GenerationStatusQueued {
+		t.Errorf("ожидали queued, получили %q", got.GenerationStatus())
+	}
+	f.queue.mu.Lock()
+	defer f.queue.mu.Unlock()
+	if len(f.queue.genCalls) != 1 || f.queue.genCalls[0] != order.ID() {
+		t.Errorf("ожидали постановку генерации для %s, получили %v", order.ID(), f.queue.genCalls)
+	}
+}
+
+// Robokassa подтверждает «не оплачено» → заказ остаётся pending, генерация не ставится.
+func TestReconcilePendingPayments_NotPaid_StaysPending(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	v := &fakeVerifier{paid: false}
+	f.uc.WithPaymentVerifier(v)
+	f.orderRepo.pendingOrders = []*domain.Order{order}
+
+	if err := f.uc.ReconcilePendingPayments(context.Background()); err != nil {
+		t.Fatalf("ReconcilePendingPayments: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPending {
+		t.Errorf("неоплаченный заказ должен остаться pending, получили %q", got.PaymentStatus())
+	}
+	if len(v.calls) != 1 {
+		t.Errorf("ожидали один опрос Robokassa, получили %d", len(v.calls))
+	}
+}
+
+// Оплачена иная сумма (mismatch) → заказ НЕ активируется (защита от подмены суммы).
+func TestReconcilePendingPayments_AmountMismatch_NotActivated(t *testing.T) {
+	f := newFixture(t)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	v := &fakeVerifier{kopecks: order.AmountKopecks() - 100, paid: true}
+	f.uc.WithPaymentVerifier(v)
+	f.orderRepo.pendingOrders = []*domain.Order{order}
+
+	if err := f.uc.ReconcilePendingPayments(context.Background()); err != nil {
+		t.Fatalf("ReconcilePendingPayments не должен возвращать ошибку при mismatch: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.PaymentStatus() != domain.PaymentStatusPending {
+		t.Errorf("при несовпадении суммы заказ должен остаться pending, получили %q", got.PaymentStatus())
+	}
+}
+
+// Ошибка выборки pending-заказов пробрасывается наверх.
+func TestReconcilePendingPayments_ListError_Propagates(t *testing.T) {
+	f := newFixture(t)
+	f.uc.WithPaymentVerifier(&fakeVerifier{})
+	sentinel := errors.New("db down")
+	f.orderRepo.listPendingErr = sentinel
+	if err := f.uc.ReconcilePendingPayments(context.Background()); !errors.Is(err, sentinel) {
+		t.Errorf("ожидали ошибку ListPendingPayment, получили %v", err)
+	}
+}
+
 func TestRecoverStuckOrders_ListError_Propagates(t *testing.T) {
 	f := newFixture(t)
 	sentinel := errors.New("db down")

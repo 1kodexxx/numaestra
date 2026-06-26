@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -343,6 +344,27 @@ func (r *OrderRepository) listStuckByCondition(ctx context.Context, condition st
 	rows, err := r.conn(ctx).Query(ctx, query, olderThan)
 	if err != nil {
 		return nil, fmt.Errorf("list stuck orders: %w", err)
+	}
+	return r.ordersFromRows(ctx, rows)
+}
+
+// reconcileBatchLimit ограничивает число pending-заказов, опрашиваемых в Robokassa
+// за один прогон сверки, чтобы не создавать всплеск запросов к OpStateExt по
+// брошенным корзинам.
+const reconcileBatchLimit = 200
+
+// ListPendingPayment возвращает неоплаченные (payment_status='pending') заказы,
+// созданные в окне [createdAfter, createdBefore]. Фоновая сверка платежей по ним
+// опрашивает Robokassa (OpStateExt) и активирует фактически оплаченные, чей вебхук
+// ResultURL не дошёл. Нижняя граница окна отсекает свежие заказы (клиент ещё на
+// странице оплаты), верхняя — выход за платёжное окно.
+func (r *OrderRepository) ListPendingPayment(ctx context.Context, createdAfter, createdBefore time.Time) ([]*domain.Order, error) {
+	query := `SELECT ` + orderSelectColumns + ` FROM orders
+		WHERE payment_status = 'pending' AND created_at >= $1 AND created_at <= $2
+		ORDER BY created_at ASC LIMIT ` + strconv.Itoa(reconcileBatchLimit)
+	rows, err := r.conn(ctx).Query(ctx, query, createdAfter, createdBefore)
+	if err != nil {
+		return nil, fmt.Errorf("list pending payment orders: %w", err)
 	}
 	return r.ordersFromRows(ctx, rows)
 }

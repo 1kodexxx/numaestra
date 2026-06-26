@@ -20,6 +20,20 @@ func testLogger() *slog.Logger {
 
 func intPtr(n int) *int { return &n }
 
+// --- fake PaymentVerifier (Robokassa OpStateExt) ---
+
+type fakeVerifier struct {
+	kopecks int64
+	paid    bool
+	err     error
+	calls   []int64
+}
+
+func (v *fakeVerifier) GetPaidAmountKopecks(_ context.Context, invID int64) (int64, bool, error) {
+	v.calls = append(v.calls, invID)
+	return v.kopecks, v.paid, v.err
+}
+
 // --- in-memory OrderRepository ---
 
 type inMemOrderRepo struct {
@@ -39,6 +53,8 @@ type inMemOrderRepo struct {
 	listStuckErr           error
 	stuckQueuedOrders      []*domain.Order
 	listStuckQueuedErr     error
+	pendingOrders          []*domain.Order
+	listPendingErr         error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -202,6 +218,13 @@ func (r *inMemOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*dom
 		return nil, r.listStuckQueuedErr
 	}
 	return r.stuckQueuedOrders, nil
+}
+
+func (r *inMemOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*domain.Order, error) {
+	if r.listPendingErr != nil {
+		return nil, r.listPendingErr
+	}
+	return r.pendingOrders, nil
 }
 
 func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {

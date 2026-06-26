@@ -311,6 +311,9 @@ func (r *wOrderRepo) ListStuckProcessing(_ context.Context, _ time.Time) ([]*dom
 func (r *wOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }
+func (r *wOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
 func (r *wOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

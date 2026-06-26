@@ -48,6 +48,13 @@ type TransactionManager interface {
 	Do(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
+// PaymentVerifier — порт проверки фактического статуса платежа в Robokassa
+// (OpStateExt). Реализуется *robokassa.Client. nil → фоновая сверка платежей
+// отключена (например, в окружениях без боевой Robokassa).
+type PaymentVerifier interface {
+	GetPaidAmountKopecks(ctx context.Context, invID int64) (kopecks int64, paid bool, err error)
+}
+
 type OrderUseCase struct {
 	orderRepo orderRepository
 	accRepo   accountRepository
@@ -61,9 +68,10 @@ type OrderUseCase struct {
 	// priceKopecks — фиксированная серверная цена заказа (4 версии песни).
 	// Клиент не может повлиять на сумму — иначе её можно занизить и пройти
 	// сверку в вебхуке оплаты (см. CreateOrder).
-	priceKopecks int64
-	tx           TransactionManager
-	log          *slog.Logger
+	priceKopecks    int64
+	tx              TransactionManager
+	paymentVerifier PaymentVerifier // nil → сверка платежей отключена
+	log             *slog.Logger
 }
 
 // Алиасы для интерфейсов, чтобы сократить код (или используйте напрямую domain.*)
@@ -103,6 +111,13 @@ func NewOrderUseCase(
 // WithPromoRepo подключает репозиторий промокодов для применения скидок при создании заказа.
 func (uc *OrderUseCase) WithPromoRepo(repo domain.PromoCodeRepository) *OrderUseCase {
 	uc.promoRepo = repo
+	return uc
+}
+
+// WithPaymentVerifier подключает проверку платежей Robokassa для фоновой сверки
+// pending-заказов (ReconcilePendingPayments). Без него сверка отключена.
+func (uc *OrderUseCase) WithPaymentVerifier(v PaymentVerifier) *OrderUseCase {
+	uc.paymentVerifier = v
 	return uc
 }
 
@@ -842,6 +857,79 @@ func (uc *OrderUseCase) RecoverOrphanedQueuedOrders(ctx context.Context) error {
 			continue
 		}
 		uc.log.Info("осиротевший queued-заказ повторно поставлен в очередь", "order_id", order.ID())
+	}
+	return nil
+}
+
+// reconcilePaymentWindow — насколько в прошлое сверка платежей просматривает
+// pending-заказы. 3 часа покрывают разумное окно, в котором клиент мог оплатить,
+// но вебхук не дошёл; шире окно — больше холостых запросов к Robokassa по
+// брошенным корзинам, которые так и остаются pending.
+const reconcilePaymentWindow = 3 * time.Hour
+
+// reconcileMinAge — минимальный возраст pending-заказа для сверки. Слишком свежие
+// заказы клиент может оплачивать прямо сейчас (вебхук в пути), поэтому им даём
+// фору перед опросом Robokassa.
+const reconcileMinAge = 2 * time.Minute
+
+// ReconcilePendingPayments — последний рубеж против «клиент заплатил, а песни нет».
+// Сверяет неоплаченные (pending) заказы с фактическим статусом платежа в Robokassa
+// (OpStateExt). Если деньги списаны, но вебхук ResultURL не дошёл (неверный
+// IP-allowlist, сетевой сбой) и клиент не вернулся на страницу (не сработал
+// sync-payment), заказ навсегда завис бы в pending при списанных деньгах. Здесь мы
+// находим такие заказы и активируем их так же, как это сделал бы вебхук.
+//
+// Требует подключённого PaymentVerifier (боевая Robokassa). В тестовом режиме
+// OpStateExt возвращает «не оплачено», поэтому сверка безопасно ничего не делает.
+// HandlePaymentSuccess идемпотентен: если вебхук придёт во время сверки, повторная
+// активация не запустит вторую генерацию.
+func (uc *OrderUseCase) ReconcilePendingPayments(ctx context.Context) error {
+	if uc.paymentVerifier == nil {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	createdAfter := now.Add(-reconcilePaymentWindow)
+	createdBefore := now.Add(-reconcileMinAge)
+
+	orders, err := uc.orderRepo.ListPendingPayment(ctx, createdAfter, createdBefore)
+	if err != nil {
+		return fmt.Errorf("поиск pending-заказов для сверки платежей: %w", err)
+	}
+	if len(orders) == 0 {
+		return nil
+	}
+
+	for _, order := range orders {
+		kopecks, paid, err := uc.paymentVerifier.GetPaidAmountKopecks(ctx, order.InvoiceID())
+		if err != nil {
+			uc.log.Warn("сверка платежа: ошибка опроса Robokassa",
+				"order_id", order.ID(), "invoice_id", order.InvoiceID(), "err", err)
+			continue
+		}
+		if !paid {
+			continue
+		}
+
+		if err := uc.HandlePaymentSuccess(ctx, order.InvoiceID(), kopecks); err != nil {
+			if errors.Is(err, ErrPaymentAmountMismatch) {
+				// Деньги списаны, но сумма не совпала с заказом — автоматически
+				// активировать нельзя. Громкий лог для ручного разбора админом.
+				uc.log.Error("сверка платежа: оплачена ИНАЯ сумма — требуется ручной разбор",
+					"order_id", order.ID(), "invoice_id", order.InvoiceID(),
+					"paid_kopecks", kopecks, "order_kopecks", order.AmountKopecks())
+				continue
+			}
+			if errors.Is(err, ErrPaymentWindowExpired) {
+				continue
+			}
+			uc.log.Error("сверка платежа: не удалось активировать оплаченный заказ",
+				"order_id", order.ID(), "invoice_id", order.InvoiceID(), "err", err)
+			continue
+		}
+
+		uc.log.Warn("сверка платежа: найден оплаченный заказ без вебхука — активирован",
+			"order_id", order.ID(), "invoice_id", order.InvoiceID())
 	}
 	return nil
 }

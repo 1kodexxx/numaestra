@@ -176,8 +176,17 @@ func run(ctx context.Context) error {
 		log.Warn("SMTP_HOST не задан — уведомления только в лог (заглушка)")
 	}
 
+	// Клиент Robokassa создаём здесь (а не только в HTTP-секции), чтобы фоновая
+	// сверка платежей (ReconcilePendingPayments) в worker-режиме могла опрашивать
+	// OpStateExt. Используется и HTTP-хендлерами ниже.
+	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.Password3, cfg.Robokassa.IsTest)
+	if cfg.Robokassa.TestAutoPay {
+		rkClient.WithTestAutoPay()
+	}
+
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log).
-		WithPromoRepo(promoRepo)
+		WithPromoRepo(promoRepo).
+		WithPaymentVerifier(rkClient)
 
 	mode := runMode(cfg.Mode)
 
@@ -256,6 +265,10 @@ func run(ctx context.Context) error {
 					if err := orderUC.RecoverOrphanedQueuedOrders(ctx); err != nil {
 						log.Error("ошибка восстановления осиротевших queued-заказов", "err", err)
 					}
+					// Сверка платежей: ловит «клиент заплатил, но вебхук не дошёл».
+					if err := orderUC.ReconcilePendingPayments(ctx); err != nil {
+						log.Error("ошибка сверки платежей с Robokassa", "err", err)
+					}
 				}
 			}
 		}()
@@ -270,10 +283,7 @@ func run(ctx context.Context) error {
 	}
 
 	// 6. HTTP-хендлеры и роутер — режимы "all" и "api".
-	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.Password3, cfg.Robokassa.IsTest)
-	if cfg.Robokassa.TestAutoPay {
-		rkClient.WithTestAutoPay()
-	}
+	// rkClient создан выше (нужен фоновой сверке платежей в worker-режиме).
 	webhookAllowedNets, err := apphttp.ParseCIDRs(cfg.Robokassa.AllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)

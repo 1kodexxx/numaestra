@@ -1057,6 +1057,10 @@ func (r *hOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.
 	return nil, nil
 }
 
+func (r *hOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
+
 func (r *hOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
