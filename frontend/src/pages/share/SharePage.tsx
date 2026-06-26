@@ -25,8 +25,9 @@ export function SharePage() {
   const [error, setError] = useState<string | null>(null)
 
   useSeo({
-    title: 'Мне сделали песню в Numaestra 🎵',
+    title: tracks ? 'Мне сделали песню в Numaestra 🎵' : 'Песня Numaestra',
     description: 'Послушайте персональную песню, созданную нейросетью в Numaestra.',
+    image: tracks && tracks.length > 0 ? '/og-image.png' : undefined,
     noindex: true,
   })
 

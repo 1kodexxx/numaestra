@@ -6,6 +6,7 @@ import { ApiError } from '@shared/api'
 import { useSeo } from '@shared/lib/seo'
 import { useScrollReveal } from '@shared/lib/useScrollReveal'
 import { theme } from '@shared/lib/theme'
+import { aggregateRatingJsonLd, injectJsonLd } from '@shared/lib/jsonLd'
 
 const ACCENT = theme.accent
 const BORDER = theme.border
@@ -79,6 +80,12 @@ export function ReviewsPage() {
     if (reviews.length === 0) return 0
     return reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
   }, [reviews])
+
+  useEffect(() => {
+    if (reviews.length === 0) return
+    injectJsonLd('ld-rating', aggregateRatingJsonLd(avg, reviews.length))
+    return () => document.getElementById('ld-rating')?.remove()
+  }, [reviews.length, avg])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

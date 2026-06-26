@@ -1,5 +1,6 @@
 import { copyText } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
+import { GOALS, reachGoal } from '@shared/lib/analytics'
 
 interface ShareBarProps {
   url: string
@@ -17,6 +18,8 @@ const NETWORKS: Net[] = [
   { key: 'ok', label: 'OK', color: '#ee8208', href: (u, t) => `https://connect.ok.ru/offer?url=${u}&title=${t}` },
 ]
 
+const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+
 function ShareButton({ label, color, onClick, href }: { label: string; color: string; onClick?: () => void; href?: string }) {
   const common: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center', gap: '7px',
@@ -30,28 +33,69 @@ function ShareButton({ label, color, onClick, href }: { label: string; color: st
   const onLeave = (e: React.MouseEvent<HTMLElement>) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = `${color}55` }
 
   if (href) {
-    return <a href={href} target="_blank" rel="noopener noreferrer" style={common} onMouseEnter={onEnter} onMouseLeave={onLeave}>{dot}{label}</a>
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={common}
+        onClick={onClick}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+      >
+        {dot}{label}
+      </a>
+    )
   }
-  return <button onClick={onClick} style={common} onMouseEnter={onEnter} onMouseLeave={onLeave}>{dot}{label}</button>
+  return <button type="button" onClick={onClick} style={common} onMouseEnter={onEnter} onMouseLeave={onLeave}>{dot}{label}</button>
 }
 
 export function ShareBar({ url, text }: ShareBarProps) {
   const u = encodeURIComponent(url)
   const t = encodeURIComponent(text)
 
+  async function nativeShare() {
+    try {
+      await navigator.share({ title: 'Numaestra', text, url })
+      reachGoal(GOALS.SHARE, { method: 'native' })
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      copyText(url, 'Ссылка скопирована')
+      reachGoal(GOALS.SHARE, { method: 'copy_fallback' })
+    }
+  }
+
+  function trackNetwork(key: string) {
+    reachGoal(GOALS.SHARE, { method: key })
+  }
+
+  function copyLink() {
+    copyText(url, 'Ссылка скопирована')
+    reachGoal(GOALS.SHARE, { method: 'copy' })
+  }
+
   return (
     <div style={{
-      background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.07)',
+      background: theme.surface, border: `1px solid ${theme.border}`,
       borderRadius: '20px', padding: '20px 22px',
     }}>
-      <div style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(255,255,255,0.32)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '14px' }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, color: theme.text3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '14px' }}>
         Поделиться песней
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        {canNativeShare && (
+          <ShareButton label="Поделиться…" color={ACCENT} onClick={nativeShare} />
+        )}
         {NETWORKS.map((n) => (
-          <ShareButton key={n.key} label={n.label} color={n.color} href={n.href(u, t)} />
+          <ShareButton
+            key={n.key}
+            label={n.label}
+            color={n.color}
+            href={n.href(u, t)}
+            onClick={() => trackNetwork(n.key)}
+          />
         ))}
-        <ShareButton label="Скопировать ссылку" color={ACCENT} onClick={() => copyText(url, 'Ссылка скопирована')} />
+        <ShareButton label="Скопировать ссылку" color={ACCENT} onClick={copyLink} />
       </div>
     </div>
   )

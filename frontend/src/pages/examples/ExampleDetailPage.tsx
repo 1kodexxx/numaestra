@@ -6,6 +6,7 @@ import { MusicPlayer } from '@widgets/player'
 import { Button, Spinner } from '@shared/ui'
 import { synthDemoTrack, hashStr } from '@shared/lib/demoAudio'
 import { useSeo } from '@shared/lib/seo'
+import { breadcrumbJsonLd, injectJsonLd } from '@shared/lib/jsonLd'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
 import type { Track } from '@entities/order'
 import { theme } from '@shared/lib/theme'
@@ -86,7 +87,21 @@ export function ExampleDetailPage() {
     description: example
       ? `${example.description} Закажите похожую песню — 4 версии за 10 минут.`
       : undefined,
+    image: example?.coverUrl,
   })
+
+  useEffect(() => {
+    if (!example || !id) return
+    injectJsonLd(
+      'ld-breadcrumb',
+      breadcrumbJsonLd([
+        { name: 'Главная', path: '/' },
+        { name: 'Примеры', path: '/' },
+        { name: example.title, path: `/examples/${id}` },
+      ]),
+    )
+    return () => document.getElementById('ld-breadcrumb')?.remove()
+  }, [example, id])
 
   if (loadingExample) {
     return (

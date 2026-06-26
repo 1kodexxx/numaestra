@@ -13,7 +13,6 @@ import {
 } from "@shared/lib/demoAudio";
 import { useSeo } from "@shared/lib/seo";
 import type { GenreOption } from "@shared/lib/sunoPrompt";
-import { composeCatalogBrief } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { theme } from "@shared/lib/theme";
 import { Button, TextField, useRipple } from "@shared/ui";
@@ -22,35 +21,28 @@ import { FloatingPlayer } from "@widgets/floating-player";
 import { Footer } from "@widgets/footer";
 import { ReviewsSnippet } from "@widgets/reviews-snippet";
 import { stockImage } from "@widgets/side-panel";
+import { useFocusTrap } from "@shared/lib/useFocusTrap";
+import { useBreakpoint } from "@shared/lib/useBreakpoint";
+import { GOALS, reachGoal } from "@shared/lib/analytics";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { clearCatalogDraft, loadCatalogDraft, saveCatalogDraft } from "./catalogDraft";
+import {
+  EMPTY_FORM,
+  GENRES_FALLBACK,
+  MOODS,
+  TEMPOS,
+  VOCALS,
+  composeBrief,
+  type PromptForm,
+} from "./types";
 
 /* ─── tokens ─── */
 const ACCENT = theme.accent;
 const BORDER = theme.border;
 const TEXT2 = theme.text2;
 const TEXT3 = theme.text3;
-
-/* ─── breakpoints ─── */
-function useBreakpoint() {
-  const [vp, setVp] = useState(() => ({
-    w: typeof window !== "undefined" ? window.innerWidth : 1200,
-    h: typeof window !== "undefined" ? window.innerHeight : 800,
-  }));
-  useEffect(() => {
-    const fn = () => setVp({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", fn);
-    return () => {
-      window.removeEventListener("resize", fn);
-    };
-  }, []);
-  return {
-    isMobile: vp.w < 640,
-    isTablet: vp.w >= 640 && vp.w < 1024,
-    isDesktop: vp.w >= 1024,
-    isShort: vp.h < 720, // низкий вьюпорт (ландшафт телефона, маленький ноутбук)
-  };
-}
+const SURFACE = theme.dark;
 
 /* ─── icon map: matches Russian and English keywords ─── */
 const ICON_RULES: [string, string][] = [
@@ -420,61 +412,6 @@ function Chip({
       {label}
     </button>
   );
-}
-
-const MOODS = [
-  "Романтика",
-  "Радость",
-  "Грусть",
-  "Ностальгия",
-  "Энергия",
-  "Торжественность",
-  "Юмор",
-  "Спокойствие",
-  "Драйв",
-];
-const GENRES_FALLBACK: GenreOption[] = [
-  { label: "Поп", sunoValue: "modern pop" },
-  { label: "Баллада", sunoValue: "pop ballad" },
-  { label: "Рок", sunoValue: "rock" },
-  { label: "Рэп", sunoValue: "rap" },
-  { label: "Хип-хоп", sunoValue: "hip hop" },
-  { label: "Джаз", sunoValue: "smooth jazz" },
-  { label: "R&B", sunoValue: "contemporary rnb" },
-  { label: "Электроника", sunoValue: "electronic dance" },
-  { label: "Шансон", sunoValue: "russian chanson" },
-  { label: "Акустика", sunoValue: "acoustic guitar" },
-  { label: "Фолк", sunoValue: "folk" },
-  { label: "Кантри", sunoValue: "modern country" },
-];
-const TEMPOS = ["Медленный", "Средний", "Быстрый"];
-const VOCALS = ["Мужской", "Женский", "Дуэт", "Хор", "Без вокала"];
-
-const SURFACE = "#080808";
-
-interface PromptForm {
-  occasion: string;
-  moods: string[];
-  genres: string[];
-  tempo: string;
-  vocal: string;
-  details: string;
-  customText: string;
-}
-
-const EMPTY_FORM: PromptForm = {
-  occasion: "",
-  moods: [],
-  genres: [],
-  tempo: "",
-  vocal: "",
-  details: "",
-  customText: "",
-};
-
-/* Собираем Suno-промпт: style tags (англ.) + понятное описание для генерации. */
-function composeBrief(f: PromptForm, genreOptions: GenreOption[]): string {
-  return composeCatalogBrief(f, genreOptions);
 }
 
 /* ─── section label with optional hint ─── */
@@ -1159,7 +1096,8 @@ export function CatalogPage() {
   const navigate = useNavigate();
   const { isMobile, isShort } = useBreakpoint();
   const [briefOpen, setBriefOpen] = useState(false);
-  const [form, setForm] = useState<PromptForm>(EMPTY_FORM);
+  const builderTrapRef = useFocusTrap(briefOpen);
+  const [form, setForm] = useState<PromptForm>(() => loadCatalogDraft() ?? EMPTY_FORM);
   const [genres, setGenres] = useState<GenreOption[]>(GENRES_FALLBACK);
   const [showContact, setShowContact] = useState(false);
   const [playing, setPlaying] = useState<ExampleSong | null>(null);
@@ -1169,7 +1107,11 @@ export function CatalogPage() {
   );
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Примеры приходят из админки (API). До загрузки и при сбое — захардкоженный
+  useEffect(() => {
+    saveCatalogDraft(form);
+  }, [form]);
+
+  // Примеры приходят из админки
   // список как резерв, чтобы блок «Послушать примеры» не пустовал.
   const [examples, setExamples] = useState<ExampleSong[]>(EXAMPLE_SONGS);
   useEffect(() => {
@@ -1258,7 +1200,13 @@ export function CatalogPage() {
 
   // Конструктор открывается по клику на строку поиска.
   function openBuilder() {
+    reachGoal(GOALS.BUILDER_OPEN);
     setBriefOpen(true);
+  }
+
+  function openContact() {
+    reachGoal(GOALS.CONTACT_OPEN, { source: "catalog" });
+    setShowContact(true);
   }
 
   function closeBuilder() {
@@ -1269,6 +1217,7 @@ export function CatalogPage() {
 
   async function handleCustomOrder(email: string, phone: string) {
     const brief = composeBrief(form, genres);
+    clearCatalogDraft();
     await submit({
       email,
       phone,
@@ -1284,14 +1233,15 @@ export function CatalogPage() {
     : "repeat(auto-fill, minmax(150px, 1fr))";
   const popular = categories.slice(0, 10);
   const filterNorm = categoryFilter.trim().toLowerCase();
-  const filteredCategories = filterNorm
-    ? categories.filter((c) => c.title.toLowerCase().includes(filterNorm) || c.id.toLowerCase().includes(filterNorm))
-    : categories;
+  const matchesFilter = (c: Category) =>
+    !filterNorm || c.title.toLowerCase().includes(filterNorm) || c.id.toLowerCase().includes(filterNorm);
+  const filteredCategories = categories.filter(matchesFilter);
+  const filteredPopular = popular.filter(matchesFilter);
 
   // Конструктор промпта — непрозрачный полноэкранный оверлей поверх всего.
   const constructorOverlay = briefOpen && (
     <div
-      className="fade-in"
+      className="fade-in safe-overlay-bottom"
       style={{
         position: "fixed",
         top: 60,
@@ -1306,15 +1256,14 @@ export function CatalogPage() {
         overflowY: "auto",
         padding: isMobile ? "20px 16px" : "32px 24px",
       }}
-      className="safe-overlay-bottom"
     >
-      <div style={{ width: "100%", maxWidth: 640, margin: "auto" }}>
+      <div ref={builderTrapRef} style={{ width: "100%", maxWidth: 640, margin: "auto" }}>
         <PromptBuilder
           form={form}
           update={updateForm}
           genres={genres}
           onBack={closeBuilder}
-          onSubmit={() => setShowContact(true)}
+          onSubmit={openContact}
           canSubmit={
             form.occasion.trim().length > 0 && form.details.trim().length > 0
           }
@@ -1429,7 +1378,7 @@ export function CatalogPage() {
           )}
 
           {/* Популярное — горизонтальная секция */}
-          {!loading && !error && popular.length > 0 && (
+          {!loading && !error && filteredPopular.length > 0 && (
             <div style={{ marginTop: "24px" }}>
               <HSection
                 icon="🔥"
@@ -1437,7 +1386,7 @@ export function CatalogPage() {
                 sub="выбор пользователей"
                 minCol={150}
               >
-                {popular.map((cat, i) => (
+                {filteredPopular.map((cat, i) => (
                   <PopularCard
                     key={cat.id}
                     cat={cat}

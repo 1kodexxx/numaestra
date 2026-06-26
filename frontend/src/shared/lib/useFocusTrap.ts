@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 /** Удерживает Tab внутри контейнера (модалки, mobile menu). */
-export function useFocusTrap(active: boolean) {
-  const ref = useRef<HTMLElement | null>(null)
+export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(active: boolean): RefObject<T> {
+  const ref = useRef<T | null>(null)
 
   useEffect(() => {
     if (!active) return
@@ -39,5 +39,5 @@ export function useFocusTrap(active: boolean) {
     return () => root.removeEventListener('keydown', onKey)
   }, [active])
 
-  return ref
+  return ref as RefObject<T>
 }

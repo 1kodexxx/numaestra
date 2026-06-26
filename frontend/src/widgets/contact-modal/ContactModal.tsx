@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Button, TextField } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
+import { useFocusTrap } from '@shared/lib/useFocusTrap'
 
 const ACCENT = theme.accent
 const TEXT2 = theme.text2
@@ -19,14 +20,14 @@ interface ContactModalProps {
 /** Email/phone capture + price summary, shown before redirecting to payment. */
 export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: ContactModalProps) {
   const titleId = useId()
-  const dialogRef = useRef<HTMLDivElement>(null)
+  const trapRef = useFocusTrap(true)
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [agree, setAgree] = useState(false)
   const [err, setErr] = useState('')
 
   useEffect(() => {
-    dialogRef.current?.focus()
+    trapRef.current?.focus()
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape' && !loading) onClose()
     }
@@ -55,7 +56,7 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
       }}
     >
       <div
-        ref={dialogRef}
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

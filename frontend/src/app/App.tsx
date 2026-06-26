@@ -5,6 +5,7 @@ import { Footer } from '@widgets/footer'
 import { AppRouter } from './router/AppRouter'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
+import { hitPage, loadMetrika } from '@shared/lib/analytics'
 
 /* Структурированные данные (JSON-LD) для поисковиков — инжектим один раз
    с актуальным origin, поэтому корректно при любом домене. */
@@ -56,6 +57,14 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname.startsWith('/admin')
   const isFullscreen = pathname === '/' || pathname.startsWith('/category/')
 
+  useEffect(() => {
+    loadMetrika()
+  }, [])
+
+  useEffect(() => {
+    if (!isAdmin) hitPage(pathname + window.location.search)
+  }, [pathname, isAdmin])
+
   // При навигации всегда открываем страницу с верха. Скролл живёт во вложенном
   // контейнере (не в window), поэтому без явного сброса позиция сохраняется.
   // useLayoutEffect — до отрисовки, без «мигания» контента снизу.
@@ -74,8 +83,9 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <a href="#main-content" className="skip-link">Перейти к содержимому</a>
       <Navbar />
-      <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
+      <div ref={scrollRef} id="main-content" style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
         {/* Перемонтируем по pathname → проигрывается плавное появление на каждой навигации */}
         <div key={pathname} className={isFullscreen ? 'route-fade' : 'route-fade-up'} style={{ minHeight: '100%' }}>
           {children}

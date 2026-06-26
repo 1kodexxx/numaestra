@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { clearPaidPending, isPaidPending, markPaidPending } from '@shared/lib/paidPending'
@@ -14,6 +14,7 @@ import { GenerationProgress } from './GenerationProgress'
 import { StatusOrderSkeleton } from './StatusOrderSkeleton'
 import type { OrderDetail, OrderSummary } from '@entities/order'
 import { theme } from '@shared/lib/theme'
+import { GOALS, reachGoal } from '@shared/lib/analytics'
 
 const ACCENT = theme.accent
 const DARK   = theme.dark
@@ -56,6 +57,14 @@ export function StatusPage() {
   useEffect(() => {
     if (order?.payment_status !== 'pending') clearPaidPending(order?.id ?? '')
   }, [order?.id, order?.payment_status])
+
+  const completedTracked = useRef<string | null>(null)
+  useEffect(() => {
+    if (order?.generation_status === 'completed' && order.id !== completedTracked.current) {
+      completedTracked.current = order.id
+      reachGoal(GOALS.ORDER_COMPLETED, { order_id: order.id })
+    }
+  }, [order?.id, order?.generation_status])
 
   useSeo({ title: 'Статус заказа', description: 'Отслеживайте создание вашей персональной песни.', noindex: true })
 
@@ -228,6 +237,16 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
   const gs = order.generation_status
   const ps = order.payment_status
   const awaitingPaymentConfirm = Boolean(confirmAwaitingPayment && ps === 'pending')
+  const [celebrate, setCelebrate] = useState(false)
+
+  useEffect(() => {
+    if (gs !== 'completed') return
+    const key = `numaestra_celebrated_${order.id}`
+    if (!sessionStorage.getItem(key)) {
+      setCelebrate(true)
+      sessionStorage.setItem(key, '1')
+    }
+  }, [gs, order.id])
 
   let icon  = '⏳'
   let title = 'Обрабатываем заказ'
@@ -269,7 +288,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
         </div>
       )}
       {/* Header */}
-      <div className={`status-order-card${gs === 'completed' ? ' status-order-card--celebrate' : ''}`}>
+      <div className={`status-order-card${celebrate ? ' status-order-card--celebrate' : ''}`}>
         {gs !== 'failed' && (
           <div style={{
             position: 'absolute', inset: 0, pointerEvents: 'none',

@@ -1,4 +1,5 @@
 import { useRipple } from './useRipple'
+import { theme } from '@shared/lib/theme'
 
 type Variant = 'filled' | 'tonal' | 'outlined' | 'text'
 type Size = 'sm' | 'md' | 'lg'
@@ -61,22 +62,22 @@ export function Button({
 
   const variants: Record<Variant, React.CSSProperties> = {
     filled: {
-      background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
+      background: `linear-gradient(135deg, ${theme.accent}, ${theme.accent2})`,
       color: '#062420',
       boxShadow: '0 2px 12px rgba(0,229,192,0.22)',
     },
     tonal: {
       background: 'rgba(0,229,192,0.12)',
-      color: '#00e5c0',
+      color: theme.accent,
     },
     outlined: {
       background: 'transparent',
-      color: '#00e5c0',
+      color: theme.accent,
       border: '1px solid rgba(0,229,192,0.4)',
     },
     text: {
       background: 'transparent',
-      color: '#00e5c0',
+      color: theme.accent,
       padding: '0 12px',
     },
   }

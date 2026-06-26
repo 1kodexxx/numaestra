@@ -20,32 +20,16 @@ import {
 } from "@widgets/side-panel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useBreakpoint } from "@shared/lib/useBreakpoint";
+import { GOALS, reachGoal } from "@shared/lib/analytics";
+import { breadcrumbJsonLd, injectJsonLd } from "@shared/lib/jsonLd";
 
 const ACCENT = theme.accent;
 const BORDER = theme.border;
-const TEXT2 = "rgba(255,255,255,0.48)";
-const TEXT3 = "rgba(255,255,255,0.22)";
-const SURFACE = "#080808";
+const TEXT2 = theme.text2;
+const TEXT3 = theme.text3;
 const PANEL_W = 240;
-
-/* ─── breakpoint hook ─── */
-function useBreakpoint() {
-  const [w, setW] = useState(
-    typeof window !== "undefined" ? window.innerWidth : 1200,
-  );
-  useEffect(() => {
-    const fn = () => setW(window.innerWidth);
-    window.addEventListener("resize", fn);
-    return () => {
-      window.removeEventListener("resize", fn);
-    };
-  }, []);
-  return {
-    isMobile: w < 640,
-    isTablet: w >= 640 && w < 1024,
-    isDesktop: w >= 1024,
-  };
-}
+const SURFACE = theme.dark;
 
 /* ─── chip ─── */
 function Chip({
@@ -216,7 +200,7 @@ export function CategoryPage() {
   const [showFloatCta, setShowFloatCta] = useState(false);
 
   useEffect(() => {
-    if (!isMobile) {
+    if (isDesktop) {
       setShowFloatCta(false);
       return;
     }
@@ -230,7 +214,7 @@ export function CategoryPage() {
     onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [isMobile, id, wizardLoading]);
+  }, [isDesktop, id, wizardLoading]);
 
   const category = categories.find((c) => c.id === id);
   const categoryMissing = !catalogLoading && categories.length > 0 && !category;
@@ -243,6 +227,18 @@ export function CategoryPage() {
       category?.description ||
       "Соберите свою песню: повод, настроение, жанр и детали. 4 готовые версии за 10 минут.",
   });
+
+  useEffect(() => {
+    if (!category) return;
+    injectJsonLd(
+      "ld-breadcrumb",
+      breadcrumbJsonLd([
+        { name: "Главная", path: "/" },
+        { name: category.title, path: `/category/${id}` },
+      ]),
+    );
+    return () => document.getElementById("ld-breadcrumb")?.remove();
+  }, [category, id]);
 
   useEffect(() => {
     setWizard(null);
@@ -304,6 +300,13 @@ export function CategoryPage() {
     return null;
   }
 
+  const quizProgress = useMemo(() => {
+    if (!wizard) return null;
+    const required = wizard.questions.filter((q) => q.is_required);
+    const done = required.filter((q) => mergedAnswers[q.mapping_key]?.trim());
+    return { done: done.length, total: required.length };
+  }, [wizard, mergedAnswers]);
+
   function openContact() {
     const err = validateQuiz();
     if (err) {
@@ -311,6 +314,7 @@ export function CategoryPage() {
       return;
     }
     setQuizError(null);
+    reachGoal(GOALS.CONTACT_OPEN, { source: "category", category_id: id });
     setShowContact(true);
   }
 
@@ -432,6 +436,25 @@ export function CategoryPage() {
         >
           {category.description}
         </p>
+      )}
+
+      {quizProgress && quizProgress.total > 0 && (
+        <div style={{ marginBottom: "20px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: TEXT2, marginBottom: "6px" }}>
+            <span>Заполнено обязательных полей</span>
+            <span>{quizProgress.done} / {quizProgress.total}</span>
+          </div>
+          <div style={{ height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${(quizProgress.done / quizProgress.total) * 100}%`,
+                background: `linear-gradient(90deg, ${theme.accent2}, ${theme.accent})`,
+                transition: "width 0.25s ease",
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* questions */}
