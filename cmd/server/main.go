@@ -32,6 +32,7 @@ import (
 	"github.com/numaestra/numaestra/internal/worker"
 	"github.com/numaestra/numaestra/migrations"
 	"github.com/numaestra/numaestra/pkg/banner"
+	"github.com/numaestra/numaestra/pkg/democlip"
 	"github.com/numaestra/numaestra/pkg/demolimit"
 	"github.com/numaestra/numaestra/pkg/encryption"
 	"github.com/numaestra/numaestra/pkg/health"
@@ -203,6 +204,9 @@ func run(ctx context.Context) error {
 		WithPromoRepo(promoRepo).
 		WithPaymentVerifier(rkClient).
 		WithDemoGuards(demolimit.New(rdb, cfg.Demo.DailyLimit, cfg.Demo.PerEmailHours), cfg.Demo.TokenReserve)
+	if cfg.Demo.ClipEnabled {
+		orderUC.WithDemoClip(democlip.New(cfg.Demo.FfmpegPath, cfg.Demo.ClipSeconds, cfg.Demo.IntroSkipSeconds, cfg.Demo.Watermark))
+	}
 
 	mode := runMode(cfg.Mode)
 

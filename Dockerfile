@@ -29,8 +29,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /numaestra ./cmd/server
 # ── Stage 3: Minimal runtime image ──────────────────────────────────────────
 FROM alpine:3.19
 
-# ca-certificates нужны для TLS-запросов (Suno, S3, OpenAI по HTTPS).
-RUN apk add --no-cache ca-certificates \
+# ca-certificates — для TLS (Suno, S3, OpenAI по HTTPS).
+# ffmpeg — обработка демо-фрагмента (обрезка «сочного» участка + водяной знак).
+# Если ffmpeg недоступен, демо безопасно деградирует до полного клипа (Фаза 1).
+RUN apk add --no-cache ca-certificates ffmpeg \
     && addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /numaestra /numaestra

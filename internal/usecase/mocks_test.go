@@ -47,6 +47,17 @@ func (l *fakeDemoLimiter) Reserve(_ context.Context, orderID uuid.UUID, _ string
 	return l.allowed, l.err
 }
 
+// --- fake DemoClipProcessor ---
+
+type fakeDemoClip struct {
+	out []byte
+	err error
+}
+
+func (c *fakeDemoClip) Process(_ context.Context, _ string) ([]byte, error) {
+	return c.out, c.err
+}
+
 // --- in-memory OrderRepository ---
 
 type inMemOrderRepo struct {
@@ -506,13 +517,21 @@ var _ domain.MusicProvider = (*mockProvider)(nil)
 // --- mock TrackStorage ---
 
 type mockStorage struct {
-	uploadFn func(ctx context.Context, sourceURL, key, contentType string) (string, error)
-	deleteFn func(ctx context.Context, orderID uuid.UUID) error
+	uploadFn      func(ctx context.Context, sourceURL, key, contentType string) (string, error)
+	uploadBytesFn func(ctx context.Context, key, contentType string, data []byte) (string, error)
+	deleteFn      func(ctx context.Context, orderID uuid.UUID) error
 }
 
 func (m *mockStorage) UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (string, error) {
 	if m.uploadFn != nil {
 		return m.uploadFn(ctx, sourceURL, key, contentType)
+	}
+	return "https://s3.local/" + key, nil
+}
+
+func (m *mockStorage) Upload(ctx context.Context, key, contentType string, data []byte) (string, error) {
+	if m.uploadBytesFn != nil {
+		return m.uploadBytesFn(ctx, key, contentType, data)
 	}
 	return "https://s3.local/" + key, nil
 }

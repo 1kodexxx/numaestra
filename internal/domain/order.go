@@ -756,6 +756,9 @@ type TrackStorage interface {
 	// UploadFromURL скачивает файл по sourceURL и сохраняет под ключом key.
 	// Возвращает постоянную публичную ссылку на объект в хранилище.
 	UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (publicURL string, err error)
+	// Upload сохраняет готовые байты под ключом key. Используется для демо-фрагмента,
+	// собранного из обрезанного и обработанного аудио.
+	Upload(ctx context.Context, key, contentType string, data []byte) (publicURL string, err error)
 	// DeleteOrderTracks удаляет все MP3-объекты заказа по шаблону tracks/{id}/{n}.mp3.
 	DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error
 }

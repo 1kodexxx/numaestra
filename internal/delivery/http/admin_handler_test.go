@@ -868,6 +868,10 @@ func (s *deleteTrackingStorage) UploadFromURL(context.Context, string, string, s
 	return "", nil
 }
 
+func (s *deleteTrackingStorage) Upload(context.Context, string, string, []byte) (string, error) {
+	return "", nil
+}
+
 func (s *deleteTrackingStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID) error {
 	s.called = true
 	return nil

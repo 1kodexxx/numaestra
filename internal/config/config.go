@@ -128,7 +128,7 @@ type PricingConfig struct {
 	PriceKopecks int64 // фиксированная цена заказа в копейках
 }
 
-// DemoConfig — защита расхода кредитов на бесплатные демо.
+// DemoConfig — защита расхода кредитов на бесплатные демо + параметры обработки.
 type DemoConfig struct {
 	// DailyLimit — максимум демо в сутки (глобально). 0 = без лимита.
 	DailyLimit int
@@ -138,6 +138,19 @@ type DemoConfig struct {
 	// PerEmailHours — окно (часы), в течение которого один email получает не
 	// более одного демо. 0 = без ограничения на email.
 	PerEmailHours int
+
+	// --- Фаза 2: обрезка «сочного» фрагмента + водяной знак (ffmpeg) ---
+	// ClipEnabled включает ffmpeg-обработку демо. Если ffmpeg недоступен или падает,
+	// демо безопасно деградирует до полного клипа (Фаза 1).
+	ClipEnabled bool
+	// ClipSeconds — длительность демо-фрагмента (выбирается самый энергичный участок).
+	ClipSeconds int
+	// IntroSkipSeconds — сколько секунд интро пропускать при выборе фрагмента.
+	IntroSkipSeconds int
+	// Watermark — накладывать ненавязчивый водяной знак на демо.
+	Watermark bool
+	// FfmpegPath — путь к ffmpeg (пусто → берётся из PATH).
+	FfmpegPath string
 }
 
 // Load считывает переменные окружения и собирает их в структуру Config.
@@ -198,6 +211,12 @@ func Load() (*Config, error) {
 			DailyLimit:    int(getInt64Env("DEMO_DAILY_LIMIT", 200)),
 			TokenReserve:  int(getInt64Env("DEMO_TOKEN_RESERVE", 10)),
 			PerEmailHours: int(getInt64Env("DEMO_PER_EMAIL_HOURS", 24)),
+
+			ClipEnabled:      getBoolEnv("DEMO_CLIP_ENABLED", true),
+			ClipSeconds:      int(getInt64Env("DEMO_CLIP_SECONDS", 28)),
+			IntroSkipSeconds: int(getInt64Env("DEMO_INTRO_SKIP_SECONDS", 8)),
+			Watermark:        getBoolEnv("DEMO_WATERMARK", true),
+			FfmpegPath:       getEnv("FFMPEG_PATH", ""),
 		},
 		Notify: NotifyConfig{
 			SMTPHost:     getEnv("SMTP_HOST", ""),

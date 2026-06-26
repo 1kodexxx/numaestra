@@ -272,6 +272,85 @@ func TestGenerateDemo_LimiterAllowed_Proceeds(t *testing.T) {
 	}
 }
 
+// Фаза 2: процессор оформляет фрагмент → его байты заливаются через Upload.
+func TestCheckDemoStatus_WithProcessor_UsesProcessedBytes(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 5)
+	order := demoOrder(t, f)
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "demo-job", nil
+	}
+	processed := []byte("WATERMARKED-CLIP")
+	f.uc.WithDemoClip(&fakeDemoClip{out: processed})
+	var uploadedBytes []byte
+	uploadFromURLCalled := false
+	f.storage.uploadBytesFn = func(_ context.Context, key, _ string, data []byte) (string, error) {
+		uploadedBytes = data
+		return "https://s3.local/" + key, nil
+	}
+	f.storage.uploadFn = func(_ context.Context, _, key, _ string) (string, error) {
+		uploadFromURLCalled = true
+		return "https://s3.local/" + key, nil
+	}
+	_ = f.uc.GenerateDemo(context.Background(), order.ID())
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{{SourceURL: "http://suno/clip", DurationSec: 120}},
+		}, nil
+	}
+	if err := f.uc.CheckDemoStatus(context.Background(), order.ID(), "demo-job", acc.ID()); err != nil {
+		t.Fatalf("CheckDemoStatus: %v", err)
+	}
+
+	if string(uploadedBytes) != string(processed) {
+		t.Errorf("в S3 должны попасть обработанные байты, получили %q", string(uploadedBytes))
+	}
+	if uploadFromURLCalled {
+		t.Error("при успешной обработке UploadFromURL (полный клип) вызываться не должен")
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.DemoStatus() != domain.DemoStatusReady {
+		t.Errorf("ожидали demo ready, получили %q", got.DemoStatus())
+	}
+}
+
+// Фаза 2 фоллбэк: ошибка процессора → отдаём полный клип через UploadFromURL.
+func TestCheckDemoStatus_ProcessorError_FallsBackToFullClip(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 5)
+	order := demoOrder(t, f)
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "demo-job", nil
+	}
+	f.uc.WithDemoClip(&fakeDemoClip{err: errors.New("ffmpeg недоступен")})
+	fullClipUsed := false
+	f.storage.uploadFn = func(_ context.Context, _, key, _ string) (string, error) {
+		fullClipUsed = true
+		return "https://s3.local/" + key, nil
+	}
+	_ = f.uc.GenerateDemo(context.Background(), order.ID())
+
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{{SourceURL: "http://suno/clip", DurationSec: 120}},
+		}, nil
+	}
+	if err := f.uc.CheckDemoStatus(context.Background(), order.ID(), "demo-job", acc.ID()); err != nil {
+		t.Fatalf("CheckDemoStatus: %v", err)
+	}
+
+	if !fullClipUsed {
+		t.Error("при ошибке процессора демо должно деградировать до полного клипа (UploadFromURL)")
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.DemoStatus() != domain.DemoStatusReady {
+		t.Errorf("ожидали demo ready (фоллбэк), получили %q", got.DemoStatus())
+	}
+}
+
 // TriggerDemo ставит фоновую задачу демо.
 func TestTriggerDemo_Enqueues(t *testing.T) {
 	f := newFixture(t)

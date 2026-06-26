@@ -425,6 +425,9 @@ type wStorage struct{}
 func (s *wStorage) UploadFromURL(_ context.Context, _, key, _ string) (string, error) {
 	return "https://s3/" + key, nil
 }
+func (s *wStorage) Upload(_ context.Context, key, _ string, _ []byte) (string, error) {
+	return "https://s3/" + key, nil
+}
 func (s *wStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID) error { return nil }
 
 var _ domain.TrackStorage = (*wStorage)(nil)

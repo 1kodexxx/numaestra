@@ -63,6 +63,14 @@ type DemoLimiter interface {
 	Reserve(ctx context.Context, orderID uuid.UUID, email string) (allowed bool, err error)
 }
 
+// DemoClipProcessor — порт обработки демо-фрагмента (Фаза 2): выбирает «сочный»
+// участок, обрезает и накладывает водяной знак, возвращая готовый mp3.
+// nil → обработка выключена (демо = полный клип, Фаза 1). Ошибка процессора
+// трактуется как сигнал деградировать до полного клипа.
+type DemoClipProcessor interface {
+	Process(ctx context.Context, sourceURL string) ([]byte, error)
+}
+
 type OrderUseCase struct {
 	orderRepo orderRepository
 	accRepo   accountRepository
@@ -78,9 +86,10 @@ type OrderUseCase struct {
 	// сверку в вебхуке оплаты (см. CreateOrder).
 	priceKopecks     int64
 	tx               TransactionManager
-	paymentVerifier  PaymentVerifier // nil → сверка платежей отключена
-	demoLimiter      DemoLimiter     // nil → лимиты демо отключены
-	demoTokenReserve int             // 0 → резерв токенов под платные отключён
+	paymentVerifier  PaymentVerifier   // nil → сверка платежей отключена
+	demoLimiter      DemoLimiter       // nil → лимиты демо отключены
+	demoTokenReserve int               // 0 → резерв токенов под платные отключён
+	demoClip         DemoClipProcessor // nil → демо = полный клип (Фаза 1)
 	log              *slog.Logger
 }
 
@@ -137,6 +146,13 @@ func (uc *OrderUseCase) WithPaymentVerifier(v PaymentVerifier) *OrderUseCase {
 func (uc *OrderUseCase) WithDemoGuards(limiter DemoLimiter, tokenReserve int) *OrderUseCase {
 	uc.demoLimiter = limiter
 	uc.demoTokenReserve = tokenReserve
+	return uc
+}
+
+// WithDemoClip подключает обработку демо-фрагмента (Фаза 2): обрезка «сочного»
+// участка + водяной знак. nil → демо отдаётся полным клипом (Фаза 1).
+func (uc *OrderUseCase) WithDemoClip(p DemoClipProcessor) *OrderUseCase {
+	uc.demoClip = p
 	return uc
 }
 
@@ -1078,11 +1094,13 @@ func (uc *OrderUseCase) CheckDemoStatus(ctx context.Context, orderID uuid.UUID, 
 		return ErrGenerationNotReady
 	}
 
-	// Успех с клипами: заливаем первый клип в S3. При ошибке S3 — оставляем
-	// processing и ретраим (слот держим), как в платном потоке.
+	// Успех с клипами: оформляем демо-фрагмент и заливаем в S3. При ошибке S3 —
+	// оставляем processing и ретраим (слот держим), как в платном потоке.
 	if result.Status == domain.MusicGenerationStatusCompleted && len(result.Tracks) > 0 {
 		s3Key := fmt.Sprintf("demos/%s.mp3", order.ID())
-		demoURL, uploadErr := uc.storage.UploadFromURL(ctx, result.Tracks[0].SourceURL, s3Key, "audio/mpeg")
+		sourceURL := result.Tracks[0].SourceURL
+
+		demoURL, uploadErr := uc.uploadDemoClip(ctx, order.ID(), sourceURL, s3Key)
 		if uploadErr != nil {
 			uc.log.Warn("демо: ошибка загрузки в S3, задача будет повторена", "order_id", order.ID(), "err", uploadErr)
 			return fmt.Errorf("демо: загрузка клипа в S3: %w", uploadErr)
@@ -1125,6 +1143,26 @@ func (uc *OrderUseCase) RecoverStuckDemos(ctx context.Context) error {
 		uc.markDemoFailed(ctx, order)
 	}
 	return nil
+}
+
+// uploadDemoClip оформляет и сохраняет демо-фрагмент. Если подключён процессор
+// (Фаза 2), вырезает «сочный» участок с водяным знаком и заливает байты; при любой
+// его ошибке безопасно деградирует до полного клипа (Фаза 1, UploadFromURL).
+func (uc *OrderUseCase) uploadDemoClip(ctx context.Context, orderID uuid.UUID, sourceURL, s3Key string) (string, error) {
+	if uc.demoClip != nil {
+		data, perr := uc.demoClip.Process(ctx, sourceURL)
+		if perr != nil {
+			uc.log.Warn("демо: обработка фрагмента не удалась — отдаём полный клип",
+				"order_id", orderID, "err", perr)
+		} else if url, uerr := uc.storage.Upload(ctx, s3Key, "audio/mpeg", data); uerr != nil {
+			// Ошибка S3 — пробрасываем (ретрай задачи), не молчим.
+			return "", uerr
+		} else {
+			return url, nil
+		}
+	}
+	// Фаза 1 / фоллбэк: полный клип напрямую из источника.
+	return uc.storage.UploadFromURL(ctx, sourceURL, s3Key, "audio/mpeg")
 }
 
 // releaseDemoSlot освобождает слот аккаунта (без расхода токена) — для откатов,
