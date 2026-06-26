@@ -73,6 +73,24 @@ export function AdminDashboardPage() {
             </div>
           </Panel>
 
+          {/* Демо-воронка */}
+          <Panel style={{ padding: '22px 24px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: A.txt3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '14px' }}>
+              Демо-воронка (бесплатное демо → оплата)
+            </div>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <MiniStat label="Демо за 24 ч" value={stats.demo.today} tone={A.accent} />
+              <MiniStat label="Демо всего" value={stats.demo.ready} tone={A.txt} />
+              <MiniStat label="Из них оплатили" value={stats.demo.converted} tone="#4ade80" />
+              <div style={{ flex: 1, minWidth: 110, background: A.surface2, border: `1px solid ${A.border}`, borderRadius: '12px', padding: '14px 16px' }}>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: stats.demo.ready > 0 ? '#4ade80' : A.txt3, letterSpacing: '-0.02em' }}>
+                  {stats.demo.ready > 0 ? Math.round((stats.demo.converted / stats.demo.ready) * 100) : 0}%
+                </div>
+                <div style={{ fontSize: '12px', color: A.txt2, marginTop: '4px' }}>Конверсия демо→оплата</div>
+              </div>
+            </div>
+          </Panel>
+
           {/* Контент */}
           <Panel style={{ padding: '22px 24px' }}>
             <div style={{ fontSize: '11px', fontWeight: 700, color: A.txt3, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '14px' }}>Контент</div>

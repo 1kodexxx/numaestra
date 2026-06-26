@@ -446,8 +446,8 @@ func TestOrderRepository_Stats(t *testing.T) {
 	}
 	defer mock.Close()
 
-	rows := pgxmock.NewRows([]string{"total", "paid", "revenue", "completed", "processing", "failed", "today"}).
-		AddRow(10, 7, int64(1400000), 5, 2, 1, 8)
+	rows := pgxmock.NewRows([]string{"total", "paid", "revenue", "completed", "processing", "failed", "today", "demos_ready", "demos_today", "demos_converted"}).
+		AddRow(10, 7, int64(1400000), 5, 2, 1, 8, 6, 3, 4)
 	mock.ExpectQuery("FROM orders").WillReturnRows(rows)
 
 	repo := NewOrderRepository(mock)
@@ -460,6 +460,9 @@ func TestOrderRepository_Stats(t *testing.T) {
 	}
 	if s.Completed != 5 || s.Processing != 2 || s.Failed != 1 || s.OrdersToday != 8 {
 		t.Errorf("неверная разбивка по статусам: %+v", s)
+	}
+	if s.DemosReady != 6 || s.DemosToday != 3 || s.DemosConverted != 4 {
+		t.Errorf("неверные демо-агрегаты: %+v", s)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("неудовлетворённые ожидания: %v", err)

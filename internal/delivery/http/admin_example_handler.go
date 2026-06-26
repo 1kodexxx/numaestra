@@ -195,6 +195,11 @@ func (h *AdminHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 			"failed":          s.Orders.Failed,
 			"today":           s.Orders.OrdersToday,
 		},
+		"demo": map[string]any{
+			"ready":     s.Orders.DemosReady,
+			"today":     s.Orders.DemosToday,
+			"converted": s.Orders.DemosConverted,
+		},
 		"accounts": map[string]any{
 			"total":         s.AccountsTotal,
 			"active":        s.AccountsActive,

@@ -15,6 +15,11 @@ export interface DashboardStats {
     active: number
     token_balance: number
   }
+  demo: {
+    ready: number
+    today: number
+    converted: number
+  }
   categories_total: number
   examples_total: number
   examples_active: number

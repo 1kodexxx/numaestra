@@ -344,9 +344,13 @@ func (r *OrderRepository) Stats(ctx context.Context) (domain.OrderStats, error) 
 			COUNT(*) FILTER (WHERE generation_status = 'completed'),
 			COUNT(*) FILTER (WHERE generation_status IN ('queued', 'processing')),
 			COUNT(*) FILTER (WHERE generation_status = 'failed'),
-			COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours')
+			COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE demo_status = 'ready'),
+			COUNT(*) FILTER (WHERE demo_status = 'ready' AND created_at >= NOW() - INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE demo_status = 'ready' AND payment_status = 'paid')
 		FROM orders
-	`).Scan(&s.TotalOrders, &s.PaidOrders, &s.RevenueKopecks, &s.Completed, &s.Processing, &s.Failed, &s.OrdersToday)
+	`).Scan(&s.TotalOrders, &s.PaidOrders, &s.RevenueKopecks, &s.Completed, &s.Processing, &s.Failed, &s.OrdersToday,
+		&s.DemosReady, &s.DemosToday, &s.DemosConverted)
 	if err != nil {
 		return domain.OrderStats{}, fmt.Errorf("order stats: %w", err)
 	}

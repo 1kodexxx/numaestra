@@ -9,4 +9,8 @@ type OrderStats struct {
 	Processing     int   // queued | processing
 	Failed         int   // generation_status = failed
 	OrdersToday    int   // создано за последние 24 часа
+	// Демо-воронка (бесплатное демо до оплаты).
+	DemosReady     int // демо успешно выдано (demo_status = ready)
+	DemosToday     int // демо выдано за последние 24 часа
+	DemosConverted int // демо выдано И заказ оплачен (demo ready + paid)
 }
