@@ -93,3 +93,29 @@ func TestNewClientWithBreaker_ReturnsAPIClient(t *testing.T) {
 		t.Errorf("ожидали *withBreaker, получили %T", client)
 	}
 }
+
+func TestWithBreaker_GenerateLyricsVariants_Success(t *testing.T) {
+	stub := &stubClient{result: "вариант"}
+	b := circuitbreaker.New("test", 3, 0)
+	client := newBreakerWith(stub, b)
+
+	variants, err := client.GenerateLyricsVariants(context.Background(), "факты", 2)
+	if err != nil {
+		t.Fatalf("ожидали успех: %v", err)
+	}
+	if len(variants) != 2 {
+		t.Errorf("ожидали 2 варианта, получили %d", len(variants))
+	}
+}
+
+func TestWithBreaker_GenerateLyricsVariants_Error(t *testing.T) {
+	innerErr := errors.New("LLM error")
+	stub := &stubClient{err: innerErr}
+	b := circuitbreaker.New("test", 10, 0)
+	client := newBreakerWith(stub, b)
+
+	_, err := client.GenerateLyricsVariants(context.Background(), "факты", 2)
+	if !errors.Is(err, innerErr) {
+		t.Errorf("ожидали innerErr, получили: %v", err)
+	}
+}
