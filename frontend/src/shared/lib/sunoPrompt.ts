@@ -37,14 +37,34 @@ const VOCAL_SUNO: Record<string, string> = {
 export interface CatalogPromptForm {
   occasion: string;
   moods: string[];
+  /** sunoValue пресетов из API */
   genres: string[];
+  /** пользовательские жанры — только в description, не в tags */
+  customGenres: string[];
   tempo: string;
   vocal: string;
   details: string;
   customText: string;
 }
 
-function uniqueTags(parts: string[]): string {
+/** true, если в tags есть instrumental как отдельный тег. */
+export function isInstrumentalFromTags(tags: string): boolean {
+  return tags
+    .split(",")
+    .map((p) => p.trim().toLowerCase())
+    .some((p) => p === "instrumental");
+}
+
+export function isInstrumentalVocal(vocal: string): boolean {
+  const v = vocal.trim().toLowerCase();
+  return v === "без вокала" || v === "instrumental" || v.includes("instrumental");
+}
+
+function containsCyrillic(s: string): boolean {
+  return /[\u0400-\u04FF]/.test(s);
+}
+
+function uniqueTags(parts: string[], instrumental: boolean): string {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const p of parts) {
@@ -55,7 +75,10 @@ function uniqueTags(parts: string[]): string {
     seen.add(key);
     out.push(t);
   }
-  if (!out.some((t) => t.toLowerCase().includes("russian"))) {
+  if (
+    !instrumental &&
+    !out.some((t) => t.toLowerCase().includes("russian"))
+  ) {
     out.push("russian lyrics");
   }
   return out.join(", ");
@@ -65,39 +88,55 @@ export function buildCatalogStyleTags(
   form: CatalogPromptForm,
   genreOptions: GenreOption[],
 ): string {
-  const labelToSuno = new Map(genreOptions.map((g) => [g.label, g.sunoValue]));
+  const knownSuno = new Set(genreOptions.map((g) => g.sunoValue));
   const parts: string[] = [];
+  const instrumental =
+    isInstrumentalVocal(form.vocal) ||
+    isInstrumentalFromTags(VOCAL_SUNO[form.vocal] ?? form.vocal);
 
-  // Вокал первым — Suno сильнее учитывает начало tags.
   if (form.vocal) parts.push(VOCAL_SUNO[form.vocal] ?? form.vocal);
-  for (const label of form.genres) {
-    parts.push(labelToSuno.get(label) ?? label);
+  for (const val of form.genres) {
+    if (knownSuno.has(val) && !containsCyrillic(val)) {
+      parts.push(val);
+    }
   }
   for (const mood of form.moods) {
-    parts.push(MOOD_SUNO[mood] ?? mood);
+    if (!containsCyrillic(mood)) {
+      parts.push(MOOD_SUNO[mood] ?? mood);
+    }
   }
   if (form.tempo) parts.push(TEMPO_SUNO[form.tempo] ?? form.tempo);
 
-  return uniqueTags(parts);
+  return uniqueTags(parts, instrumental);
 }
 
 export function vocalRequirementLine(vocal: string): string {
   const v = vocal.trim();
-  if (!v) return "";
+  if (!v || isInstrumentalVocal(v)) return "";
   return `\n\nVocal requirement (mandatory, do not change): ${v}.`;
 }
 
 export function buildCatalogDescription(form: CatalogPromptForm): string {
-  const lines: string[] = [
-    "Write a complete personalized song. All sung lyrics must be in Russian.",
-    "",
-    "What the customer wants to hear:",
-  ];
+  const instrumental = isInstrumentalVocal(form.vocal);
+  const lines: string[] = instrumental
+    ? [
+        "Write a complete personalized instrumental track. Instrumental track only. No vocals.",
+        "",
+        "What the customer wants to hear:",
+      ]
+    : [
+        "Write a complete personalized song. All sung lyrics must be in Russian.",
+        "",
+        "What the customer wants to hear:",
+      ];
   if (form.occasion.trim()) {
     lines.push(`- Occasion / who it is for: ${form.occasion.trim()}`);
   }
   if (form.details.trim()) {
     lines.push(`- Story and details: ${form.details.trim()}`);
+  }
+  for (const g of form.customGenres) {
+    lines.push(`- Preferred genre style: ${g}`);
   }
   if (form.customText.trim()) {
     lines.push(
@@ -106,13 +145,15 @@ export function buildCatalogDescription(form: CatalogPromptForm): string {
       form.customText.trim(),
     );
   }
-  if (form.vocal) {
+  if (form.vocal && !instrumental) {
     lines.push(vocalRequirementLine(VOCAL_SUNO[form.vocal] ?? form.vocal));
   }
   lines.push(
     "",
     "Match the musical style from the separate Suno style tags (genre, mood, vocals, tempo).",
-    "Make the chorus catchy and personal.",
+    instrumental
+      ? "Focus on memorable melody and emotional arc without any singing."
+      : "Make the chorus catchy and personal.",
   );
   return lines.join("\n");
 }
@@ -147,31 +188,45 @@ function splitTagPieces(s: string): string[] {
     .filter(Boolean);
 }
 
-/** Suno tags из ответов квиза категории (значения option.value уже на англ.). */
+/** Suno tags из ответов квиза; кириллица в GENRE не попадает в tags. */
 export function buildStyleTagsFromAnswers(
   answers: Record<string, string>,
 ): string {
   const parts: string[] = [];
   const seen = new Set<string>();
+  let instrumental = false;
 
   for (const key of STYLE_ANSWER_KEYS) {
     const v = answers[key]?.trim();
     if (!v) continue;
     for (const piece of splitTagPieces(v)) {
+      if (key === "GENRE" && containsCyrillic(piece)) continue;
       const low = piece.toLowerCase();
       if (seen.has(low)) continue;
       seen.add(low);
       parts.push(piece);
+      if (low === "instrumental" || low.includes("instrumental")) {
+        instrumental = true;
+      }
     }
   }
 
   if (parts.length === 0) {
     return "russian pop, heartfelt";
   }
-  if (!parts.some((p) => p.toLowerCase().includes("russian"))) {
+  if (!instrumental && !parts.some((p) => p.toLowerCase().includes("russian"))) {
     parts.push("russian lyrics");
   }
   return parts.join(", ");
+}
+
+/** Жанры с кириллицей из GENRE — для description. */
+export function extractCustomGenresFromAnswers(
+  answers: Record<string, string>,
+): string[] {
+  const v = answers.GENRE?.trim();
+  if (!v) return [];
+  return splitTagPieces(v).filter(containsCyrillic);
 }
 
 function cleanSubstitutedTemplate(s: string): string {
@@ -195,8 +250,17 @@ export function substituteCategoryTemplate(
   template: string,
   answers: Record<string, string>,
 ): string {
+  const skipKeys = new Set([
+    "VOCAL",
+    "GENRE",
+    "MOOD",
+    "TEMPO",
+    "EXTRA",
+    "CUSTOM_LYRICS",
+  ]);
   let result = template;
   for (const [key, value] of Object.entries(answers)) {
+    if (skipKeys.has(key)) continue;
     result = result.split(`[${key}]`).join(value);
   }
   return result;
@@ -206,24 +270,33 @@ export function formatQuizDescription(
   categoryTitle: string,
   substituted: string,
   extra: string,
+  instrumental = false,
 ): string {
   const body = cleanSubstitutedTemplate(substituted);
-  const lines: string[] = [
-    "Write a complete song. All sung lyrics must be in Russian.",
-    "",
-  ];
+  const lines: string[] = instrumental
+    ? [
+        "Write a complete instrumental track. Instrumental track only. No vocals.",
+        "",
+      ]
+    : ["Write a complete song. All sung lyrics must be in Russian.", ""];
   const title = categoryTitle.trim();
   if (title) {
     lines.push(`Occasion / song type: ${title}.`, "");
   }
-  lines.push("What the customer wants to hear (use these facts in the lyrics):");
+  lines.push(
+    instrumental
+      ? "What the customer wants to hear (use these facts for mood and theme):"
+      : "What the customer wants to hear (use these facts in the lyrics):",
+  );
   lines.push(body || substituted);
   if (extra.trim()) {
     lines.push("", "Must-include names, phrases, or details:", extra.trim());
   }
   lines.push(
     "",
-    "Match the musical style from the separate Suno style tags (genre, mood, vocals, tempo). Make the chorus memorable and emotionally clear.",
+    instrumental
+      ? "Match the musical style from the separate Suno style tags (genre, mood, vocals, tempo). Focus on memorable melody and emotional arc without any singing."
+      : "Match the musical style from the separate Suno style tags (genre, mood, vocals, tempo). Make the chorus memorable and emotionally clear.",
   );
   return lines.join("\n");
 }
@@ -241,14 +314,25 @@ export function composeCategoryBrief(
   answers: Record<string, string>,
   customText = "",
 ): string {
-  const substituted = substituteCategoryTemplate(basePromptTemplate, answers);
+  const substituted = substituteCategoryTemplate(
+    basePromptTemplate,
+    answers,
+  );
   const tags = buildStyleTagsFromAnswers(answers);
+  const instrumental =
+    isInstrumentalFromTags(tags) || isInstrumentalVocal(answers.VOCAL ?? "");
+  let extra = answers.EXTRA ?? "";
+  for (const g of extractCustomGenresFromAnswers(answers)) {
+    const line = `Preferred genre style: ${g}`;
+    extra = extra.trim() ? `${extra.trim()}\n${line}` : line;
+  }
   let description = formatQuizDescription(
     categoryTitle,
     substituted,
-    answers.EXTRA ?? "",
+    extra,
+    instrumental,
   );
-  if (answers.VOCAL?.trim()) {
+  if (answers.VOCAL?.trim() && !instrumental) {
     description += vocalRequirementLine(answers.VOCAL);
   }
   description = appendCustomLyrics(description, customText);

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 type fixture struct {
@@ -340,6 +341,50 @@ func TestProcessGenerationTask_Success(t *testing.T) {
 	}
 	if len(f.queue.statusCalls) != 1 || f.queue.statusCalls[0].SunoJobID != "job-123" {
 		t.Errorf("ожидали постановку задачи опроса с job-123, получили %+v", f.queue.statusCalls)
+	}
+}
+
+func TestProcessGenerationTask_Instrumental(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount(t, 10)
+	brief := suno.EncodePrompt("modern pop, instrumental", "Instrumental track only. No vocals.")
+	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", brief, "", domain.CurrentConsentDocVersion, "", "", nil)
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
+		t.Fatalf("HandlePaymentSuccess: %v", err)
+	}
+
+	f.provider.submitFn = func(_ context.Context, req domain.MusicGenerationRequest) (string, error) {
+		if !req.Instrumental {
+			t.Error("ожидали Instrumental: true для tags с instrumental")
+		}
+		return "job-inst", nil
+	}
+
+	if err := f.uc.ProcessGenerationTask(context.Background(), order.ID()); err != nil {
+		t.Fatalf("ProcessGenerationTask: %v", err)
+	}
+}
+
+func TestCreateOrder_PromptTooLong(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("big", "Тест", "описание", "", nil, "Story about [NAME]")
+	_ = repo.Create(context.Background(), cat)
+	promptUC := NewPromptUseCase(repo)
+
+	f := newFixture(t)
+	f.uc = NewOrderUseCase(f.orderRepo, f.accRepo, f.queue, f.provider, f.storage, f.notifier, f.llm, promptUC, 150000, fakeTxManager{}, testLogger())
+
+	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "краткий brief", "big", domain.CurrentConsentDocVersion, "", "", map[string]string{
+		"NAME":  "Иван",
+		"EXTRA": strings.Repeat("я", domain.MaxSunoPromptLength+1),
+		"GENRE": "modern pop",
+		"VOCAL": "male vocals",
+	})
+	if !errors.Is(err, domain.ErrPromptTooLong) {
+		t.Fatalf("ожидали ErrPromptTooLong, получили %v", err)
 	}
 }
 

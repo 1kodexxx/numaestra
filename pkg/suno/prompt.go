@@ -3,6 +3,7 @@ package suno
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Маркеры кодированного промпта (хранятся в suno_prompt и в brief конструктора).
@@ -86,9 +87,48 @@ func BriefStoryForLLM(brief string) string {
 	return brief
 }
 
+// TemplateSkipKeys — служебные ключи квиза: не подставляются в story-шаблон.
+var TemplateSkipKeys = map[string]bool{
+	"VOCAL": true, "GENRE": true, "MOOD": true, "TEMPO": true,
+	"EXTRA": true, "CUSTOM_LYRICS": true,
+}
+
+// IsInstrumentalFromTags — true, если в tags есть instrumental как отдельный тег.
+func IsInstrumentalFromTags(tags string) bool {
+	for _, piece := range splitTagPieces(tags) {
+		if strings.EqualFold(strings.TrimSpace(piece), "instrumental") {
+			return true
+		}
+	}
+	return false
+}
+
+// IsInstrumentalVocal — true для ответа VOCAL с instrumental (категорийный квиз).
+func IsInstrumentalVocal(vocal string) bool {
+	v := strings.ToLower(strings.TrimSpace(vocal))
+	return v == "instrumental" || strings.Contains(v, "instrumental")
+}
+
+func containsCyrillic(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Cyrillic, r) {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildStyleTagsFromAnswers собирает Suno tags из ответов квиза (значения уже на англ.).
+// Кириллические значения GENRE (свой жанр) не попадают в tags — их нужно добавить в description.
 func BuildStyleTagsFromAnswers(answers map[string]string) string {
+	tags, _ := BuildStyleTagsFromAnswersWithCustomGenres(answers)
+	return tags
+}
+
+// BuildStyleTagsFromAnswersWithCustomGenres возвращает tags и жанры, перенесённые из GENRE в description.
+func BuildStyleTagsFromAnswersWithCustomGenres(answers map[string]string) (string, []string) {
 	var parts []string
+	var customGenres []string
 	seen := make(map[string]struct{})
 	for _, key := range styleAnswerKeys {
 		v := strings.TrimSpace(answers[key])
@@ -100,17 +140,21 @@ func BuildStyleTagsFromAnswers(answers map[string]string) string {
 			if _, ok := seen[low]; ok {
 				continue
 			}
+			if key == "GENRE" && containsCyrillic(piece) {
+				customGenres = append(customGenres, piece)
+				continue
+			}
 			seen[low] = struct{}{}
 			parts = append(parts, piece)
 		}
 	}
-	if len(parts) == 0 {
-		return "russian pop, heartfelt"
+	if len(parts) == 0 && len(customGenres) == 0 {
+		return "russian pop, heartfelt", customGenres
 	}
-	if !containsRussianLyricsHint(parts) {
+	if !IsInstrumentalFromTags(strings.Join(parts, ", ")) && !containsRussianLyricsHint(parts) {
 		parts = append(parts, "russian lyrics")
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, ", "), customGenres
 }
 
 func splitTagPieces(s string) []string {
@@ -145,18 +189,26 @@ var (
 )
 
 // FormatQuizDescription превращает подставленный шаблон категории в понятное Suno-описание.
-func FormatQuizDescription(categoryTitle, substituted string, extra string) string {
+func FormatQuizDescription(categoryTitle, substituted string, extra string, instrumental bool) string {
 	body := cleanSubstitutedTemplate(substituted)
 	extra = strings.TrimSpace(extra)
 
 	var b strings.Builder
-	b.WriteString("Write a complete song. All sung lyrics must be in Russian.\n\n")
+	if instrumental {
+		b.WriteString("Write a complete instrumental track. Instrumental track only. No vocals.\n\n")
+	} else {
+		b.WriteString("Write a complete song. All sung lyrics must be in Russian.\n\n")
+	}
 	if t := strings.TrimSpace(categoryTitle); t != "" {
 		b.WriteString("Occasion / song type: ")
 		b.WriteString(t)
 		b.WriteString(".\n\n")
 	}
-	b.WriteString("What the customer wants to hear (use these facts in the lyrics):\n")
+	if instrumental {
+		b.WriteString("What the customer wants to hear (use these facts for mood and theme):\n")
+	} else {
+		b.WriteString("What the customer wants to hear (use these facts in the lyrics):\n")
+	}
 	if body != "" {
 		b.WriteString(body)
 	} else {
@@ -167,7 +219,11 @@ func FormatQuizDescription(categoryTitle, substituted string, extra string) stri
 		b.WriteString(extra)
 	}
 	b.WriteString("\n\nMatch the musical style from the separate Suno style tags (genre, mood, vocals, tempo). ")
-	b.WriteString("Make the chorus memorable and emotionally clear.")
+	if instrumental {
+		b.WriteString("Focus on memorable melody and emotional arc without any singing.")
+	} else {
+		b.WriteString("Make the chorus memorable and emotionally clear.")
+	}
 	return b.String()
 }
 
@@ -198,19 +254,26 @@ func cleanSubstitutedTemplate(s string) string {
 func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInput {
 	tags := strings.TrimSpace(fallbackStyle)
 	text := brief
+	encoded := false
 
 	if enc, ok := DecodePrompt(brief); ok {
+		encoded = true
 		if tags == "" {
 			tags = enc.Tags
 		}
 		text = enc.Description
 	}
 
+	if !instrumental && IsInstrumentalFromTags(tags) {
+		instrumental = true
+	}
+
 	in := MusicInput{Tags: tags, Instrumental: instrumental}
-	if IsStructuredLyricsText(text) {
-		in.Lyrics = text
-	} else {
+	// Encoded промпт всегда Inspiration Mode — [Verse] в Must-use lyrics не переключает Custom Mode.
+	if encoded || !IsStructuredLyricsText(text) {
 		in.Description = text
+	} else {
+		in.Lyrics = text
 	}
 	return in
 }

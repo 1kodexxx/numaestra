@@ -201,6 +201,10 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusBadRequest, "поле brief слишком длинное")
 			return
 		}
+		if errors.Is(err, domain.ErrPromptTooLong) {
+			respondError(w, r, http.StatusBadRequest, "слишком длинные ответы квиза")
+			return
+		}
 		if errors.Is(err, usecase.ErrInvalidEmail) {
 			respondError(w, r, http.StatusBadRequest, "некорректный формат email")
 			return

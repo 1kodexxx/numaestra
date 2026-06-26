@@ -63,8 +63,12 @@ const (
 // раздувает стоимость генерации и нагрузку на хранилище.
 const MaxBriefLength = 5000
 
+// MaxSunoPromptLength — лимит итогового suno_prompt после BuildFinalPrompt (категорийный квиз).
+const MaxSunoPromptLength = MaxBriefLength
+
 var (
-	ErrBriefTooLong = errors.New("техническое задание слишком длинное")
+	ErrBriefTooLong  = errors.New("техническое задание слишком длинное")
+	ErrPromptTooLong = errors.New("итоговый промпт слишком длинный")
 
 	ErrOrderNotFound               = errors.New("заказ не найден")
 	ErrOrderAlreadyPaid            = errors.New("заказ уже оплачен")

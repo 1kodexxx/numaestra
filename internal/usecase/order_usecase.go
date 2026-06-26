@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -227,6 +228,9 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 		sunoPrompt, err = uc.promptUC.BuildFinalPrompt(ctx, categoryID, answers)
 		if err != nil {
 			return nil, fmt.Errorf("построение промпта: %w", err)
+		}
+		if utf8.RuneCountInString(sunoPrompt) > domain.MaxSunoPromptLength {
+			return nil, domain.ErrPromptTooLong
 		}
 	}
 
@@ -462,10 +466,11 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 
 	// 4. Отправка структурированного запроса в Suno API.
 	// Продукт фиксированный — 4 версии песни на заказ, без тарифов.
+	styleTags := resolveSunoStyleTags(order.SunoPrompt(), order.Brief())
 	req := domain.MusicGenerationRequest{
 		Briefs:       briefs,
-		Style:        resolveSunoStyleTags(order.SunoPrompt(), order.Brief()),
-		Instrumental: false,
+		Style:        styleTags,
+		Instrumental: suno.IsInstrumentalFromTags(styleTags),
 		TrackCount:   domain.DefaultTrackCount,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
@@ -1051,10 +1056,11 @@ func (uc *OrderUseCase) GenerateDemo(ctx context.Context, orderID uuid.UUID) err
 		return fmt.Errorf("демо: сохранение статуса processing: %w", err)
 	}
 
+	styleTags := resolveSunoStyleTags(order.SunoPrompt(), order.Brief())
 	req := domain.MusicGenerationRequest{
 		Briefs:       []string{demoBrief(order)},
-		Style:        resolveSunoStyleTags(order.SunoPrompt(), order.Brief()),
-		Instrumental: false,
+		Style:        styleTags,
+		Instrumental: suno.IsInstrumentalFromTags(styleTags),
 		TrackCount:   1,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)

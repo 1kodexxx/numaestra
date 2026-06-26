@@ -94,13 +94,26 @@ func (uc *PromptUseCase) BuildFinalPrompt(ctx context.Context, categoryID string
 
 	template := category.BasePromptTemplate()
 	for key, value := range userAnswers {
+		if suno.TemplateSkipKeys[key] {
+			continue
+		}
 		placeholder := "[" + key + "]"
 		template = strings.ReplaceAll(template, placeholder, value)
 	}
 
-	tags := suno.BuildStyleTagsFromAnswers(userAnswers)
-	description := suno.FormatQuizDescription(category.Title(), template, userAnswers["EXTRA"])
-	if vocal := strings.TrimSpace(userAnswers["VOCAL"]); vocal != "" {
+	tags, customGenres := suno.BuildStyleTagsFromAnswersWithCustomGenres(userAnswers)
+	extra := strings.TrimSpace(userAnswers["EXTRA"])
+	for _, g := range customGenres {
+		line := "Preferred genre style: " + g
+		if extra != "" {
+			extra += "\n" + line
+		} else {
+			extra = line
+		}
+	}
+	instrumental := suno.IsInstrumentalFromTags(tags) || suno.IsInstrumentalVocal(userAnswers["VOCAL"])
+	description := suno.FormatQuizDescription(category.Title(), template, extra, instrumental)
+	if vocal := strings.TrimSpace(userAnswers["VOCAL"]); vocal != "" && !instrumental {
 		description += suno.VocalRequirementLine(vocal)
 	}
 	if lyrics := strings.TrimSpace(userAnswers["CUSTOM_LYRICS"]); lyrics != "" {

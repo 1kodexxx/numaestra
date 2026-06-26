@@ -136,6 +136,7 @@ function QuestionField({
   onToggleTag,
   allowCustom,
   maxSelect,
+  onCustomValue,
 }: {
   q: Question;
   textValue: string;
@@ -144,6 +145,7 @@ function QuestionField({
   onToggleTag: (v: string) => void;
   allowCustom?: boolean;
   maxSelect?: number;
+  onCustomValue?: (v: string) => void;
 }) {
   const [customInput, setCustomInput] = useState("");
 
@@ -178,9 +180,11 @@ function QuestionField({
   function addCustom() {
     const v = customInput.trim();
     if (!v) return;
-    // Дедуп без учёта регистра, уважение лимита (контролируется в toggleTag).
     const exists = tagValues.some((x) => x.toLowerCase() === v.toLowerCase());
-    if (!exists) onToggleTag(v);
+    if (!exists) {
+      if (onCustomValue) onCustomValue(v);
+      else onToggleTag(v);
+    }
     setCustomInput("");
   }
 
@@ -336,6 +340,15 @@ export function CategoryPage() {
       if (!q.is_required) continue;
       const val = mergedAnswers[q.mapping_key];
       if (!val?.trim()) return `Заполните обязательное поле: ${q.question_text}`;
+      if (q.ui_type === "tags") {
+        const min = q.config?.min_select;
+        if (min != null && min > 0) {
+          const count = tagSel[q.mapping_key]?.length ?? 0;
+          if (count < min) {
+            return `Выберите минимум ${min} в «${q.question_text}»`;
+          }
+        }
+      }
     }
     return null;
   }
@@ -557,6 +570,20 @@ export function CategoryPage() {
                 allowCustom={q.mapping_key === GENRE_KEY}
                 maxSelect={q.mapping_key === GENRE_KEY ? MAX_GENRES : q.config?.max_select}
                 onToggleTag={(v) => toggleTag(q.mapping_key, v, q.mapping_key === GENRE_KEY ? MAX_GENRES : q.config?.max_select)}
+                onCustomValue={
+                  q.mapping_key === GENRE_KEY
+                    ? (v) => {
+                        setAnswers((prev) => {
+                          const extra = prev.EXTRA?.trim() ?? "";
+                          const line = `Preferred genre style: ${v}`;
+                          return {
+                            ...prev,
+                            EXTRA: extra ? `${extra}\n${line}` : line,
+                          };
+                        });
+                      }
+                    : undefined
+                }
               />
             ))
           : wizardLoading

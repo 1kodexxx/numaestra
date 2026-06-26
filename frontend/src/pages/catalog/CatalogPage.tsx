@@ -1,6 +1,7 @@
 import type { Category } from "@entities/category";
 import { exampleApi } from "@entities/example";
 import { genreApi } from "@entities/genre";
+import { promoApi } from "@entities/admin-promo";
 import { useCreateOrder } from "@features/create-order";
 import { useCatalog } from "@features/load-catalog";
 import type { ExampleSong } from "@shared/data/examples";
@@ -468,6 +469,7 @@ function Section({
 /* ─── multi-select tags with optional custom value ─── */
 function MultiTagSection({
   label,
+  required,
   hint,
   presets,
   selected,
@@ -478,6 +480,7 @@ function MultiTagSection({
   limitLabel,
 }: {
   label: string;
+  required?: boolean;
   hint?: string;
   presets: string[];
   selected: string[];
@@ -506,7 +509,7 @@ function MultiTagSection({
       : "можно несколько");
 
   return (
-    <Section label={label} hint={resolvedHint}>
+    <Section label={label} required={required} hint={resolvedHint}>
       {presets.map((p) => (
         <Chip
           key={p}
@@ -575,6 +578,74 @@ function MultiTagSection({
   );
 }
 
+function GenreCustomInput({
+  atLimit,
+  maxSelect,
+  onAdd,
+}: {
+  atLimit: boolean;
+  maxSelect: number;
+  onAdd: (v: string) => void;
+}) {
+  const [customInput, setCustomInput] = useState("");
+
+  function addCustom() {
+    const v = customInput.trim();
+    if (!v) return;
+    onAdd(v);
+    setCustomInput("");
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: "6px",
+        width: "100%",
+        marginTop: "4px",
+      }}
+    >
+      <input
+        value={customInput}
+        onChange={(e) => setCustomInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addCustom();
+          }
+        }}
+        disabled={atLimit}
+        placeholder={
+          atLimit
+            ? `Достигнут лимит — ${maxSelect} жанра`
+            : "Свой жанр…"
+        }
+        maxLength={40}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: "9px 14px",
+          borderRadius: "20px",
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          color: "#fff",
+          fontSize: "13px",
+          fontFamily: "inherit",
+          outline: "none",
+          opacity: atLimit ? 0.5 : 1,
+        }}
+      />
+      <Button
+        size="sm"
+        onClick={addCustom}
+        disabled={atLimit || !customInput.trim()}
+      >
+        Добавить
+      </Button>
+    </div>
+  );
+}
+
 /* ─── prompt constructor ─── */
 function PromptBuilder({
   form,
@@ -584,6 +655,13 @@ function PromptBuilder({
   onSubmit,
   canSubmit,
   priceLabel,
+  promoCode,
+  promoStatus,
+  promoError,
+  promoLoading,
+  onPromoChange,
+  onApplyPromo,
+  onClearPromo,
 }: {
   form: PromptForm;
   update: <K extends keyof PromptForm>(key: K, value: PromptForm[K]) => void;
@@ -592,9 +670,16 @@ function PromptBuilder({
   onSubmit: () => void;
   canSubmit: boolean;
   priceLabel: string;
+  promoCode: string;
+  promoStatus: { discount_kopecks: number; label: string } | null;
+  promoError: string | null;
+  promoLoading: boolean;
+  onPromoChange: (v: string) => void;
+  onApplyPromo: () => void;
+  onClearPromo: () => void;
 }) {
   const toggleMulti = (
-    key: "moods" | "genres",
+    key: "moods",
     val: string,
     max?: number,
   ) => {
@@ -609,12 +694,42 @@ function PromptBuilder({
     }
   };
   const preview = composeBrief(form, genres);
+  const labelToSuno = new Map(genres.map((g) => [g.label, g.sunoValue]));
   const genrePresets = genres.map((g) => g.label);
+  const genreCount = form.genres.length + form.customGenres.length;
 
-  // Прогресс по двум обязательным полям — как в конструкторе категорий.
+  function togglePresetGenre(label: string) {
+    const suno = labelToSuno.get(label);
+    if (!suno) return;
+    if (form.genres.includes(suno)) {
+      update(
+        "genres",
+        form.genres.filter((x) => x !== suno),
+      );
+    } else if (genreCount < MAX_GENRES) {
+      update("genres", [...form.genres, suno]);
+    }
+  }
+
+  function toggleCustomGenre(val: string) {
+    if (form.customGenres.includes(val)) {
+      update(
+        "customGenres",
+        form.customGenres.filter((x) => x !== val),
+      );
+    } else if (genreCount < MAX_GENRES) {
+      update("customGenres", [...form.customGenres, val]);
+    }
+  }
+
+  // Прогресс по 5 обязательным полям.
   const progressDone =
-    (form.occasion.trim() ? 1 : 0) + (form.details.trim() ? 1 : 0);
-  const progressTotal = 2;
+    (form.occasion.trim() ? 1 : 0) +
+    ((form.genres.length > 0 || form.customGenres.length > 0) ? 1 : 0) +
+    (form.moods.length > 0 ? 1 : 0) +
+    (form.vocal.trim() ? 1 : 0) +
+    (form.details.trim() ? 1 : 0);
+  const progressTotal = 5;
 
   return (
     <div style={{ width: "100%", maxWidth: "640px" }} className="fade-in">
@@ -757,19 +872,44 @@ function PromptBuilder({
           surfaceColor={SURFACE}
         />
 
-        <MultiTagSection
-          label="Жанр"
-          presets={genrePresets}
-          selected={form.genres}
-          onToggle={(v) => toggleMulti("genres", v, MAX_GENRES)}
-          allowCustom
-          maxSelect={MAX_GENRES}
-          customPlaceholder="Свой жанр…"
-          limitLabel="жанра"
-        />
+        <Section label="Жанр" required hint={`до ${MAX_GENRES} — выбирайте из списка или добавьте свой`}>
+          {genrePresets.map((label) => {
+            const suno = labelToSuno.get(label);
+            const selected = suno ? form.genres.includes(suno) : false;
+            return (
+              <Chip
+                key={label}
+                label={label}
+                selected={selected}
+                onClick={() => togglePresetGenre(label)}
+              />
+            );
+          })}
+          {form.customGenres.map((v) => (
+            <Chip
+              key={`custom:${v}`}
+              label={`${v} ✕`}
+              selected
+              onClick={() => toggleCustomGenre(v)}
+            />
+          ))}
+          <GenreCustomInput
+            atLimit={genreCount >= MAX_GENRES}
+            maxSelect={MAX_GENRES}
+            onAdd={(v) => {
+              if (
+                genreCount < MAX_GENRES &&
+                !form.customGenres.some((x) => x.toLowerCase() === v.toLowerCase())
+              ) {
+                update("customGenres", [...form.customGenres, v]);
+              }
+            }}
+          />
+        </Section>
 
         <MultiTagSection
           label="Настроение"
+          required
           presets={[...MOODS]}
           selected={form.moods}
           onToggle={(v) => toggleMulti("moods", v, MAX_MOODS)}
@@ -790,7 +930,7 @@ function PromptBuilder({
           ))}
         </Section>
 
-        <Section label="Вокал">
+        <Section label="Вокал" required>
           {VOCALS.map((v) => (
             <Chip
               key={v}
@@ -860,24 +1000,56 @@ function PromptBuilder({
         </div>
       </div>
 
-      {/* Кнопка-заказ — стиль bar как в CategoryPage */}
+      {/* Нижняя панель — промокод + кнопка заказа */}
       <div
         style={{
           marginTop: "24px",
           paddingTop: "20px",
           borderTop: `1px solid ${BORDER}`,
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
         }}
       >
+        {/* Промокод */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div style={{ flex: 1 }}>
+            <TextField
+              label="Промокод (необязательно)"
+              value={promoCode}
+              onChange={(v) => onPromoChange(v.toUpperCase())}
+              disabled={!!promoStatus}
+            />
+          </div>
+          {promoStatus ? (
+            <Button size="sm" onClick={onClearPromo}>✕</Button>
+          ) : (
+            <Button size="sm" onClick={onApplyPromo} disabled={!promoCode.trim() || promoLoading}>
+              {promoLoading ? "…" : "Применить"}
+            </Button>
+          )}
+        </div>
+        {promoStatus && (
+          <div style={{ fontSize: "12px", color: ACCENT, textAlign: "center" }}>
+            ✓ Промокод применён: {promoStatus.label} — сэкономите{" "}
+            {Math.round(promoStatus.discount_kopecks / 100)} ₽
+          </div>
+        )}
+        {promoError && (
+          <div style={{ fontSize: "12px", color: "#f87171", textAlign: "center" }}>
+            ✕ {promoError}
+          </div>
+        )}
+
         {!canSubmit && (
           <div
             style={{
               fontSize: "12px",
               color: TEXT3,
-              marginBottom: "10px",
               textAlign: "center",
             }}
           >
-            Заполните «Повод» и «Детали», чтобы продолжить
+            Заполните обязательные поля, чтобы продолжить
           </div>
         )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
@@ -1318,6 +1490,10 @@ export function CatalogPage() {
   const [form, setForm] = useState<PromptForm>(() => loadCatalogDraft() ?? EMPTY_FORM);
   const [genres, setGenres] = useState<GenreOption[]>(GENRES_FALLBACK);
   const [showContact, setShowContact] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoStatus, setPromoStatus] = useState<{ discount_kopecks: number; label: string } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
   const [playing, setPlaying] = useState<ExampleSong | null>(null);
   const [track, setTrack] = useState<{ url: string; duration: number } | null>(
     null,
@@ -1366,6 +1542,16 @@ export function CatalogPage() {
         /* остаёмся на резервном списке */
       });
   }, []);
+
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("numaestra_catalog_draft_v1")) return;
+      const migrated = loadCatalogDraft(genres);
+      if (migrated) setForm(migrated);
+    } catch {
+      /* ignore */
+    }
+  }, [genres]);
 
   // Прогреваем демо-синтез только для примеров без реальной записи.
   useEffect(() => {
@@ -1432,6 +1618,27 @@ export function CatalogPage() {
 
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
+  async function applyPromoCode() {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoStatus(null);
+    setPromoError(null);
+    try {
+      const res = await promoApi.validate(code, publicConfig.price_kopecks);
+      const label =
+        res.discount_type === "percent"
+          ? `−${res.discount_value}%`
+          : `−${res.discount_value} ₽`;
+      setPromoStatus({ discount_kopecks: res.discount_kopecks, label });
+    } catch {
+      setPromoStatus(null);
+      setPromoError("Промокод недействителен или истёк");
+    } finally {
+      setPromoLoading(false);
+    }
+  }
+
   async function handleCustomOrder(email: string, phone: string) {
     const brief = composeBrief(form, genres);
     clearCatalogDraft();
@@ -1442,6 +1649,7 @@ export function CatalogPage() {
       category_id: "",
       answers: {},
       consent_doc_version: publicConfig.consent_doc_version,
+      promo_code: promoStatus ? promoCode.trim().toUpperCase() : undefined,
     });
   }
 
@@ -1479,9 +1687,20 @@ export function CatalogPage() {
           onBack={closeBuilder}
           onSubmit={openContact}
           canSubmit={
-            form.occasion.trim().length > 0 && form.details.trim().length > 0
+            form.occasion.trim().length > 0 &&
+            form.details.trim().length > 0 &&
+            (form.genres.length > 0 || form.customGenres.length > 0) &&
+            form.moods.length > 0 &&
+            form.vocal.trim().length > 0
           }
           priceLabel={publicConfig.price_label}
+          promoCode={promoCode}
+          promoStatus={promoStatus}
+          promoError={promoError}
+          promoLoading={promoLoading}
+          onPromoChange={(v) => { setPromoCode(v); setPromoStatus(null); setPromoError(null); }}
+          onApplyPromo={applyPromoCode}
+          onClearPromo={() => { setPromoCode(""); setPromoStatus(null); setPromoError(null); }}
         />
       </div>
     </div>

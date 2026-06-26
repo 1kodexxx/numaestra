@@ -3,9 +3,11 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/suno"
 )
 
 func TestNewNoopPromptUseCase(t *testing.T) {
@@ -105,6 +107,53 @@ func TestPromptUseCase_BuildFinalPrompt(t *testing.T) {
 	}
 	if prompt == "" {
 		t.Error("BuildFinalPrompt вернул пустую строку")
+	}
+}
+
+func TestPromptUseCase_BuildFinalPrompt_NoDuplicateCustomLyrics(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("bday", "День рождения", "праздник", "", nil,
+		"Song for [NAME]. Lyrics:\n[CUSTOM_LYRICS]")
+	_ = repo.Create(context.Background(), cat)
+	uc := NewPromptUseCase(repo)
+
+	lyrics := "Строка один\nСтрока два"
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
+		"NAME":          "Иван",
+		"CUSTOM_LYRICS": lyrics,
+		"GENRE":         "modern pop",
+		"VOCAL":         "male vocals",
+	})
+	if err != nil {
+		t.Fatalf("BuildFinalPrompt: %v", err)
+	}
+	if strings.Count(prompt, lyrics) != 1 {
+		t.Errorf("CUSTOM_LYRICS не должен дублироваться, count=%d", strings.Count(prompt, lyrics))
+	}
+}
+
+func TestPromptUseCase_BuildFinalPrompt_CustomGenreInDescription(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("bday", "День рождения", "праздник", "", nil, "Song: [NAME]")
+	_ = repo.Create(context.Background(), cat)
+	uc := NewPromptUseCase(repo)
+
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
+		"NAME":  "Иван",
+		"GENRE": "modern pop, Трэп",
+		"VOCAL": "male vocals",
+	})
+	if err != nil {
+		t.Fatalf("BuildFinalPrompt: %v", err)
+	}
+	if strings.Contains(prompt, "Трэп") {
+		enc, ok := suno.DecodePrompt(prompt)
+		if !ok || strings.Contains(enc.Tags, "Трэп") {
+			t.Error("Трэп не должен быть в tags")
+		}
+	}
+	if !strings.Contains(prompt, "Preferred genre style: Трэп") {
+		t.Errorf("ожидали Трэп в description: %q", prompt)
 	}
 }
 

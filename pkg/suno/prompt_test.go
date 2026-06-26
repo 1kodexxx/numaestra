@@ -43,7 +43,7 @@ func TestBuildStyleTagsFromAnswers_DedupesRussian(t *testing.T) {
 
 func TestFormatQuizDescription_StripsBoilerplate(t *testing.T) {
 	subst := "Create a emotional modern pop song with male vocals. The lyrics must be in Russian language. The song is about: Groom Ivan and bride Maria."
-	desc := FormatQuizDescription("Свадьба", subst, "фраза «навсегда»")
+	desc := FormatQuizDescription("Свадьба", subst, "фраза «навсегда»", false)
 	if strings.Contains(desc, "Create a") {
 		t.Errorf("бойлерплейт не убран: %q", desc)
 	}
@@ -127,5 +127,65 @@ func TestBriefStoryForLLM(t *testing.T) {
 	raw := "просто текст"
 	if BriefStoryForLLM(raw) != raw {
 		t.Errorf("ожидали вернуть сырой текст: %q", BriefStoryForLLM(raw))
+	}
+}
+
+func TestIsInstrumentalFromTags(t *testing.T) {
+	cases := []struct {
+		tags string
+		want bool
+	}{
+		{"pop, instrumental, slow tempo", true},
+		{"instrumental", true},
+		{"INSTRUMENTAL", true},
+		{"male vocals, modern pop", false},
+		{"non-instrumental rock", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := IsInstrumentalFromTags(tc.tags); got != tc.want {
+			t.Errorf("IsInstrumentalFromTags(%q) = %v, want %v", tc.tags, got, tc.want)
+		}
+	}
+}
+
+func TestResolveMusicInput_EncodedKeepsInspirationWithVerseInCustomLyrics(t *testing.T) {
+	brief := EncodePrompt("pop", "Write a song...\n\nMust-use lyrics:\n[Verse 1]\nПривет")
+	in := ResolveMusicInput(brief, "", false)
+	if in.Description == "" || in.Lyrics != "" {
+		t.Errorf("encoded промпт с [Verse 1] должен остаться в Inspiration Mode: %+v", in)
+	}
+}
+
+func TestFormatQuizDescription_Instrumental(t *testing.T) {
+	desc := FormatQuizDescription("Свадьба", "Soft melody", "", true)
+	if strings.Contains(desc, "lyrics must be in Russian") {
+		t.Errorf("instrumental не должен требовать русский вокал: %q", desc)
+	}
+	if !strings.Contains(desc, "Instrumental track only") {
+		t.Errorf("ожидали instrumental-инструкцию: %q", desc)
+	}
+}
+
+func TestBuildStyleTagsFromAnswers_FiltersCyrillicGenre(t *testing.T) {
+	tags, custom := BuildStyleTagsFromAnswersWithCustomGenres(map[string]string{
+		"GENRE": "modern pop, Трэп",
+		"VOCAL": "male vocals",
+	})
+	if strings.Contains(tags, "Трэп") {
+		t.Errorf("кириллица не должна быть в tags: %q", tags)
+	}
+	if len(custom) != 1 || custom[0] != "Трэп" {
+		t.Errorf("ожидали custom genre Трэп, получили %v", custom)
+	}
+}
+
+func TestBuildStyleTagsFromAnswers_InstrumentalSkipsRussianLyrics(t *testing.T) {
+	tags := BuildStyleTagsFromAnswers(map[string]string{
+		"GENRE": "electronic",
+		"VOCAL": "instrumental",
+	})
+	if strings.Contains(strings.ToLower(tags), "russian lyrics") {
+		t.Errorf("instrumental не должен добавлять russian lyrics: %q", tags)
 	}
 }

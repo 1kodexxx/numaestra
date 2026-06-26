@@ -4,7 +4,10 @@ import { composeCatalogBrief } from '@shared/lib/sunoPrompt'
 export interface PromptForm {
   occasion: string
   moods: string[]
+  /** sunoValue пресетов из API */
   genres: string[]
+  /** пользовательские жанры — только в description */
+  customGenres: string[]
   tempo: string
   vocal: string
   details: string
@@ -15,6 +18,7 @@ export const EMPTY_FORM: PromptForm = {
   occasion: '',
   moods: [],
   genres: [],
+  customGenres: [],
   tempo: '',
   vocal: '',
   details: '',

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  composeCatalogBrief,
-  composeCategoryBrief,
+  buildCatalogDescription,
   buildCatalogStyleTags,
   buildStyleTagsFromAnswers,
+  composeCatalogBrief,
+  composeCategoryBrief,
+  extractCustomGenresFromAnswers,
   formatQuizDescription,
   type GenreOption,
 } from "./sunoPrompt";
@@ -19,7 +21,8 @@ describe("sunoPrompt", () => {
       {
         occasion: "жене на годовщину",
         moods: ["Романтика"],
-        genres: ["Поп"],
+        genres: ["modern pop"],
+        customGenres: [],
         tempo: "Медленный",
         vocal: "Мужской",
         details: "15 лет вместе",
@@ -40,7 +43,8 @@ describe("sunoPrompt", () => {
       {
         occasion: "",
         moods: [],
-        genres: ["Баллада"],
+        genres: ["pop ballad"],
+        customGenres: [],
         tempo: "",
         vocal: "",
         details: "",
@@ -50,6 +54,63 @@ describe("sunoPrompt", () => {
     );
     expect(tags).toContain("pop ballad");
     expect(tags).not.toContain("Баллада");
+  });
+
+  it("Без вокала — instrumental в tags, без russian lyrics и vocal requirement", () => {
+    const form = {
+      occasion: "фон для видео",
+      moods: [],
+      genres: ["modern pop"],
+      customGenres: [],
+      tempo: "",
+      vocal: "Без вокала",
+      details: "спокойная мелодия",
+      customText: "",
+    };
+    const tags = buildCatalogStyleTags(form, GENRES);
+    expect(tags).toContain("instrumental");
+    expect(tags).not.toMatch(/russian lyrics/i);
+
+    const desc = buildCatalogDescription(form);
+    expect(desc).not.toMatch(/must be in Russian/i);
+    expect(desc).toContain("Instrumental track only");
+    expect(desc).not.toContain("Vocal requirement");
+  });
+
+  it("неизвестный label не попадает в tags как кириллица", () => {
+    const tags = buildCatalogStyleTags(
+      {
+        occasion: "",
+        moods: [],
+        genres: ["unknown-value"],
+        customGenres: ["Трэп"],
+        tempo: "",
+        vocal: "",
+        details: "",
+        customText: "",
+      },
+      GENRES,
+    );
+    expect(tags).not.toContain("Трэп");
+    expect(tags).not.toContain("unknown-value");
+  });
+
+  it("custom genre попадает в description категории, не в tags", () => {
+    const answers = {
+      GENRE: "modern pop, Трэп",
+      VOCAL: "male vocals",
+    };
+    const tags = buildStyleTagsFromAnswers(answers);
+    expect(tags).not.toContain("Трэп");
+    expect(extractCustomGenresFromAnswers(answers)).toEqual(["Трэп"]);
+
+    const brief = composeCategoryBrief(
+      "День рождения",
+      "Song about [NAME]",
+      { ...answers, NAME: "Коля" },
+    );
+    expect(brief).toContain("Preferred genre style: Трэп");
+    expect(brief).not.toContain("#SUNO_TAGS# Трэп");
   });
 
   it("composeCategoryBrief кодирует tags и описание как основной конструктор", () => {
@@ -74,7 +135,9 @@ describe("sunoPrompt", () => {
       GENRE: "modern pop",
       VOCAL: "female vocals",
     });
-    expect(tags.indexOf("female vocals")).toBeLessThan(tags.indexOf("modern pop"));
+    expect(tags.indexOf("female vocals")).toBeLessThan(
+      tags.indexOf("modern pop"),
+    );
   });
 
   it("buildStyleTagsFromAnswers добавляет russian lyrics один раз", () => {
