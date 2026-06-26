@@ -17,7 +17,54 @@ func newTestLimiter(t *testing.T, dailyLimit, perEmailHours int) (*Limiter, *min
 	}
 	t.Cleanup(mr.Close)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	return New(rdb, dailyLimit, perEmailHours), mr
+	return New(rdb, dailyLimit, perEmailHours, 0), mr // per-IP отключён
+}
+
+func newIPLimiter(t *testing.T, perIPDaily int) *Limiter {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	return New(rdb, 0, 0, perIPDaily)
+}
+
+// Один IP получает не больше N демо в сутки; дальше — отказ.
+func TestAllowIP_BlocksAfterDailyCap(t *testing.T) {
+	l := newIPLimiter(t, 3)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		ok, err := l.AllowIP(ctx, "203.0.113.7")
+		if err != nil || !ok {
+			t.Fatalf("демо %d в пределах IP-лимита должно пройти: ok=%v err=%v", i, ok, err)
+		}
+	}
+	ok, err := l.AllowIP(ctx, "203.0.113.7")
+	if err != nil {
+		t.Fatalf("ошибка: %v", err)
+	}
+	if ok {
+		t.Error("четвёртое демо с того же IP должно быть отклонено")
+	}
+	// Другой IP не затронут.
+	ok, _ = l.AllowIP(ctx, "203.0.113.8")
+	if !ok {
+		t.Error("другой IP должен проходить независимо")
+	}
+}
+
+// perIPDaily=0 отключает лимит на IP.
+func TestAllowIP_Disabled(t *testing.T) {
+	l := newIPLimiter(t, 0)
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
+		ok, err := l.AllowIP(ctx, "203.0.113.7")
+		if err != nil || !ok {
+			t.Fatalf("без IP-лимита всё должно проходить: ok=%v err=%v", ok, err)
+		}
+	}
 }
 
 // Один email получает демо один раз; второй заказ с тем же email — отказ.

@@ -355,12 +355,45 @@ func TestCheckDemoStatus_ProcessorError_FallsBackToFullClip(t *testing.T) {
 func TestTriggerDemo_Enqueues(t *testing.T) {
 	f := newFixture(t)
 	order := demoOrder(t, f)
-	if err := f.uc.TriggerDemo(context.Background(), order.ID()); err != nil {
+	if err := f.uc.TriggerDemo(context.Background(), order.ID(), "1.2.3.4"); err != nil {
 		t.Fatalf("TriggerDemo: %v", err)
 	}
 	f.queue.mu.Lock()
 	defer f.queue.mu.Unlock()
 	if len(f.queue.demoCalls) != 1 || f.queue.demoCalls[0] != order.ID() {
 		t.Errorf("ожидали постановку демо-задачи для %s, получили %v", order.ID(), f.queue.demoCalls)
+	}
+}
+
+// Превышен суточный лимит демо на IP → демо НЕ ставится (заказ не затронут).
+func TestTriggerDemo_IPLimitExceeded_SkipsEnqueue(t *testing.T) {
+	f := newFixture(t)
+	f.uc.WithDemoGuards(&fakeDemoLimiter{ipDenied: true}, 0)
+	order := demoOrder(t, f)
+
+	if err := f.uc.TriggerDemo(context.Background(), order.ID(), "9.9.9.9"); err != nil {
+		t.Fatalf("TriggerDemo: %v", err)
+	}
+	f.queue.mu.Lock()
+	defer f.queue.mu.Unlock()
+	if len(f.queue.demoCalls) != 0 {
+		t.Errorf("при превышении IP-лимита демо не должно ставиться, получили %v", f.queue.demoCalls)
+	}
+}
+
+// Ошибка IP-лимитера → fail-open: демо всё равно ставится (расход ограничен дневным
+// потолком и резервом ниже по потоку).
+func TestTriggerDemo_IPLimiterError_FailsOpen(t *testing.T) {
+	f := newFixture(t)
+	f.uc.WithDemoGuards(&fakeDemoLimiter{ipErr: errors.New("redis down")}, 0)
+	order := demoOrder(t, f)
+
+	if err := f.uc.TriggerDemo(context.Background(), order.ID(), "9.9.9.9"); err != nil {
+		t.Fatalf("TriggerDemo: %v", err)
+	}
+	f.queue.mu.Lock()
+	defer f.queue.mu.Unlock()
+	if len(f.queue.demoCalls) != 1 {
+		t.Errorf("при ошибке IP-лимитера демо должно ставиться (fail-open), получили %v", f.queue.demoCalls)
 	}
 }

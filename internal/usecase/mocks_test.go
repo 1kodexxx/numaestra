@@ -37,14 +37,22 @@ func (v *fakeVerifier) GetPaidAmountKopecks(_ context.Context, invID int64) (int
 // --- fake DemoLimiter ---
 
 type fakeDemoLimiter struct {
-	allowed bool
-	err     error
-	calls   []uuid.UUID
+	allowed  bool
+	err      error
+	calls    []uuid.UUID
+	ipDenied bool // true → AllowIP возвращает false
+	ipErr    error
+	ipCalls  []string
 }
 
 func (l *fakeDemoLimiter) Reserve(_ context.Context, orderID uuid.UUID, _ string) (bool, error) {
 	l.calls = append(l.calls, orderID)
 	return l.allowed, l.err
+}
+
+func (l *fakeDemoLimiter) AllowIP(_ context.Context, ip string) (bool, error) {
+	l.ipCalls = append(l.ipCalls, ip)
+	return !l.ipDenied, l.ipErr
 }
 
 // --- fake DemoClipProcessor ---

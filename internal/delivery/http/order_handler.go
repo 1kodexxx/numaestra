@@ -238,8 +238,9 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Запускаем бесплатное демо в фоне (best-effort, отдельная полоса). Ошибка
 	// постановки не влияет ни на заказ, ни на оплату — клиент в худшем случае
-	// просто не увидит демо и оплатит как обычно.
-	if err := h.uc.TriggerDemo(r.Context(), order.ID()); err != nil {
+	// просто не увидит демо и оплатит как обычно. clientIP — для суточного
+	// лимита демо на IP (защита от выжигания дневного бюджета одним источником).
+	if err := h.uc.TriggerDemo(r.Context(), order.ID(), clientIP(r)); err != nil {
 		h.log.Warn("не удалось поставить задачу демо", "order_id", order.ID(), "err", err)
 	}
 

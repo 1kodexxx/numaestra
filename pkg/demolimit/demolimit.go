@@ -23,15 +23,17 @@ type Limiter struct {
 	rdb         *redis.Client
 	dailyLimit  int           // 0 → дневной лимит выключен
 	perEmailTTL time.Duration // 0 → лимит на email выключен
+	perIPDaily  int           // 0 → лимит на IP выключен
 }
 
 // New создаёт лимитер. dailyLimit=0 отключает дневной лимит, perEmailHours=0 —
-// лимит на email. rdb обязателен.
-func New(rdb *redis.Client, dailyLimit, perEmailHours int) *Limiter {
+// лимит на email, perIPDaily=0 — лимит на IP. rdb обязателен.
+func New(rdb *redis.Client, dailyLimit, perEmailHours, perIPDaily int) *Limiter {
 	return &Limiter{
 		rdb:         rdb,
 		dailyLimit:  dailyLimit,
 		perEmailTTL: time.Duration(perEmailHours) * time.Hour,
+		perIPDaily:  perIPDaily,
 	}
 }
 
@@ -40,8 +42,33 @@ func emailKey(email string) string {
 	return "demo:email:" + hex.EncodeToString(sum[:])
 }
 
+func ipKey(now time.Time, ip string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(ip)))
+	return "demo:ip:" + now.UTC().Format("2006-01-02") + ":" + hex.EncodeToString(sum[:])
+}
+
 func dailyKey(now time.Time) string {
 	return "demo:count:" + now.UTC().Format("2006-01-02")
+}
+
+// AllowIP ограничивает число демо с одного IP в сутки — чтобы один источник
+// (скрипт/рефреши с фейковыми email) не выжег общий дневной бюджет демо.
+// Возвращает (false, nil) при превышении. Вызывается в момент триггера демо
+// (на HTTP-слое, где известен IP), до постановки задачи генерации.
+func (l *Limiter) AllowIP(ctx context.Context, ip string) (bool, error) {
+	if l.perIPDaily <= 0 || strings.TrimSpace(ip) == "" {
+		return true, nil
+	}
+	now := time.Now().UTC()
+	key := ipKey(now, ip)
+	n, err := l.rdb.Incr(ctx, key).Result()
+	if err != nil {
+		return false, fmt.Errorf("demolimit: incr ip: %w", err)
+	}
+	if n == 1 {
+		_ = l.rdb.Expire(ctx, key, 48*time.Hour).Err()
+	}
+	return int(n) <= l.perIPDaily, nil
 }
 
 // Reserve проверяет лимиты и при успехе фиксирует расход для заказа.

@@ -203,7 +203,7 @@ func run(ctx context.Context) error {
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log).
 		WithPromoRepo(promoRepo).
 		WithPaymentVerifier(rkClient).
-		WithDemoGuards(demolimit.New(rdb, cfg.Demo.DailyLimit, cfg.Demo.PerEmailHours), cfg.Demo.TokenReserve)
+		WithDemoGuards(demolimit.New(rdb, cfg.Demo.DailyLimit, cfg.Demo.PerEmailHours, cfg.Demo.PerIPDaily), cfg.Demo.TokenReserve)
 	if cfg.Demo.ClipEnabled {
 		orderUC.WithDemoClip(democlip.New(cfg.Demo.FfmpegPath, cfg.Demo.ClipSeconds, cfg.Demo.IntroSkipSeconds, cfg.Demo.Watermark))
 	}

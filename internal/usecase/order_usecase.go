@@ -62,6 +62,9 @@ type PaymentVerifier interface {
 // демо-задача (retry Asynq) не тратит лимит повторно. nil → лимиты отключены.
 type DemoLimiter interface {
 	Reserve(ctx context.Context, orderID uuid.UUID, email string) (allowed bool, err error)
+	// AllowIP ограничивает число демо с одного IP в сутки. Проверяется при триггере
+	// демо (на HTTP-слое, где известен IP), чтобы один источник не выжег дневной бюджет.
+	AllowIP(ctx context.Context, ip string) (allowed bool, err error)
 }
 
 // DemoClipProcessor — порт обработки демо-фрагмента (Фаза 2): выбирает «сочный»
@@ -1030,8 +1033,20 @@ func (uc *OrderUseCase) RecoverFreePendingOrders(ctx context.Context) error {
 const stuckDemoThreshold = 12 * time.Minute
 
 // TriggerDemo ставит фоновую задачу генерации демо. Best-effort: вызывается при
-// создании заказа, ошибка постановки не влияет на сам заказ и оплату.
-func (uc *OrderUseCase) TriggerDemo(ctx context.Context, orderID uuid.UUID) error {
+// создании заказа, ошибка постановки не влияет на сам заказ и оплату. clientIP
+// проверяется по суточному лимиту демо на IP — чтобы один источник не выжег общий
+// дневной бюджет демо фейковыми email. При превышении демо просто не запускается.
+func (uc *OrderUseCase) TriggerDemo(ctx context.Context, orderID uuid.UUID, clientIP string) error {
+	if uc.demoLimiter != nil && clientIP != "" {
+		allowed, err := uc.demoLimiter.AllowIP(ctx, clientIP)
+		if err != nil {
+			// fail-open: расход всё равно ограничен дневным потолком и резервом токенов.
+			uc.log.Warn("демо: ошибка проверки IP-лимита — пропускаем проверку", "order_id", orderID, "err", err)
+		} else if !allowed {
+			uc.log.Info("демо не запущено: превышен суточный лимит демо на IP", "order_id", orderID)
+			return nil
+		}
+	}
 	return uc.queue.EnqueueDemoTask(ctx, orderID)
 }
 

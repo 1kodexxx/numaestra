@@ -138,6 +138,9 @@ type DemoConfig struct {
 	// PerEmailHours — окно (часы), в течение которого один email получает не
 	// более одного демо. 0 = без ограничения на email.
 	PerEmailHours int
+	// PerIPDaily — максимум демо с одного IP в сутки (защита от выжигания общего
+	// дневного бюджета одним источником с фейковыми email). 0 = без ограничения.
+	PerIPDaily int
 
 	// --- Фаза 2: обрезка «сочного» фрагмента + водяной знак (ffmpeg) ---
 	// ClipEnabled включает ffmpeg-обработку демо. Если ffmpeg недоступен или падает,
@@ -211,6 +214,7 @@ func Load() (*Config, error) {
 			DailyLimit:    int(getInt64Env("DEMO_DAILY_LIMIT", 200)),
 			TokenReserve:  int(getInt64Env("DEMO_TOKEN_RESERVE", 10)),
 			PerEmailHours: int(getInt64Env("DEMO_PER_EMAIL_HOURS", 24)),
+			PerIPDaily:    int(getInt64Env("DEMO_PER_IP_DAILY", 5)),
 
 			ClipEnabled:      getBoolEnv("DEMO_CLIP_ENABLED", true),
 			ClipSeconds:      int(getInt64Env("DEMO_CLIP_SECONDS", 28)),
