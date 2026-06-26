@@ -10,6 +10,16 @@ test.describe('Каталог → конструктор → контакты', 
     await expect(page.getByText('Соберите свою песню')).toBeVisible()
 
     await page.getByLabel(/Для кого и по какому поводу/i).fill('Маме на день рождения')
+
+    // Жанр — обязательный
+    await page.getByRole('button', { name: 'Поп' }).first().click()
+
+    // Настроение — обязательное
+    await page.getByRole('button', { name: 'Радость' }).first().click()
+
+    // Вокал — обязательный
+    await page.getByRole('button', { name: 'Женский' }).first().click()
+
     await page.getByLabel(/^Детали/i).fill('Зовут Ольга, любит сад и внуков')
 
     await page.getByRole('button', { name: /Заказать песню/i }).click()
