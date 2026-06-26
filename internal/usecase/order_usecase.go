@@ -283,6 +283,17 @@ func (uc *OrderUseCase) applyPaymentSuccess(ctx context.Context, order *domain.O
 	// Повторный вебхук для уже оплаченного заказа — это НЕ ошибка: трактуем как успех,
 	// иначе бесконечные ретраи Robokassa будут получать 500.
 	if order.PaymentStatus() == domain.PaymentStatusPaid {
+		// Страховочная постановка задачи: если первый вебхук успел сохранить
+		// paid+queued в БД, но упал до EnqueueGenerationTask, повторный вебхук
+		// доходит сюда и должен поставить задачу вместо него.
+		// EnqueueGenerationTask идемпотентна через TaskID, поэтому двойная
+		// постановка для уже живой задачи безопасна (ErrTaskIDConflict → success).
+		if order.GenerationStatus() == domain.GenerationStatusQueued {
+			if enqErr := uc.queue.EnqueueGenerationTask(ctx, order.ID()); enqErr != nil {
+				uc.log.Warn("страховочная постановка задачи не удалась — заказ подхватит cron",
+					"order_id", order.ID(), "invoice_id", invoiceID, "err", enqErr)
+			}
+		}
 		uc.log.Info("оплата уже подтверждена — идемпотентно ОК",
 			"order_id", order.ID(), "invoice_id", invoiceID, "source", source)
 		return nil
@@ -368,6 +379,16 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	// 3. Два варианта промпта для Suno Inspiration Mode (Suno сам пишет текст).
 	briefs, err := uc.buildGenerationBriefs(ctx, order)
 	if err != nil {
+		// Аккаунт уже помечен busy в БД (saveOrderAndAccount выше). Без явного
+		// отката он застрянет в Busy навсегда — освобождаем слот и возвращаем
+		// заказ в queued, чтобы Asynq повторил задачу с другим аккаунтом.
+		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
+		_ = order.RequeueForRetry()
+		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+			uc.log.Error("не удалось откатить состояние после ошибки промпта",
+				"order_id", order.ID(), "account_id", account.ID(), "err", saveErr)
+		}
 		return fmt.Errorf("подготовка промптов для Suno: %w", err)
 	}
 	uc.log.Info("подготовлены варианты промпта для Suno", "order_id", order.ID(), "variants", len(briefs))
@@ -441,6 +462,21 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	}
 
 	if err := uc.queue.EnqueueStatusCheckTask(ctx, order.ID(), sunoJobID); err != nil {
+		// Задача поллинга не встала в очередь, но Suno-задание уже создано и слот
+		// аккаунта занят. Вернуть ошибку без отката — значит оставить заказ в
+		// processing навсегда (retry ProcessGenerationTask проходит мимо не-queued).
+		// Откатываем в queued и освобождаем аккаунт: cron или Asynq retry создаст
+		// новый generate-запрос. Дублирующий Suno-вызов менее критичен, чем зависший
+		// заказ с заблокированным аккаунтом.
+		uc.log.Error("не удалось поставить задачу поллинга — откатываем в queued",
+			"order_id", order.ID(), "suno_job", sunoJobID, "err", err)
+		_ = order.RequeueForRetry()
+		account.ReleaseSlot()
+		metrics.ActiveWorkerSlots.Dec()
+		if saveErr := uc.saveOrderAndAccount(ctx, order, account); saveErr != nil {
+			uc.log.Error("не удалось откатить состояние после ошибки постановки поллинга",
+				"order_id", order.ID(), "account_id", account.ID(), "err", saveErr)
+		}
 		return err
 	}
 
