@@ -1,11 +1,12 @@
 import { copyText } from '@shared/ui'
+import { theme } from '@shared/lib/theme'
 
 interface ShareBarProps {
   url: string
   text: string
 }
 
-const ACCENT = '#00e5c0'
+const ACCENT = theme.accent
 
 type Net = { key: string; label: string; color: string; href: (u: string, t: string) => string }
 

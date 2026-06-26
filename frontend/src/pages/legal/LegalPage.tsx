@@ -3,10 +3,11 @@ import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
 import { staggerDelay } from '@shared/lib/motion'
 import { findLegalDoc, BUSINESS } from './legalContent'
+import { theme } from '@shared/lib/theme'
 
-const TEXT2 = 'rgba(255,255,255,0.55)'
-const TEXT3 = 'rgba(255,255,255,0.32)'
-const BORDER = 'rgba(255,255,255,0.08)'
+const TEXT2 = theme.text2
+const TEXT3 = theme.text3
+const BORDER = theme.border
 
 export function LegalPage() {
   const { slug } = useParams<{ slug: string }>()

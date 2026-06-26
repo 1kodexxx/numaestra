@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Button, TextField } from '@shared/ui'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const TEXT2 = 'rgba(255,255,255,0.48)'
-const TEXT3 = 'rgba(255,255,255,0.22)'
+const ACCENT = theme.accent
+const TEXT2 = theme.text2
+const TEXT3 = theme.text3
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -58,26 +59,29 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-busy={loading}
         tabIndex={-1}
         className="modal-panel"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.08)',
+          background: theme.surface, border: `1px solid ${theme.border}`,
           borderRadius: '28px', padding: 'clamp(24px, 5vw, 36px) clamp(20px, 5vw, 32px)',
           width: '100%', maxWidth: '420px', margin: 'auto',
           boxShadow: 'var(--elevation-5)', outline: 'none',
         }}
       >
         <div id={titleId} style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '6px' }}>
-          Оформление заказа
+          {loading ? 'Создаём заказ…' : 'Оформление заказа'}
         </div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '28px' }}>
-          Отправим готовые треки на вашу почту
+          {loading
+            ? 'Подождите — готовим оплату и перенаправим вас на защищённую страницу.'
+            : 'Отправим готовые треки на вашу почту'}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
-          <TextField label="Email" type="email" required value={email} onChange={setEmail} placeholder="your@email.com" surfaceColor="#0f0f0f" />
-          <TextField label="Телефон (необязательно)" type="tel" value={phone} onChange={setPhone} placeholder="+7 999 000 00 00" surfaceColor="#0f0f0f" />
+          <TextField label="Email" type="email" required value={email} onChange={setEmail} placeholder="your@email.com" surfaceColor={theme.surface} disabled={loading} />
+          <TextField label="Телефон (необязательно)" type="tel" value={phone} onChange={setPhone} placeholder="+7 999 000 00 00" surfaceColor={theme.surface} disabled={loading} />
         </div>
 
         <div style={{
@@ -90,12 +94,13 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
           <div style={{ fontSize: '12px', color: TEXT3, marginTop: '2px' }}>Один платёж, без подписок</div>
         </div>
 
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginBottom: '18px' }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: loading ? 'default' : 'pointer', marginBottom: '18px', opacity: loading ? 0.6 : 1 }}>
           <input
             type="checkbox"
             checked={agree}
+            disabled={loading}
             onChange={(e) => { setAgree(e.target.checked); if (e.target.checked) setErr('') }}
-            style={{ width: 18, height: 18, marginTop: '1px', accentColor: ACCENT, cursor: 'pointer', flexShrink: 0 }}
+            style={{ width: 18, height: 18, marginTop: '1px', accentColor: ACCENT, cursor: loading ? 'default' : 'pointer', flexShrink: 0 }}
           />
           <span style={{ fontSize: '12px', color: TEXT2, lineHeight: 1.5 }}>
             Я согласен с{' '}
@@ -110,7 +115,7 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
           <div style={{
             background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
             borderRadius: '12px', padding: '10px 14px',
-            fontSize: '13px', color: '#ef4444', marginBottom: '14px',
+            fontSize: '13px', color: theme.error, marginBottom: '14px',
           }}>
             {err || error}
           </div>
@@ -118,7 +123,9 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
 
         <div style={{ display: 'flex', gap: '10px' }}>
           <Button variant="text" size="lg" onClick={onClose} disabled={loading} style={{ flex: 1 }}>Отмена</Button>
-          <Button size="lg" onClick={go} loading={loading} disabled={!agree} style={{ flex: 2 }}>К оплате →</Button>
+          <Button size="lg" onClick={go} loading={loading} disabled={!agree || loading} style={{ flex: 2 }}>
+            {loading ? 'Создаём заказ…' : 'К оплате →'}
+          </Button>
         </div>
       </div>
     </div>

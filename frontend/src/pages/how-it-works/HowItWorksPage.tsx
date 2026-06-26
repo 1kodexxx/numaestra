@@ -7,7 +7,7 @@ import { useScrollReveal } from '@shared/lib/useScrollReveal'
 import { theme } from '@shared/lib/theme'
 
 const ACCENT = theme.accent
-const BORDER = 'rgba(255,255,255,0.08)'
+const BORDER = theme.border
 const SURFACE = theme.surface
 const TEXT2 = 'rgba(255,255,255,0.55)'
 const TEXT3 = 'rgba(255,255,255,0.32)'

@@ -8,11 +8,12 @@ import { synthDemoTrack, hashStr } from '@shared/lib/demoAudio'
 import { useSeo } from '@shared/lib/seo'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
 import type { Track } from '@entities/order'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const TEXT2  = 'rgba(255,255,255,0.5)'
-const TEXT3  = 'rgba(255,255,255,0.25)'
-const BORDER = 'rgba(255,255,255,0.07)'
+const ACCENT = theme.accent
+const TEXT2 = theme.text2
+const TEXT3 = theme.text3
+const BORDER = theme.border
 
 const DEMO_TRACK_COUNT = 4
 

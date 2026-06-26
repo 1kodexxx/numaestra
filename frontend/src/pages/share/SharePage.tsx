@@ -7,9 +7,10 @@ import { Spinner, Button } from '@shared/ui'
 import { MusicPlayer } from '@widgets/player'
 import { useSeo } from '@shared/lib/seo'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const TEXT2 = 'rgba(255,255,255,0.55)'
+const ACCENT = theme.accent
+const TEXT2 = theme.text2
 
 /**
  * Публичная страница «поделиться песней» — доступна по ID заказа без токена.

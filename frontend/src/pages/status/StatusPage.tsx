@@ -11,6 +11,7 @@ import { downloadFile } from '@shared/lib/download'
 import { ShareBar } from '@widgets/share-bar'
 import { AccessRecoveryForm } from '@widgets/access-recovery'
 import { GenerationProgress } from './GenerationProgress'
+import { StatusOrderSkeleton } from './StatusOrderSkeleton'
 import type { OrderDetail, OrderSummary } from '@entities/order'
 import { theme } from '@shared/lib/theme'
 
@@ -58,10 +59,10 @@ export function StatusPage() {
 
   useSeo({ title: 'Статус заказа', description: 'Отслеживайте создание вашей персональной песни.', noindex: true })
 
-  if (loading && !order) {
+  if (loading && !order && active) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100dvh - 60px)' }}>
-        <div className="spin-anim" style={{ width: 36, height: 36, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.07)', borderTopColor: ACCENT }} />
+      <div style={{ maxWidth: 680, margin: '0 auto', padding: 'clamp(24px, 6vw, 40px) clamp(16px, 4vw, 24px) 60px' }}>
+        <StatusOrderSkeleton />
       </div>
     )
   }
@@ -268,7 +269,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
         </div>
       )}
       {/* Header */}
-      <div className="status-order-card">
+      <div className={`status-order-card${gs === 'completed' ? ' status-order-card--celebrate' : ''}`}>
         {gs !== 'failed' && (
           <div style={{
             position: 'absolute', inset: 0, pointerEvents: 'none',
@@ -383,6 +384,13 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
         )}
       </div>
 
+      {/* Share — выше плеера и скачивания */}
+      {gs === 'completed' && (
+        <div className="status-share-highlight">
+          <ShareSection orderId={order.id} shareRevoked={order.share_revoked ?? false} canManage={canManage} />
+        </div>
+      )}
+
       {/* Player */}
       {gs === 'completed' && order.tracks.length > 0 && (
         <div style={{ marginBottom: '16px' }}>
@@ -438,13 +446,6 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
         </div>
       )}
 
-      {/* Share — публичная ссылка на песню, БЕЗ access_token: текущий URL может
-          содержать токен в query (?order_id=&token=), а делиться им нельзя —
-          получатель получил бы доступ к управлению заказом владельца. */}
-      {gs === 'completed' && (
-        <ShareSection orderId={order.id} shareRevoked={order.share_revoked ?? false} canManage={canManage} />
-      )}
-
       {/* Actions */}
       {!canManage && (
         <div style={{ marginBottom: '16px' }}>
@@ -490,7 +491,7 @@ function ShareSection({ orderId, shareRevoked: initialRevoked, canManage }: { or
   const shareUrl = `${window.location.origin}/s/${orderId}`
 
   return (
-    <div style={{ marginBottom: '16px' }}>
+    <div>
       {!shareRevoked ? (
         <>
           <ShareBar

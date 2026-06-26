@@ -1,9 +1,10 @@
 import type { GenerationStatus } from "@entities/order";
+import { theme } from "@shared/lib/theme";
 import { useEffect, useRef, useState } from "react";
 
-const ACCENT = "#00e5c0";
-const TEXT2 = "rgba(255,255,255,0.5)";
-const TEXT3 = "rgba(255,255,255,0.28)";
+const ACCENT = theme.accent;
+const TEXT2 = theme.text2;
+const TEXT3 = theme.text3;
 
 const TRACK_COUNT = 4;
 const ESTIMATE_SEC = 10 * 60;

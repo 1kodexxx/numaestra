@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { markPaidPending } from '@shared/lib/paidPending'
 import { orderStorage } from '@shared/lib/storage'
 import { Button } from '@shared/ui'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const TEXT2 = 'rgba(255,255,255,0.55)'
-const BORDER = 'rgba(255,255,255,0.08)'
+const ACCENT = theme.accent
+const TEXT2 = theme.text2
+const BORDER = theme.border
 
 /** Robokassa SuccessURL → сохранённый заказ + баннер об успешной оплате. */
 export function OrderSuccessPage() {

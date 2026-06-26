@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { BrandMark } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
+import { useFocusTrap } from '@shared/lib/useFocusTrap'
 
 const ACCENT = theme.accent
 
@@ -97,6 +98,7 @@ export function Navbar() {
   const { pathname } = useLocation()
   const [wide, setWide] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 640 : true))
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuTrapRef = useFocusTrap(menuOpen && !wide)
 
   useEffect(() => {
     const fn = () => {
@@ -208,7 +210,7 @@ export function Navbar() {
             aria-label="Закрыть меню"
             onClick={() => setMenuOpen(false)}
           />
-          <div id="mobile-nav-sheet" className="mobile-nav-sheet slide-up-in" role="dialog" aria-modal="true" aria-label="Навигация">
+          <div id="mobile-nav-sheet" ref={menuTrapRef} className="mobile-nav-sheet slide-up-in" role="dialog" aria-modal="true" aria-label="Навигация">
             <div className="mobile-nav-sheet-handle" aria-hidden />
             <nav className="mobile-nav-links">
               {NAV_ITEMS.map((item) => {

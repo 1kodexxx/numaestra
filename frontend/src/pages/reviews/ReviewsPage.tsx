@@ -5,12 +5,13 @@ import { Button, TextField, Spinner } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { useSeo } from '@shared/lib/seo'
 import { useScrollReveal } from '@shared/lib/useScrollReveal'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const BORDER = 'rgba(255,255,255,0.08)'
-const SURFACE = '#0f0f0f'
-const TEXT2 = 'rgba(255,255,255,0.55)'
-const TEXT3 = 'rgba(255,255,255,0.32)'
+const ACCENT = theme.accent
+const BORDER = theme.border
+const SURFACE = theme.surface
+const TEXT2 = theme.text2
+const TEXT3 = theme.text3
 
 /* ─── звёзды ─── */
 function Stars({ value, onChange, size = 18 }: { value: number; onChange?: (v: number) => void; size?: number }) {

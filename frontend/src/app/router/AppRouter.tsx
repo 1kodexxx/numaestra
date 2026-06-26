@@ -1,4 +1,6 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense } from 'react'
+import { Routes, Route } from 'react-router-dom'
+import { Spinner } from '@shared/ui'
 import { CatalogPage } from '@pages/catalog'
 import { CategoryPage } from '@pages/category'
 import { ExampleDetailPage } from '@pages/examples'
@@ -9,20 +11,8 @@ import { StatusPage } from '@pages/status'
 import { LegalPage } from '@pages/legal'
 import { OrderSuccessPage, OrderFailPage } from '@pages/payment'
 import { NotFoundPage } from '@pages/not-found'
-import {
-  AdminRoot,
-  AdminLoginPage,
-  AdminDashboardPage,
-  AdminExamplesPage,
-  AdminReviewsPage,
-  AdminCategoriesPage,
-  AdminCategoryEditPage,
-  AdminOrdersPage,
-  AdminOrderDetailPage,
-  AdminGenresPage,
-  AdminAccountsPage,
-} from '@pages/admin'
-import { AdminLayout } from '@widgets/admin-layout'
+import { AdminRoot } from '@pages/admin'
+import { AdminRoutes } from './AdminRoutes'
 
 export function AppRouter() {
   return (
@@ -40,19 +30,19 @@ export function AppRouter() {
       <Route path="/legal/:slug" element={<LegalPage />} />
 
       <Route path="/admin" element={<AdminRoot />}>
-        <Route path="login" element={<AdminLoginPage />} />
-        <Route element={<AdminLayout />}>
-          <Route index element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="dashboard" element={<AdminDashboardPage />} />
-          <Route path="categories" element={<AdminCategoriesPage />} />
-          <Route path="categories/:id" element={<AdminCategoryEditPage />} />
-          <Route path="genres" element={<AdminGenresPage />} />
-          <Route path="examples" element={<AdminExamplesPage />} />
-          <Route path="reviews" element={<AdminReviewsPage />} />
-          <Route path="orders" element={<AdminOrdersPage />} />
-          <Route path="orders/:id" element={<AdminOrderDetailPage />} />
-          <Route path="accounts" element={<AdminAccountsPage />} />
-        </Route>
+        <Route
+          path="*"
+          element={(
+            <Suspense fallback={(
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '40vh' }}>
+                <Spinner />
+              </div>
+            )}
+            >
+              <AdminRoutes />
+            </Suspense>
+          )}
+        />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />

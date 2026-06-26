@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const TEXT2 = 'rgba(255,255,255,0.48)'
+const ACCENT = theme.accent
+const TEXT2 = theme.text2
 
 /* Стабильный целочисленный хэш строки (djb2) — для детерминированного выбора фото. */
 function hashSeed(s: string): number {

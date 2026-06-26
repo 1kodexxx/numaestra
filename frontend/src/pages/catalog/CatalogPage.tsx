@@ -20,6 +20,7 @@ import { Button, TextField, useRipple } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import { FloatingPlayer } from "@widgets/floating-player";
 import { Footer } from "@widgets/footer";
+import { ReviewsSnippet } from "@widgets/reviews-snippet";
 import { stockImage } from "@widgets/side-panel";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -27,7 +28,7 @@ import { useNavigate } from "react-router-dom";
 /* ─── tokens ─── */
 const ACCENT = theme.accent;
 const BORDER = theme.border;
-const TEXT2 = "rgba(255,255,255,0.48)";
+const TEXT2 = theme.text2;
 const TEXT3 = theme.text3;
 
 /* ─── breakpoints ─── */
@@ -769,9 +770,11 @@ function CategoryCard({
     <button
       onClick={onClick}
       onPointerDown={onPointerDown}
-      onMouseEnter={() => setH(true)}
+      onMouseEnter={() => {
+        if (window.matchMedia("(hover: hover)").matches) setH(true);
+      }}
       onMouseLeave={() => setH(false)}
-      className="interactive-card chip-press"
+      className={`interactive-card chip-press catalog-tile${h ? " is-hovered" : ""}`}
       aria-label={`Категория: ${cat.title}`}
       style={{
         width: "100%",
@@ -940,9 +943,11 @@ function PopularCard({
   return (
     <button
       onClick={onClick}
-      onMouseEnter={() => setH(true)}
+      onMouseEnter={() => {
+        if (window.matchMedia("(hover: hover)").matches) setH(true);
+      }}
       onMouseLeave={() => setH(false)}
-      className="interactive-card chip-press"
+      className={`interactive-card chip-press catalog-tile catalog-tile--horizontal${h ? " is-hovered" : ""}`}
       style={{
         width: "100%",
         display: "flex",
@@ -1158,6 +1163,7 @@ export function CatalogPage() {
   const [genres, setGenres] = useState<GenreOption[]>(GENRES_FALLBACK);
   const [showContact, setShowContact] = useState(false);
   const [playing, setPlaying] = useState<ExampleSong | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [track, setTrack] = useState<{ url: string; duration: number } | null>(
     null,
   );
@@ -1277,6 +1283,10 @@ export function CatalogPage() {
     ? "repeat(2, 1fr)"
     : "repeat(auto-fill, minmax(150px, 1fr))";
   const popular = categories.slice(0, 10);
+  const filterNorm = categoryFilter.trim().toLowerCase();
+  const filteredCategories = filterNorm
+    ? categories.filter((c) => c.title.toLowerCase().includes(filterNorm) || c.id.toLowerCase().includes(filterNorm))
+    : categories;
 
   // Конструктор промпта — непрозрачный полноэкранный оверлей поверх всего.
   const constructorOverlay = briefOpen && (
@@ -1463,10 +1473,26 @@ export function CatalogPage() {
               </h2>
               {!loading && (
                 <span style={{ fontSize: "12px", color: TEXT3 }}>
-                  {categories.length}
+                  {filterNorm ? `${filteredCategories.length} из ${categories.length}` : categories.length}
                 </span>
               )}
             </div>
+            {!loading && categories.length > 6 && (
+              <div className="category-filter-wrap" style={{ marginBottom: 16 }}>
+                <svg className="category-filter-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="M21 21l-4.35-4.35" />
+                </svg>
+                <input
+                  type="search"
+                  className="category-filter-input"
+                  placeholder="Найти категорию…"
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  aria-label="Поиск по категориям"
+                />
+              </div>
+            )}
             <div
               style={{
                 display: "grid",
@@ -1476,7 +1502,13 @@ export function CatalogPage() {
             >
               {loading
                 ? Array.from({ length: 12 }, (_, i) => <SkeletonCard key={i} />)
-                : categories.map((cat, i) => (
+                : filteredCategories.length === 0
+                  ? (
+                      <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "24px 12px", color: TEXT2, fontSize: 14 }}>
+                        Ничего не найдено по запросу «{categoryFilter.trim()}»
+                      </div>
+                    )
+                  : filteredCategories.map((cat, i) => (
                     <div
                       key={cat.id}
                       className="fade-up"
@@ -1514,6 +1546,8 @@ export function CatalogPage() {
               </HSection>
             </div>
           )}
+
+          <ReviewsSnippet />
         </div>
 
         <Footer />
