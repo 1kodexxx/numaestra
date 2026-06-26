@@ -11,13 +11,20 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"os"
 	"os/exec"
 )
 
 // analysisSampleRate — частота для анализа энергии (моно). Низкая достаточно для
 // оценки громкости по секундам и быстро декодируется.
 const analysisSampleRate = 11025
+
+// maxDownloadBytes — верхняя граница размера скачиваемого исходника (защита от
+// аномально больших файлов). Песня Suno — единицы мегабайт.
+const maxDownloadBytes = 40 << 20 // 40 МБ
 
 // Processor вырезает и оформляет демо-фрагмент.
 type Processor struct {
@@ -41,20 +48,77 @@ func New(ffmpegPath string, clipSeconds, introSkip int, watermark bool) *Process
 	return &Processor{ffmpeg: ffmpegPath, clipSeconds: clipSeconds, introSkip: introSkip, watermark: watermark}
 }
 
-// Process скачивает аудио по sourceURL (ffmpeg читает URL напрямую), выбирает
-// самый энергичный участок и возвращает готовый mp3 (обрезанный, с fade и,
-// опционально, водяным знаком).
+// Process скачивает аудио по sourceURL один раз во временный файл, выбирает самый
+// энергичный участок и возвращает готовый mp3 (обрезанный, с fade и, опционально,
+// водяным знаком). Один локальный файл — одна сетевая загрузка и быстрый точный
+// seek для обрезки (вместо двойного http-чтения).
 func (p *Processor) Process(ctx context.Context, sourceURL string) ([]byte, error) {
-	rms, err := p.rmsPerSecond(ctx, sourceURL)
+	path, cleanup, err := downloadTemp(ctx, sourceURL)
+	if err != nil {
+		return nil, fmt.Errorf("democlip: загрузка исходника: %w", err)
+	}
+	defer cleanup()
+
+	rms, err := p.rmsPerSecond(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("democlip: анализ энергии: %w", err)
 	}
+
+	totalSec := len(rms)
 	start := bestWindowStart(rms, p.clipSeconds, p.introSkip)
-	out, err := p.cut(ctx, sourceURL, start, p.clipSeconds)
+	// Длительность фрагмента не должна вылезать за конец короткого клипа.
+	dur := p.clipSeconds
+	if totalSec > 0 && start+dur > totalSec {
+		dur = totalSec - start
+	}
+	if dur <= 0 {
+		dur = p.clipSeconds
+	}
+
+	out, err := p.cut(ctx, path, start, dur)
 	if err != nil {
 		return nil, fmt.Errorf("democlip: обрезка/оформление: %w", err)
 	}
 	return out, nil
+}
+
+// downloadTemp скачивает sourceURL во временный файл (с лимитом размера) и
+// возвращает путь и функцию очистки. ffmpeg затем читает локальный файл — это
+// быстрее и надёжнее повторного http-seek.
+func downloadTemp(ctx context.Context, sourceURL string) (string, func(), error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return "", func() {}, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", func() {}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", func() {}, fmt.Errorf("источник вернул HTTP %d", resp.StatusCode)
+	}
+
+	tmp, err := os.CreateTemp("", "demo-src-*.audio")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { tmp.Close(); os.Remove(tmp.Name()) } //nolint:errcheck
+
+	n, err := io.Copy(tmp, io.LimitReader(resp.Body, maxDownloadBytes+1))
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	if n > maxDownloadBytes {
+		cleanup()
+		return "", func() {}, fmt.Errorf("исходник превышает лимит %d байт", int64(maxDownloadBytes))
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return tmp.Name(), func() { os.Remove(tmp.Name()) }, nil //nolint:errcheck
 }
 
 // rmsPerSecond декодирует аудио в моно PCM и возвращает RMS по каждой секунде.

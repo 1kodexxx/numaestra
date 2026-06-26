@@ -1,8 +1,13 @@
 package democlip
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +47,44 @@ func TestBestWindowStart_IntroSkipTooLarge_FallsBack(t *testing.T) {
 	got := bestWindowStart(rms, 3, 100)
 	if got < 0 || got > len(rms)-3 {
 		t.Errorf("старт вне допустимого диапазона: %d", got)
+	}
+}
+
+func TestDownloadTemp_Success(t *testing.T) {
+	body := strings.Repeat("audio-bytes", 100)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(body)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	path, cleanup, err := downloadTemp(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("downloadTemp: %v", err)
+	}
+	defer cleanup()
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("чтение временного файла: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("содержимое не совпало: получили %d байт, ожидали %d", len(got), len(body))
+	}
+
+	cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("временный файл должен быть удалён после cleanup")
+	}
+}
+
+func TestDownloadTemp_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "gone", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	if _, _, err := downloadTemp(context.Background(), srv.URL); err == nil {
+		t.Error("ожидали ошибку при HTTP 404")
 	}
 }
 

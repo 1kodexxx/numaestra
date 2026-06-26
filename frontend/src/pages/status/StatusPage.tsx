@@ -500,9 +500,10 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
 }
 
 /**
- * Демо-фрагмент до оплаты: показываем «готовим…» пока генерируется и плеер-стрим
- * без скачивания, когда готово. Это тизер (короткий фрагмент с водяным знаком в
- * будущих версиях) — полную песню из 4 версий клиент получает после оплаты.
+ * Демо-фрагмент до оплаты: «готовим…» пока генерируется и плеер-стрим без
+ * скачивания, когда готово. Это тизер — короткий фрагмент (самый яркий участок)
+ * с тихим водяным знаком; полную песню из 4 версий без знака и со скачиванием
+ * клиент получает после оплаты.
  */
 function DemoPreview({ status, url }: { status?: string; url?: string }) {
   if (status === 'processing') {
@@ -525,12 +526,15 @@ function DemoPreview({ status, url }: { status?: string; url?: string }) {
         marginTop: '24px', background: '#0f0f0f', border: `1px solid ${BORDER}`,
         borderRadius: '16px', padding: '18px 20px',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
           <span style={{
             fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase',
             color: '#080808', background: ACCENT, borderRadius: '6px', padding: '3px 7px',
           }}>Демо</span>
           <span style={{ fontSize: '13px', fontWeight: 600 }}>Послушайте фрагмент бесплатно</span>
+        </div>
+        <div style={{ fontSize: '11px', color: TEXT3, marginBottom: '10px' }}>
+          Самый яркий момент песни · с тихим водяным знаком
         </div>
         <audio
           src={url}
@@ -539,8 +543,13 @@ function DemoPreview({ status, url }: { status?: string; url?: string }) {
           onContextMenu={(e) => e.preventDefault()}
           style={{ width: '100%', height: 40 }}
         />
-        <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px', lineHeight: 1.5 }}>
-          Это короткий фрагмент. После оплаты вы получите <b style={{ color: TEXT2 }}>4 полные версии</b> песни с возможностью скачать.
+        <div style={{
+          marginTop: '12px', padding: '10px 14px', borderRadius: '12px',
+          background: 'rgba(0,229,192,0.07)', border: '1px solid rgba(0,229,192,0.2)',
+          fontSize: '12px', color: TEXT2, lineHeight: 1.5,
+        }}>
+          💎 Нравится? После оплаты — <b style={{ color: ACCENT }}>4 полные версии</b> песни,
+          без водяного знака и со скачиванием. Оплата ниже ↓
         </div>
       </div>
     )
