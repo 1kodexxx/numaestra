@@ -2,7 +2,6 @@ package apphttp
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -335,11 +334,4 @@ func TestPromoToResponse_CurrentUses(t *testing.T) {
 	if resp.ID == "" {
 		t.Error("id должен быть установлен")
 	}
-}
-
-// Тест get promo при внутренней ошибке репозитория — через мок, который всегда возвращает ошибку
-type alwaysErrPromoRepo struct{ hPromoRepoTyped }
-
-func (r *alwaysErrPromoRepo) GetByID(_ context.Context, _ uuid.UUID) (interface{ ID() uuid.UUID }, error) {
-	return nil, fmt.Errorf("внутренняя ошибка")
 }
