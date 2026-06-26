@@ -393,7 +393,7 @@ type wQueue struct {
 }
 
 func (q *wQueue) EnqueueGenerationTask(_ context.Context, _ uuid.UUID) error { return nil }
-func (q *wQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error { return nil }
+func (q *wQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error       { return nil }
 func (q *wQueue) EnqueueDemoCheckTask(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID) error {
 	return nil
 }

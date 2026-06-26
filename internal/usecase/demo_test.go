@@ -198,7 +198,7 @@ func TestRecoverStuckDemos_ReleasesSlotAndFails(t *testing.T) {
 // возвращается, токены не тратятся.
 func TestGenerateDemo_TokenReserve_SkipsAndReleasesSlot(t *testing.T) {
 	f := newFixture(t)
-	acc := f.addAccount(t, 5) // баланс 5
+	acc := f.addAccount(t, 5)   // баланс 5
 	f.uc.WithDemoGuards(nil, 5) // резерв 5 → 5<=5, демо пропускается
 	order := demoOrder(t, f)
 

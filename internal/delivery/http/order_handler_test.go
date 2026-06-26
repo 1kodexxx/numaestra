@@ -1084,7 +1084,7 @@ var _ domain.OrderRepository = (*hOrderRepo)(nil)
 type hQueue struct{}
 
 func (q *hQueue) EnqueueGenerationTask(_ context.Context, _ uuid.UUID) error { return nil }
-func (q *hQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error { return nil }
+func (q *hQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error       { return nil }
 
 func (q *hQueue) EnqueueDemoCheckTask(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID) error {
 	return nil
