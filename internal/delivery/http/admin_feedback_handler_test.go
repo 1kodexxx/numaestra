@@ -32,7 +32,9 @@ func (n *feedbackNotifier) NotifyAdminFeedback(_ context.Context, m notify.Admin
 	return n.err
 }
 
-func (n *feedbackNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailedNotification) error { return nil }
+func (n *feedbackNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailedNotification) error {
+	return nil
+}
 
 func (n *feedbackNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
 	return nil

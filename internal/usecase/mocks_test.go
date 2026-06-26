@@ -473,7 +473,9 @@ func (m *mockNotifier) NotifyAdminFeedback(_ context.Context, n notify.AdminFeed
 	return m.feedbackErr
 }
 
-func (m *mockNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailedNotification) error { return nil }
+func (m *mockNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailedNotification) error {
+	return nil
+}
 
 func (m *mockNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
 	return m.err

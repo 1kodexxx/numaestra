@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react'
 import { adminPromoApi } from '@entities/admin-promo'
 import type { PromoCode, CreatePromoPayload } from '@entities/admin-promo'
-import { Spinner, Button, TextField } from '@shared/ui'
+import { Spinner, Button } from '@shared/ui'
 import { ApiError } from '@shared/api'
 import { A, PageHeader, Panel, ErrorBanner, EmptyState, Field, Select } from '@widgets/admin-layout'
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', boxSizing: 'border-box',
+  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 8, padding: '8px 12px', color: '#fff', fontSize: 14,
+  outline: 'none',
+}
 
 
 function formatDiscount(p: PromoCode): string {
@@ -115,11 +122,7 @@ export function AdminPromoCodesPage() {
           <form onSubmit={handleCreate}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <Field label="Код промокода">
-                <TextField
-                  value={code}
-                  onChange={e => setCode(e.target.value.toUpperCase())}
-                  placeholder="SUMMER20"
-                />
+                <input style={inputStyle} value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SUMMER20" />
               </Field>
               <Field label="Тип скидки">
                 <Select value={discountType} onChange={v => setDiscountType(v as 'percent' | 'fixed_rub')}>
@@ -128,36 +131,16 @@ export function AdminPromoCodesPage() {
                 </Select>
               </Field>
               <Field label={discountType === 'percent' ? 'Скидка (%)' : 'Скидка (₽)'}>
-                <TextField
-                  value={discountValue}
-                  onChange={e => setDiscountValue(e.target.value)}
-                  placeholder={discountType === 'percent' ? '20' : '500'}
-                  type="number"
-                  min="1"
-                />
+                <input style={inputStyle} value={discountValue} onChange={e => setDiscountValue(e.target.value)} placeholder={discountType === 'percent' ? '20' : '500'} type="number" min="1" />
               </Field>
               <Field label="Лимит использований (пусто = без лимита)">
-                <TextField
-                  value={maxUses}
-                  onChange={e => setMaxUses(e.target.value)}
-                  placeholder="100"
-                  type="number"
-                  min="1"
-                />
+                <input style={inputStyle} value={maxUses} onChange={e => setMaxUses(e.target.value)} placeholder="100" type="number" min="1" />
               </Field>
               <Field label="Действует до (пусто = бессрочно)">
-                <TextField
-                  value={validUntil}
-                  onChange={e => setValidUntil(e.target.value)}
-                  type="date"
-                />
+                <input style={inputStyle} value={validUntil} onChange={e => setValidUntil(e.target.value)} type="date" />
               </Field>
               <Field label="Описание (для себя)">
-                <TextField
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder="Летняя акция 2025"
-                />
+                <input style={inputStyle} value={description} onChange={e => setDescription(e.target.value)} placeholder="Летняя акция 2025" />
               </Field>
             </div>
             {formError && <ErrorBanner>{formError}</ErrorBanner>}

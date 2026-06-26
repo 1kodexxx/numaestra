@@ -80,17 +80,17 @@ func RestorePromoCode(s PromoCodeSnapshot) *PromoCode {
 
 // --- Геттеры ---
 
-func (p *PromoCode) ID() uuid.UUID            { return p.id }
-func (p *PromoCode) Code() string             { return p.code }
+func (p *PromoCode) ID() uuid.UUID                 { return p.id }
+func (p *PromoCode) Code() string                  { return p.code }
 func (p *PromoCode) GetDiscountType() DiscountType { return p.discountType }
-func (p *PromoCode) DiscountValue() int       { return p.discountValue }
-func (p *PromoCode) MaxUses() *int            { return p.maxUses }
-func (p *PromoCode) CurrentUses() int         { return p.currentUses }
-func (p *PromoCode) ValidFrom() *time.Time    { return p.validFrom }
-func (p *PromoCode) ValidUntil() *time.Time   { return p.validUntil }
-func (p *PromoCode) Active() bool             { return p.isActive }
-func (p *PromoCode) Description() string      { return p.description }
-func (p *PromoCode) CreatedAt() time.Time     { return p.createdAt }
+func (p *PromoCode) DiscountValue() int            { return p.discountValue }
+func (p *PromoCode) MaxUses() *int                 { return p.maxUses }
+func (p *PromoCode) CurrentUses() int              { return p.currentUses }
+func (p *PromoCode) ValidFrom() *time.Time         { return p.validFrom }
+func (p *PromoCode) ValidUntil() *time.Time        { return p.validUntil }
+func (p *PromoCode) Active() bool                  { return p.isActive }
+func (p *PromoCode) Description() string           { return p.description }
+func (p *PromoCode) CreatedAt() time.Time          { return p.createdAt }
 
 // IsValid проверяет, что промокод можно применить прямо сейчас.
 func (p *PromoCode) IsValid() bool {

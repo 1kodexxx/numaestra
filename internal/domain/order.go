@@ -194,37 +194,37 @@ func generateAccessToken() (string, error) {
 
 // OrderSnapshot - сырые данные заказа из хранилища для восстановления агрегата.
 type OrderSnapshot struct {
-	ID                 uuid.UUID
-	InvoiceID          int64
-	CustomerEmail      string
-	CustomerPhone      string
-	Brief              string
-	CategoryID         string
-	SunoPrompt         string
-	AmountKopecks      int64
-	Currency           string
-	PaymentStatus      PaymentStatus
-	GenerationStatus   GenerationStatus
-	GenerationPhase    GenerationPhase
-	GenerationProgress int
-	TracksReady        int
-	AssignedAccountID  *uuid.UUID
-	Tracks             []Track
-	FailureReason      string
-	AccessToken        string
-	AdminFeedback      string
-	AdminFeedbackAt    *time.Time
-	ConsentGivenAt     *time.Time
-	ConsentDocVersion  string
-	ShareRevokedAt     *time.Time
+	ID                    uuid.UUID
+	InvoiceID             int64
+	CustomerEmail         string
+	CustomerPhone         string
+	Brief                 string
+	CategoryID            string
+	SunoPrompt            string
+	AmountKopecks         int64
+	Currency              string
+	PaymentStatus         PaymentStatus
+	GenerationStatus      GenerationStatus
+	GenerationPhase       GenerationPhase
+	GenerationProgress    int
+	TracksReady           int
+	AssignedAccountID     *uuid.UUID
+	Tracks                []Track
+	FailureReason         string
+	AccessToken           string
+	AdminFeedback         string
+	AdminFeedbackAt       *time.Time
+	ConsentGivenAt        *time.Time
+	ConsentDocVersion     string
+	ShareRevokedAt        *time.Time
 	PromoCodeID           *uuid.UUID
 	OriginalAmountKopecks int64
 	DiscountKopecks       int64
 	ReferralCode          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	PaidAt             *time.Time
-	CompletedAt        *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	PaidAt                *time.Time
+	CompletedAt           *time.Time
 }
 
 // RestoreOrder восстанавливает агрегат из снапшота хранилища.
