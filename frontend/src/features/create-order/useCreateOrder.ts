@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { orderApi } from '@entities/order'
 import { orderStorage } from '@shared/lib/storage'
 import { GOALS, reachGoal } from '@shared/lib/analytics'
@@ -11,8 +11,11 @@ interface State {
 
 export function useCreateOrder() {
   const [state, setState] = useState<State>({ loading: false, error: null })
+  const inFlightRef = useRef(false)
 
   async function submit(payload: CreateOrderPayload): Promise<string | null> {
+    if (inFlightRef.current) return null
+    inFlightRef.current = true
     setState({ loading: true, error: null })
     try {
       const result = await orderApi.create(payload)
@@ -24,6 +27,7 @@ export function useCreateOrder() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Неизвестная ошибка'
       setState({ loading: false, error: message })
+      inFlightRef.current = false
       return null
     }
   }
