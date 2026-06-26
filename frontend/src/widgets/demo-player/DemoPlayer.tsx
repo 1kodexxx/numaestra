@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { theme } from '@shared/lib/theme'
+import { useAudioBuffering } from '@shared/lib/useAudioBuffering'
 
 const ACCENT = theme.accent
 const ACCENT2 = theme.accent2
@@ -145,6 +146,7 @@ function DemoReady({ url }: { url: string }) {
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
   const [dur, setDur] = useState(0)
+  const [buffering, setBuffering] = useAudioBuffering(audioRef)
 
   useEffect(() => {
     const el = audioRef.current
@@ -152,22 +154,32 @@ function DemoReady({ url }: { url: string }) {
     const onMeta = () => setDur(el.duration || 0)
     const onTime = () => setTime(el.currentTime)
     const onEnd = () => { setPlaying(false); setTime(0) }
+    const onPlay = () => setPlaying(true)
+    const onPause = () => setPlaying(false)
     el.addEventListener('loadedmetadata', onMeta)
     el.addEventListener('timeupdate', onTime)
     el.addEventListener('ended', onEnd)
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
     return () => {
       el.removeEventListener('loadedmetadata', onMeta)
       el.removeEventListener('timeupdate', onTime)
       el.removeEventListener('ended', onEnd)
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
     }
   }, [])
 
-  useEffect(() => {
+  const toggle = useCallback(() => {
     const el = audioRef.current
     if (!el) return
-    if (playing) el.play().catch(() => setPlaying(false))
-    else el.pause()
-  }, [playing])
+    if (el.paused) {
+      setBuffering(true) // мгновенная обратная связь, пока звук грузится
+      el.play().catch(() => setBuffering(false))
+    } else {
+      el.pause()
+    }
+  }, [setBuffering])
 
   const progress = dur > 0 ? time / dur : 0
 
@@ -185,7 +197,7 @@ function DemoReady({ url }: { url: string }) {
       <audio
         ref={audioRef}
         src={url}
-        preload="metadata"
+        preload="auto"
         controlsList="nodownload noplaybackrate"
         onContextMenu={(e) => e.preventDefault()}
       />
@@ -203,7 +215,7 @@ function DemoReady({ url }: { url: string }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
         <button
           type="button"
-          onClick={() => setPlaying((p) => !p)}
+          onClick={toggle}
           aria-label={playing ? 'Пауза' : 'Воспроизвести'}
           style={{
             flexShrink: 0, width: '52px', height: '52px', borderRadius: '50%', border: 'none', cursor: 'pointer',
@@ -219,7 +231,9 @@ function DemoReady({ url }: { url: string }) {
           onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
           onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
         >
-          {playing ? (
+          {buffering ? (
+            <span className="spin-anim" style={{ width: 18, height: 18, borderRadius: '50%', border: '2.5px solid rgba(4,19,15,0.25)', borderTopColor: '#04130f' }} />
+          ) : playing ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
           ) : (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: '2px' }}><path d="M8 5v14l11-7z" /></svg>

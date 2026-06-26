@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ExampleSong } from '@shared/data/examples'
 import { theme } from '@shared/lib/theme'
+import { useAudioBuffering } from '@shared/lib/useAudioBuffering'
 
 const ACCENT = theme.accent
 const TEXT2 = theme.text2
@@ -30,6 +31,7 @@ export function FloatingPlayer({
   const [playing, setPlaying] = useState(false)
   const [time, setTime] = useState(0)
   const [dur, setDur] = useState(track?.duration ?? 0)
+  const [buffering, setBuffering] = useAudioBuffering(audioRef)
   const ready = !!track
 
   useEffect(() => {
@@ -60,8 +62,12 @@ export function FloatingPlayer({
   function toggle() {
     const el = audioRef.current
     if (!el || !ready) return
-    if (el.paused) el.play().catch(() => {})
-    else el.pause()
+    if (el.paused) {
+      setBuffering(true) // показываем загрузку сразу, пока трек подгружается
+      el.play().catch(() => setBuffering(false))
+    } else {
+      el.pause()
+    }
   }
 
   function seek(e: React.MouseEvent<HTMLDivElement>) {
@@ -98,7 +104,7 @@ export function FloatingPlayer({
             <span aria-hidden style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)' }} />
           )}
           <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {ready ? (
+          {ready && !buffering ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill={example.coverUrl ? '#fff' : '#062420'}>
               {playing ? <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /> : <path d="M8 5v14l11-7z" />}
             </svg>

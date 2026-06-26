@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { IconButton, useRipple } from '@shared/ui'
+import { useAudioBuffering } from '@shared/lib/useAudioBuffering'
 import type { Track } from '@entities/order'
 
 /* ─── precomputed waveform heights ─── */
@@ -52,6 +53,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
   const [vol, setVol]         = useState(0.85)
   const [muted, setMuted]     = useState(false)
   const audioRef  = useRef<HTMLAudioElement>(null)
+  const [buffering, setBuffering] = useAudioBuffering(audioRef)
 
   // Клампим idx: если tracks стал короче (например, сменился заказ),
   // не выходим за границы массива.
@@ -120,7 +122,17 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
   function switchTrack(next: number) {
     setIdx(next)
     setTime(0)
+    setBuffering(true)
     setPlaying(true)
+  }
+
+  // Тоггл воспроизведения с мгновенной обратной связью: при старте показываем
+  // индикатор загрузки, событие `playing` (реальный звук) его снимет.
+  function togglePlay() {
+    setPlaying((p) => {
+      if (!p) setBuffering(true)
+      return !p
+    })
   }
 
   const pct = `${(progress * 100).toFixed(1)}%`
@@ -134,7 +146,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
       overflow: 'hidden',
       position: 'relative',
     }}>
-      <audio ref={audioRef} preload="metadata" />
+      <audio ref={audioRef} preload="auto" />
 
       {/* Ambient glow when playing */}
       {playing && (
@@ -243,7 +255,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
           </IconButton>
 
           <button
-            onClick={() => setPlaying(p => !p)}
+            onClick={togglePlay}
             onPointerDown={playRipple.onPointerDown}
             aria-label={playing ? 'Пауза' : 'Воспроизвести'}
             style={{
@@ -266,7 +278,9 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
             onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.95)' }}
             onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1.06)' }}
           >
-            {playing ? <PauseIcon /> : <PlayIcon />}
+            {buffering ? (
+              <span className="spin-anim" style={{ width: 22, height: 22, borderRadius: '50%', border: '2.5px solid rgba(8,8,8,0.25)', borderTopColor: '#080808' }} />
+            ) : playing ? <PauseIcon /> : <PlayIcon />}
             {playRipple.rippleEl}
           </button>
 
