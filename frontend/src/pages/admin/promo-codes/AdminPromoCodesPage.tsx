@@ -3,7 +3,12 @@ import { adminPromoApi } from '@entities/admin-promo'
 import type { PromoCode, CreatePromoPayload } from '@entities/admin-promo'
 import { Spinner, Button } from '@shared/ui'
 import { ApiError } from '@shared/api'
-import { A, PageHeader, Panel, ErrorBanner, EmptyState, Field, Select } from '@widgets/admin-layout'
+import { PageHeader, Panel, ErrorBanner, EmptyState, Field, Select } from '@widgets/admin-layout'
+
+const linkBtnStyle: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  color: '#00e5c0', fontSize: 13, padding: 0, textDecoration: 'underline',
+}
 
 const inputStyle: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box',
@@ -187,10 +192,10 @@ export function AdminPromoCodesPage() {
                     </span>
                   </td>
                   <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
-                    <A onClick={() => handleToggle(p)} style={{ marginRight: 12 }}>
+                    <button style={{ ...linkBtnStyle, marginRight: 12 }} onClick={() => handleToggle(p)}>
                       {p.is_active ? 'Отключить' : 'Включить'}
-                    </A>
-                    <A onClick={() => handleDelete(p.id)} style={{ color: '#f87171' }}>Удалить</A>
+                    </button>
+                    <button style={{ ...linkBtnStyle, color: '#f87171' }} onClick={() => handleDelete(p.id)}>Удалить</button>
                   </td>
                 </tr>
               ))}
