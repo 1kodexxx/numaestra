@@ -176,3 +176,51 @@ func TestReview_Accessors_ID(t *testing.T) {
 	// ID — нулевой uuid если не передан
 	_ = r.ID()
 }
+
+// --- Category tests ---
+
+func TestNewCategory_Valid(t *testing.T) {
+	cat, err := NewCategory("wedding", "Свадьба", "для свадебного торжества", "/img.svg", []string{"свадьба"}, "Create a song: [NAME]")
+	if err != nil {
+		t.Fatalf("ожидали успех: %v", err)
+	}
+	if cat.ID() != "wedding" {
+		t.Errorf("неверный ID: %q", cat.ID())
+	}
+	if cat.Title() != "Свадьба" {
+		t.Errorf("неверный Title: %q", cat.Title())
+	}
+}
+
+func TestNewCategory_Validation(t *testing.T) {
+	cases := []struct{ id, title, tmpl string }{
+		{"", "Тест", "tmpl"},
+		{"id", "", "tmpl"},
+		{"id", "Тест", ""},
+	}
+	for _, c := range cases {
+		if _, err := NewCategory(c.id, c.title, "", "", nil, c.tmpl); err == nil {
+			t.Errorf("ожидали ошибку для id=%q title=%q tmpl=%q", c.id, c.title, c.tmpl)
+		}
+	}
+}
+
+func TestCategory_UpdateDetails(t *testing.T) {
+	cat, _ := NewCategory("id", "Старый", "", "", nil, "tmpl1")
+	if err := cat.UpdateDetails("Новый", "новое описание", "/cover.svg", []string{"tag"}, "tmpl2"); err != nil {
+		t.Fatalf("UpdateDetails: %v", err)
+	}
+	if cat.Title() != "Новый" {
+		t.Errorf("неверный Title: %q", cat.Title())
+	}
+}
+
+func TestCategory_UpdateDetails_Validation(t *testing.T) {
+	cat, _ := NewCategory("id", "Тест", "", "", nil, "tmpl")
+	if err := cat.UpdateDetails("", "", "", nil, "tmpl"); err == nil {
+		t.Error("ожидали ошибку для пустого title")
+	}
+	if err := cat.UpdateDetails("Тест", "", "", nil, ""); err == nil {
+		t.Error("ожидали ошибку для пустого template")
+	}
+}

@@ -136,3 +136,33 @@ func TestReviewUseCase_Moderation(t *testing.T) {
 		t.Error("удаление несуществующего должно вернуть ошибку")
 	}
 }
+
+func TestReviewUseCase_RatingStats(t *testing.T) {
+	repo := &inMemReviewRepo{}
+	uc := NewReviewUseCase(repo, testLogger())
+	ctx := context.Background()
+
+	// Нет отзывов — нули.
+	count, avg, err := uc.RatingStats(ctx)
+	if err != nil {
+		t.Fatalf("RatingStats: %v", err)
+	}
+	if count != 0 || avg != 0 {
+		t.Errorf("ожидали 0/0, получили %d/%.2f", count, avg)
+	}
+
+	// Добавляем опубликованный отзыв с оценкой 4.
+	rev, _ := uc.Create(ctx, "Имя", 4, "Текст")
+	_, _ = uc.SetPublished(ctx, rev.ID(), true)
+
+	count, avg, err = uc.RatingStats(ctx)
+	if err != nil {
+		t.Fatalf("RatingStats после добавления: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("ожидали count=1, получили %d", count)
+	}
+	if avg != 4.0 {
+		t.Errorf("ожидали avg=4.0, получили %.2f", avg)
+	}
+}

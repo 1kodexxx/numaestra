@@ -170,3 +170,21 @@ func TestPromoCode_Setters(t *testing.T) {
 	}
 	p.SetValidUntil(nil)
 }
+
+func TestPromoCode_CurrentUsesAndCreatedAt(t *testing.T) {
+	snap := PromoCodeSnapshot{
+		Code:          "SNAP",
+		DiscountType:  DiscountTypePercent,
+		DiscountValue: 10,
+		IsActive:      true,
+		CurrentUses:   3,
+		CreatedAt:     time.Now().UTC(),
+	}
+	p := RestorePromoCode(snap)
+	if p.CurrentUses() != 3 {
+		t.Errorf("CurrentUses: %d", p.CurrentUses())
+	}
+	if p.CreatedAt().IsZero() {
+		t.Error("CreatedAt не должен быть нулевым")
+	}
+}

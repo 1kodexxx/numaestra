@@ -96,3 +96,36 @@ func countSubstring(s, sub string) int {
 	}
 	return n
 }
+
+func TestExtractTagsFromBrief(t *testing.T) {
+	encoded := EncodePrompt("pop, upbeat", "Песня на день рождения")
+	tags := ExtractTagsFromBrief(encoded)
+	if !strings.Contains(tags, "pop") {
+		t.Errorf("ожидали 'pop' в tags, получили %q", tags)
+	}
+
+	// Без тегов → пустая строка.
+	onlyDesc := EncodePrompt("", "Только описание")
+	if ExtractTagsFromBrief(onlyDesc) != "" {
+		t.Error("ожидали пустую строку при отсутствии тегов")
+	}
+
+	// Голый текст (не encoded) → пустая строка.
+	if ExtractTagsFromBrief("обычный текст") != "" {
+		t.Error("ожидали пустую строку для неencoded текста")
+	}
+}
+
+func TestBriefStoryForLLM(t *testing.T) {
+	encoded := EncodePrompt("pop", "История для LLM")
+	story := BriefStoryForLLM(encoded)
+	if story != "История для LLM" {
+		t.Errorf("BriefStoryForLLM: %q", story)
+	}
+
+	// Голый текст возвращается как есть.
+	raw := "просто текст"
+	if BriefStoryForLLM(raw) != raw {
+		t.Errorf("ожидали вернуть сырой текст: %q", BriefStoryForLLM(raw))
+	}
+}

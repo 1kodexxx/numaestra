@@ -335,3 +335,88 @@ func TestNotifyOrderComplete_ImplicitTLS_DialFails(t *testing.T) {
 		t.Fatal("ожидали ошибку при недоступном TLS-сервере")
 	}
 }
+
+func newTestNotifier() *SmtpNotifier {
+	return NewSmtpNotifier("localhost", 587, "u", "p", "from@test.com", "Numaestra", "", "https://numaestra.ru")
+}
+
+func TestSmtpNotifier_NotifyOrderFailed_EmptyEmail(t *testing.T) {
+	n := newTestNotifier()
+	if err := n.NotifyOrderFailed(context.Background(), OrderFailedNotification{}); err != nil {
+		t.Fatalf("пустой email должен тихо пропускаться: %v", err)
+	}
+}
+
+func TestSmtpNotifier_NotifyAdminFeedback_EmptyEmail(t *testing.T) {
+	n := newTestNotifier()
+	if err := n.NotifyAdminFeedback(context.Background(), AdminFeedbackNotification{}); err != nil {
+		t.Fatalf("пустой email должен тихо пропускаться: %v", err)
+	}
+}
+
+func TestSmtpNotifier_NotifyAccessLink_EmptyEmail(t *testing.T) {
+	n := newTestNotifier()
+	if err := n.NotifyAccessLink(context.Background(), AccessLinkNotification{}); err != nil {
+		t.Fatalf("пустой email должен тихо пропускаться: %v", err)
+	}
+}
+
+func TestSmtpNotifier_BuildFeedbackBody(t *testing.T) {
+	n := newTestNotifier()
+	body := n.buildFeedbackBody(AdminFeedbackNotification{
+		OrderID: "abc-123", Message: "Текст\nс переносом",
+	})
+	if body == "" {
+		t.Error("buildFeedbackBody не должен возвращать пустую строку")
+	}
+}
+
+func TestSmtpNotifier_BuildAccessLinkBody(t *testing.T) {
+	n := newTestNotifier()
+	body := n.buildAccessLinkBody(AccessLinkNotification{
+		OrderID: "abc-123", AccessToken: "tok",
+	})
+	if body == "" {
+		t.Error("buildAccessLinkBody не должен возвращать пустую строку")
+	}
+}
+
+func TestSmtpNotifier_BuildPlainFeedbackBody(t *testing.T) {
+	n := newTestNotifier()
+	body := n.buildPlainFeedbackBody(AdminFeedbackNotification{
+		OrderID: "abc-123", Message: "Привет",
+	})
+	if body == "" {
+		t.Error("buildPlainFeedbackBody не должен возвращать пустую строку")
+	}
+}
+
+func TestSmtpNotifier_BuildPlainAccessLinkBody(t *testing.T) {
+	n := newTestNotifier()
+	body := n.buildPlainAccessLinkBody(AccessLinkNotification{
+		OrderID: "abc-123", AccessToken: "tok",
+	})
+	if body == "" {
+		t.Error("buildPlainAccessLinkBody не должен возвращать пустую строку")
+	}
+}
+
+func TestSmtpNotifier_BuildFailedBody(t *testing.T) {
+	n := newTestNotifier()
+	body := n.buildFailedBody(OrderFailedNotification{
+		OrderID: "abc-123", AccessToken: "tok",
+	})
+	if body == "" {
+		t.Error("buildFailedBody не должен возвращать пустую строку")
+	}
+}
+
+func TestSmtpNotifier_BuildPlainFailedBody(t *testing.T) {
+	n := newTestNotifier()
+	body := n.buildPlainFailedBody(OrderFailedNotification{
+		OrderID: "abc-123", AccessToken: "tok",
+	})
+	if body == "" {
+		t.Error("buildPlainFailedBody не должен возвращать пустую строку")
+	}
+}

@@ -70,3 +70,48 @@ func TestPromptUseCase_InvalidateCacheClears(t *testing.T) {
 		t.Fatal("после инвалидации кеша должна вернуться ошибка репозитория")
 	}
 }
+
+func TestPromptUseCase_GetCategoryWizard(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("wedding", "Свадьба", "для свадьбы", "", nil, "Create a wedding song: [BRIEF]")
+	_ = repo.Create(context.Background(), cat)
+	uc := NewPromptUseCase(repo)
+
+	got, err := uc.GetCategoryWizard(context.Background(), "wedding")
+	if err != nil {
+		t.Fatalf("GetCategoryWizard: %v", err)
+	}
+	if got.ID() != "wedding" {
+		t.Errorf("неверный ID: %q", got.ID())
+	}
+
+	_, err = uc.GetCategoryWizard(context.Background(), "missing")
+	if !errors.Is(err, domain.ErrCategoryNotFound) {
+		t.Errorf("ожидали ErrCategoryNotFound, получили %v", err)
+	}
+}
+
+func TestPromptUseCase_BuildFinalPrompt(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("bday", "День рождения", "праздник", "", nil, "Create a birthday song: [NAME]")
+	_ = repo.Create(context.Background(), cat)
+	uc := NewPromptUseCase(repo)
+
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
+		"NAME": "Иван",
+	})
+	if err != nil {
+		t.Fatalf("BuildFinalPrompt: %v", err)
+	}
+	if prompt == "" {
+		t.Error("BuildFinalPrompt вернул пустую строку")
+	}
+}
+
+func TestPromptUseCase_BuildFinalPrompt_NotFound(t *testing.T) {
+	uc := NewPromptUseCase(newInMemCategoryRepo())
+	_, err := uc.BuildFinalPrompt(context.Background(), "missing", nil)
+	if !errors.Is(err, domain.ErrCategoryNotFound) {
+		t.Errorf("ожидали ErrCategoryNotFound, получили %v", err)
+	}
+}
