@@ -504,3 +504,20 @@ func TestAdminUseCase_DeleteOrder_StorageFailure_KeepsOrder(t *testing.T) {
 		t.Error("при ошибке хранилища заказ должен остаться в БД")
 	}
 }
+
+func TestAdminUseCase_ResetAccount_Success(t *testing.T) {
+	uc, _, accounts := newAdminUC(t)
+	acc, _ := domain.NewSunoAccount("acc@test.com", "session", 3)
+	_ = accounts.Create(context.Background(), acc)
+	if err := uc.ResetAccount(context.Background(), acc.ID()); err != nil {
+		t.Fatalf("ResetAccount: %v", err)
+	}
+}
+
+func TestAdminUseCase_ResetAccount_NotFound(t *testing.T) {
+	uc, _, _ := newAdminUC(t)
+	err := uc.ResetAccount(context.Background(), uuid.New())
+	if err == nil {
+		t.Fatal("ожидали ошибку для несуществующего аккаунта")
+	}
+}

@@ -521,3 +521,106 @@ func (m *mockLLM) GenerateLyricsVariants(ctx context.Context, facts string, coun
 }
 
 var _ openai.APIClient = (*mockLLM)(nil)
+
+// --- in-memory CategoryRepository ---
+
+type inMemCategoryRepo struct {
+	categories map[string]*domain.Category
+	getErr     error
+}
+
+func newInMemCategoryRepo() *inMemCategoryRepo {
+	return &inMemCategoryRepo{categories: make(map[string]*domain.Category)}
+}
+
+func (r *inMemCategoryRepo) GetByID(_ context.Context, id string) (*domain.Category, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
+	c, ok := r.categories[id]
+	if !ok {
+		return nil, domain.ErrCategoryNotFound
+	}
+	return c, nil
+}
+
+func (r *inMemCategoryRepo) GetAll(_ context.Context) ([]*domain.Category, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
+	out := make([]*domain.Category, 0, len(r.categories))
+	for _, c := range r.categories {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (r *inMemCategoryRepo) Create(_ context.Context, c *domain.Category) error {
+	if _, ok := r.categories[c.ID()]; ok {
+		return domain.ErrCategoryAlreadyExists
+	}
+	r.categories[c.ID()] = c
+	return nil
+}
+
+func (r *inMemCategoryRepo) Update(_ context.Context, c *domain.Category) error {
+	if _, ok := r.categories[c.ID()]; !ok {
+		return domain.ErrCategoryNotFound
+	}
+	r.categories[c.ID()] = c
+	return nil
+}
+
+func (r *inMemCategoryRepo) Delete(_ context.Context, id string) error {
+	if _, ok := r.categories[id]; !ok {
+		return domain.ErrCategoryNotFound
+	}
+	delete(r.categories, id)
+	return nil
+}
+
+func (r *inMemCategoryRepo) AddQuestion(_ context.Context, categoryID string, q domain.Question) (domain.Question, error) {
+	c, ok := r.categories[categoryID]
+	if !ok {
+		return domain.Question{}, domain.ErrCategoryNotFound
+	}
+	q.ID = len(c.Questions()) + 1
+	snap := c.Snapshot()
+	snap.Questions = append(snap.Questions, q)
+	r.categories[categoryID] = domain.RestoreCategory(snap)
+	return q, nil
+}
+
+func (r *inMemCategoryRepo) UpdateQuestion(_ context.Context, categoryID string, q domain.Question) error {
+	c, ok := r.categories[categoryID]
+	if !ok {
+		return domain.ErrCategoryNotFound
+	}
+	snap := c.Snapshot()
+	for i, existing := range snap.Questions {
+		if existing.ID == q.ID {
+			snap.Questions[i] = q
+			r.categories[categoryID] = domain.RestoreCategory(snap)
+			return nil
+		}
+	}
+	return domain.ErrQuestionNotFound
+}
+
+func (r *inMemCategoryRepo) DeleteQuestion(_ context.Context, categoryID string, questionID int) error {
+	c, ok := r.categories[categoryID]
+	if !ok {
+		return domain.ErrCategoryNotFound
+	}
+	snap := c.Snapshot()
+	for i, q := range snap.Questions {
+		if q.ID == questionID {
+			snap.Questions = append(snap.Questions[:i], snap.Questions[i+1:]...)
+			r.categories[categoryID] = domain.RestoreCategory(snap)
+			return nil
+		}
+	}
+	return domain.ErrQuestionNotFound
+}
+
+var _ domain.CategoryRepository = (*inMemCategoryRepo)(nil)

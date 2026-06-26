@@ -1071,3 +1071,15 @@ func TestRecoverStuckOrders_EnqueueError_Handled(t *testing.T) {
 		t.Errorf("заказ должен быть queued даже при сбое enqueue, получили %q", saved.GenerationStatus())
 	}
 }
+
+func TestOrderUseCase_WithPromoRepo(t *testing.T) {
+	f := newFixture(t)
+	repo := newInMemPromoRepo()
+	result := f.uc.WithPromoRepo(repo)
+	if result == nil {
+		t.Fatal("WithPromoRepo должен вернуть *OrderUseCase")
+	}
+	if result != f.uc {
+		t.Error("WithPromoRepo должен вернуть тот же указатель")
+	}
+}
