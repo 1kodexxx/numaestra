@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 
+	"github.com/numaestra/numaestra/internal/domain"
 	"github.com/numaestra/numaestra/internal/repository/queue"
 	"github.com/numaestra/numaestra/internal/usecase"
 )
@@ -95,6 +96,19 @@ func (p *OrderProcessor) HandleDeadTask(ctx context.Context, t *asynq.Task, task
 	}
 
 	log := p.taskLogger(ctx, t.Type(), orderID.String())
+
+	// Если задача упала из-за занятости пула — это временная ситуация, не поломка.
+	// Перезапускаем задачу вместо перевода заказа в failed, чтобы не терять
+	// оплаченный заказ когда пул был перегружен на протяжении всех 20 ретраев.
+	if errors.Is(taskErr, domain.ErrNoAvailableAccount) {
+		log.Warn("задача исчерпала ретраи из-за занятости пула — перезапускаем",
+			"order_id", orderID, "task_err", taskErr)
+		if err := p.uc.EnqueueGeneration(ctx, orderID); err != nil {
+			log.Error("не удалось перезапустить задачу после pool-exhaustion dead-letter", "err", err)
+		}
+		return
+	}
+
 	reason := fmt.Sprintf("исчерпаны ретраи задачи %s: %v", t.Type(), taskErr)
 	log.Error("задача исчерпала ретраи, переводим заказ в failed", "task_err", taskErr)
 

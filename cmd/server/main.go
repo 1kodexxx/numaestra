@@ -303,6 +303,10 @@ func run(ctx context.Context) error {
 					if err := orderUC.RecoverStuckDemos(ctx); err != nil {
 						log.Error("ошибка восстановления застрявших демо", "err", err)
 					}
+					// Активация бесплатных pending-заказов (прерванный CreateOrder).
+					if err := orderUC.RecoverFreePendingOrders(ctx); err != nil {
+						log.Error("ошибка восстановления бесплатных pending-заказов", "err", err)
+					}
 				}
 			}
 		}()

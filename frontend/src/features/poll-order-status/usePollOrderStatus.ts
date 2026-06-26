@@ -135,15 +135,15 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     }
 
     void (async () => {
+      // sync-payment вызываем без токена (эндпоинт публичный) — исправляет
+      // сценарий «другой браузер / очищенный localStorage» когда webhook не дошёл.
       if (confirmPayment && !syncStartedRef.current) {
-        const token = orderStorage.getAccessToken()
-        if (token) {
-          syncStartedRef.current = true
-          try {
-            await orderApi.syncPayment(orderId, token)
-          } catch {
-            // Вебхук мог уже отработать — продолжаем опрос.
-          }
+        syncStartedRef.current = true
+        const token = orderStorage.getAccessToken() ?? undefined
+        try {
+          await orderApi.syncPayment(orderId, token)
+        } catch {
+          // Вебхук мог уже отработать — продолжаем опрос.
         }
       }
       const keepPolling = await fetchOnce(orderId)
@@ -163,6 +163,24 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     if (terminal || state.order.payment_status === 'pending') return
     startPolling(orderId)
   }, [confirmPayment, orderId, state.order?.payment_status, state.order?.generation_status, startPolling])
+
+  // Пока оплата не подтверждена — повторяем sync-payment на каждом быстром тике.
+  // Это покрывает сценарий: первый sync вернул { synced: false } (OpState не готов),
+  // webhook не дошёл, пользователь ждёт на странице.
+  const syncRetryCountRef = useRef(0)
+  useEffect(() => {
+    if (!confirmPayment || !orderId) return
+    if (state.order && state.order.payment_status !== 'pending') return
+    if (syncRetryCountRef.current >= 10) return   // max 10 повторов ≈ 20 с
+    const t = setTimeout(async () => {
+      syncRetryCountRef.current += 1
+      try {
+        const token = orderStorage.getAccessToken() ?? undefined
+        await orderApi.syncPayment(orderId, token)
+      } catch { /* ignore */ }
+    }, FAST_POLL_INTERVAL_MS)
+    return () => clearTimeout(t)
+  }, [confirmPayment, orderId, state.order?.payment_status])
 
   return state
 }

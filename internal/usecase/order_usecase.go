@@ -740,6 +740,21 @@ func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Ord
 	return order, nil
 }
 
+// GetOrderByInvoiceID находит заказ по InvId (Robokassa) — для PaymentReturnPage.
+func (uc *OrderUseCase) GetOrderByInvoiceID(ctx context.Context, invoiceID int64) (*domain.Order, error) {
+	order, err := uc.orderRepo.GetByInvoiceID(ctx, invoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("заказ по InvoiceID не найден: %w", err)
+	}
+	return order, nil
+}
+
+// EnqueueGeneration ставит задачу генерации в очередь — используется worker'ом
+// при повторном запуске после pool-exhaustion dead-letter.
+func (uc *OrderUseCase) EnqueueGeneration(ctx context.Context, orderID uuid.UUID) error {
+	return uc.queue.EnqueueGenerationTask(ctx, orderID)
+}
+
 func (uc *OrderUseCase) ListOrdersByEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, error) {
 	if email == "" {
 		return nil, fmt.Errorf("email не может быть пустым")
@@ -902,10 +917,11 @@ func (uc *OrderUseCase) RecoverOrphanedQueuedOrders(ctx context.Context) error {
 }
 
 // reconcilePaymentWindow — насколько в прошлое сверка платежей просматривает
-// pending-заказы. 3 часа покрывают разумное окно, в котором клиент мог оплатить,
-// но вебхук не дошёл; шире окно — больше холостых запросов к Robokassa по
-// брошенным корзинам, которые так и остаются pending.
-const reconcilePaymentWindow = 3 * time.Hour
+// pending-заказы. 72 часа — максимальный срок обработки платежа, который
+// покрывает задержки вебхука, перезапуски сервиса и плановые простои.
+// Большинство корзин не конвертируется, но лишние запросы к Robokassa по
+// истёкшим заказам дешевле, чем потеря оплаченного заказа.
+const reconcilePaymentWindow = 72 * time.Hour
 
 // reconcileMinAge — минимальный возраст pending-заказа для сверки. Слишком свежие
 // заказы клиент может оплачивать прямо сейчас (вебхук в пути), поэтому им даём
@@ -970,6 +986,32 @@ func (uc *OrderUseCase) ReconcilePendingPayments(ctx context.Context) error {
 
 		uc.log.Warn("сверка платежа: найден оплаченный заказ без вебхука — активирован",
 			"order_id", order.ID(), "invoice_id", order.InvoiceID())
+	}
+	return nil
+}
+
+// RecoverFreePendingOrders находит бесплатные заказы (amount=0), застрявшие в
+// pending из-за сетевой ошибки при активации в CreateOrder или sync-payment.
+// Вызывается по расписанию — идемпотентен: applyPaymentSuccess проверяет статус.
+func (uc *OrderUseCase) RecoverFreePendingOrders(ctx context.Context) error {
+	now := time.Now().UTC()
+	// Ищем заказы с нулевой суммой, pending старше 2 минут (старый хвост, не новые).
+	createdBefore := now.Add(-2 * time.Minute)
+	orders, err := uc.orderRepo.ListPendingPayment(ctx, now.Add(-72*time.Hour), createdBefore)
+	if err != nil {
+		return fmt.Errorf("поиск pending бесплатных заказов: %w", err)
+	}
+	for _, order := range orders {
+		if order.AmountKopecks() != 0 {
+			continue
+		}
+		uc.log.Warn("восстановление бесплатного pending-заказа",
+			"order_id", order.ID(), "invoice_id", order.InvoiceID(),
+			"created_at", order.CreatedAt())
+		if err := uc.HandlePaymentSuccess(ctx, order.InvoiceID(), 0); err != nil {
+			uc.log.Error("не удалось активировать бесплатный pending-заказ",
+				"order_id", order.ID(), "err", err)
+		}
 	}
 	return nil
 }

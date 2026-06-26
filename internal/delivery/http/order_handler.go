@@ -95,6 +95,8 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Get("/{id}/status", h.GetPublicStatus)
 		r.With(APIRateLimiter(h.rdb, 5, time.Hour, 1, 3)).
 			Post("/{id}/access-link", h.RequestAccessLink)
+		// Резолв UUID заказа по номеру счёта — для PaymentReturnPage на новом устройстве.
+		r.Get("/by-invoice/{invoiceId}", h.GetOrderByInvoice)
 	})
 
 	r.Group(func(r chi.Router) {
@@ -294,8 +296,17 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	invoiceID, err := strconv.ParseInt(invIdStr, 10, 64)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный формат InvId")
+		return
+	}
+
 	// Защита от replay-атак: подпись валидна, но запрос уже обработан.
-	// Проверяем Redis-нонс ПОСЛЕ проверки подписи, чтобы не давать оракул для перебора.
+	// Первый барьер — Redis-нонс (быстро). Проверяем ПОСЛЕ подписи, чтобы
+	// не давать timing-оракул для перебора. Второй барьер — DB-статус заказа:
+	// если Redis был перезапущен и нонс исчез, payment_status=paid в БД
+	// гарантирует идемпотентность без лишней обработки.
 	if h.rdb != nil {
 		nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
 		exists, _ := h.rdb.Exists(r.Context(), nonceKey).Result()
@@ -305,11 +316,20 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-
-	invoiceID, err := strconv.ParseInt(invIdStr, 10, 64)
-	if err != nil {
-		respondError(w, r, http.StatusBadRequest, "некорректный формат InvId")
-		return
+	// Второй барьер: если Redis пуст (перезапуск, первый запрос), проверяем
+	// оплату по БД — это безопаснее, чем доверять только нонсу.
+	if order, dbErr := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID); dbErr == nil {
+		if order.PaymentStatus() == domain.PaymentStatusPaid {
+			// Уже оплачен — ответ OK, не дублируем обработку.
+			if h.rdb != nil {
+				nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
+				h.rdb.Set(r.Context(), nonceKey, 1, 73*time.Hour) //nolint:errcheck
+			}
+			h.log.Info("вебхук: заказ уже оплачен (replay после Redis-сброса)", "invoice_id", invoiceID)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
+			return
+		}
 	}
 
 	paidKopecks, err := robokassa.ParseAmountKopecks(outSum)
@@ -773,6 +793,28 @@ func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, res)
+}
+
+// GetOrderByInvoice возвращает ID заказа по номеру счёта Robokassa (InvId).
+// Используется PaymentReturnPage когда localStorage не содержит invoice map
+// (другой браузер, очищенное хранилище, мобильный Safari в private mode).
+// Отдаёт только order UUID — без email/phone/brief.
+// GET /api/v1/orders/by-invoice/{invoiceId}
+func (h *OrderHandler) GetOrderByInvoice(w http.ResponseWriter, r *http.Request) {
+	invParam := chi.URLParam(r, "invoiceId")
+	invoiceID, err := strconv.ParseInt(invParam, 10, 64)
+	if err != nil || invoiceID <= 0 {
+		respondError(w, r, http.StatusBadRequest, "некорректный номер счёта")
+		return
+	}
+
+	order, err := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID)
+	if err != nil {
+		respondError(w, r, http.StatusNotFound, "заказ не найден")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"id": order.ID().String()})
 }
 
 // parsePagination читает ?limit=&offset= из запроса.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { markPaidPending } from '@shared/lib/paidPending'
 import { orderStorage } from '@shared/lib/storage'
+import { orderApi } from '@entities/order'
 import { Button } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
 import { GOALS, reachGoal } from '@shared/lib/analytics'
@@ -12,23 +13,46 @@ const BORDER = theme.border
 
 const REDIRECT_SEC = 4
 
+/**
+ * Резолвим orderId по InvId:
+ * 1) localStorage invoice map (same browser)
+ * 2) API /orders/by-invoice/:invoiceId (другой браузер / очищенный storage)
+ * 3) primary localStorage order id (last-resort)
+ */
+async function resolveOrderId(invId: string | null): Promise<string | null> {
+  if (invId) {
+    const fromStorage = orderStorage.getOrderIdByInvoice(Number(invId))
+    if (fromStorage) return fromStorage
+    // Пробуем API — нет токена, ответ только UUID, без PII.
+    try {
+      const res = await orderApi.getOrderIdByInvoice(Number(invId))
+      if (res?.id) {
+        orderStorage.saveInvoiceOrder(Number(invId), res.id)
+        return res.id
+      }
+    } catch {
+      // Недоступен API — пробуем основной ключ.
+    }
+  }
+  return orderStorage.getOrderId()
+}
+
 /** Robokassa SuccessURL → короткий экран успеха, затем статус заказа. */
 export function OrderSuccessPage() {
   const navigate = useNavigate()
   const [seconds, setSeconds] = useState(REDIRECT_SEC)
+  const [orderId, setOrderId] = useState<string | null>(null)
 
-  // Robokassa appends ?InvId=...&OutSum=...&SignatureValue=... to the SuccessURL.
-  // We use InvId to resolve the order UUID via the localStorage invoice map,
-  // falling back to the primary order key in case the user switched browsers.
   const params = new URLSearchParams(window.location.search)
   const invId = params.get('InvId')
-  const orderId = (invId ? orderStorage.getOrderIdByInvoice(Number(invId)) : null)
-    ?? orderStorage.getOrderId()
 
   useEffect(() => {
-    reachGoal(GOALS.PAYMENT_SUCCESS, { order_id: orderId ?? undefined })
-    if (orderId) markPaidPending(orderId)
-  }, [orderId])
+    resolveOrderId(invId).then(id => {
+      setOrderId(id)
+      reachGoal(GOALS.PAYMENT_SUCCESS, { order_id: id ?? undefined })
+      if (id) markPaidPending(id)
+    })
+  }, [invId])
 
   useEffect(() => {
     const t = setInterval(() => setSeconds((s) => s - 1), 1000)
@@ -68,11 +92,17 @@ export function OrderSuccessPage() {
 /** Robokassa FailURL — понятное сообщение и путь вернуться к заказу. */
 export function OrderFailPage() {
   const navigate = useNavigate()
-  const orderId = orderStorage.getOrderId()
+  const [orderId, setOrderId] = useState<string | null>(null)
+
+  const params = new URLSearchParams(window.location.search)
+  const invId = params.get('InvId')
 
   useEffect(() => {
-    reachGoal(GOALS.PAYMENT_FAIL, { order_id: orderId ?? undefined })
-  }, [orderId])
+    resolveOrderId(invId).then(id => {
+      setOrderId(id)
+      reachGoal(GOALS.PAYMENT_FAIL, { order_id: id ?? undefined })
+    })
+  }, [invId])
 
   return (
     <div className="fade-in" style={{ maxWidth: 480, margin: '0 auto', padding: '64px 24px' }}>

@@ -1641,8 +1641,7 @@ export function CatalogPage() {
 
   async function handleCustomOrder(email: string, phone: string) {
     const brief = composeBrief(form, genres);
-    clearCatalogDraft();
-    await submit({
+    const orderId = await submit({
       email,
       phone,
       brief,
@@ -1651,6 +1650,11 @@ export function CatalogPage() {
       consent_doc_version: publicConfig.consent_doc_version,
       promo_code: promoStatus ? promoCode.trim().toUpperCase() : undefined,
     });
+    // Очищаем черновик только после подтверждённого создания заказа.
+    // При сетевой ошибке или ошибке сервера заказ не создан — черновик остаётся.
+    if (orderId) {
+      clearCatalogDraft();
+    }
   }
 
   const gridCols = isMobile

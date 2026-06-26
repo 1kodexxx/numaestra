@@ -13,14 +13,14 @@ export interface CreateOrderPayload {
 }
 
 export const orderApi = {
-  create(payload: CreateOrderPayload) {
+  create(payload: CreateOrderPayload, idempotencyKey?: string) {
     return apiFetch<CreateOrderResponse>('/orders/', {
       method: 'POST',
       body: payload,
       // Имя заголовка должно совпадать с тем, что читает idempotencyMiddleware на
       // бэкенде (Idempotency-Key, без префикса X-). Иначе ключ не дойдёт и защита
       // от дублей при двойной отправке/сетевом ретрае молча отключится.
-      headers: { 'Idempotency-Key': crypto.randomUUID() },
+      headers: { 'Idempotency-Key': idempotencyKey ?? crypto.randomUUID() },
     })
   },
 
@@ -73,5 +73,11 @@ export const orderApi = {
       method: 'POST',
       body: { email },
     })
+  },
+
+  // Резолв UUID заказа по номеру счёта Robokassa (InvId).
+  // Используется PaymentReturnPage на новом устройстве / в другом браузере.
+  getOrderIdByInvoice(invoiceId: number) {
+    return apiFetch<{ id: string }>(`/orders/by-invoice/${invoiceId}`)
   },
 }

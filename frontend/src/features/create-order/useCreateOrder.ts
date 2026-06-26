@@ -18,7 +18,12 @@ export function useCreateOrder() {
     inFlightRef.current = true
     setState({ loading: true, error: null })
     try {
-      const result = await orderApi.create(payload)
+      // Стабильный ключ на сессию: при сетевом таймауте повторный submit
+      // с тем же UUID не создаёт дубль заказа (idempotency middleware на бэкенде).
+      const idempotencyKey = orderStorage.getOrCreateIdempotencyKey()
+      const result = await orderApi.create(payload, idempotencyKey)
+      // Ключ больше не нужен — следующий заказ получит новый.
+      orderStorage.clearIdempotencyKey()
       orderStorage.saveOrder(result.id, result.access_token)
       orderStorage.saveInvoiceOrder(result.invoice_id, result.id)
       reachGoal(GOALS.ORDER_SUBMIT, { category_id: payload.category_id || 'custom' })
