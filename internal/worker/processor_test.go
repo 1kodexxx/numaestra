@@ -428,6 +428,8 @@ func (n *wNotifier) NotifyAdminFeedback(_ context.Context, _ notify.AdminFeedbac
 	return nil
 }
 
+func (n *wNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailedNotification) error { return nil }
+
 func (n *wNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
 	return nil
 }
