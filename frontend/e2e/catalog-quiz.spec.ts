@@ -12,7 +12,7 @@ test.describe('Каталог → конструктор → контакты', 
     await page.getByLabel(/Для кого и по какому поводу/i).fill('Маме на день рождения')
     await page.getByLabel(/^Детали/i).fill('Зовут Ольга, любит сад и внуков')
 
-    await page.getByRole('button', { name: /Продолжить/i }).click()
+    await page.getByRole('button', { name: /Заказать песню/i }).click()
 
     const dialog = page.getByRole('dialog', { name: /Оформление заказа|Создаём заказ/i })
     await expect(dialog).toBeVisible()
