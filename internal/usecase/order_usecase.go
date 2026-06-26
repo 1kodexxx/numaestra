@@ -817,7 +817,7 @@ func (uc *OrderUseCase) recoverStuckOrder(ctx context.Context, order *domain.Ord
 	return nil
 }
 
-func (uc *OrderUseCase) buildGenerationBriefs(ctx context.Context, order *domain.Order) ([]string, error) {
+func (uc *OrderUseCase) buildGenerationBriefs(_ context.Context, order *domain.Order) ([]string, error) {
 	raw := order.SunoPrompt()
 	if raw != "" {
 		uc.log.Info("используем готовый промпт из квиза", "order_id", order.ID(), "category_id", order.CategoryID())
