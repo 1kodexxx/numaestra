@@ -27,6 +27,7 @@ coverage_*
 Thumbs.db
 
 # ── Frontend ──
+frontend/.env
 frontend/node_modules/
 frontend/dist/
 frontend/test-results/

@@ -6,7 +6,7 @@ test.describe('Каталог → конструктор → контакты', 
   test('открывает конструктор и модалку оформления', async ({ page }) => {
     await page.goto('/')
 
-    await page.getByRole('button', { name: /Опишите вашу песню/i }).click()
+    await page.getByRole('button', { name: 'Создать песню' }).click()
     await expect(page.getByText('Соберите свою песню')).toBeVisible()
 
     await page.getByLabel(/Для кого и по какому поводу/i).fill('Маме на день рождения')

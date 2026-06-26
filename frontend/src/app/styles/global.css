@@ -964,3 +964,50 @@ button:focus:not(:focus-visible),
 a:focus:not(:focus-visible) {
   outline: none;
 }
+
+/* ── Home: how-it-works strip ── */
+.home-how-strip {
+  margin: 20px 0 8px;
+  padding: 18px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.home-how-strip__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .home-how-strip__grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+
+.home-how-strip__item {
+  text-align: center;
+  padding: 8px 6px;
+}
+
+.home-how-strip__icon {
+  font-size: 22px;
+  line-height: 1;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.home-how-strip__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.home-how-strip__text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.48);
+  line-height: 1.45;
+}
