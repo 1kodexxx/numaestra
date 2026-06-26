@@ -22,7 +22,7 @@ func allowLoopbackDownloads(c *Client) {
 func TestUploadFromURL_Success(t *testing.T) {
 	const audio = "fake-mp3-bytes"
 	var putBody string
-	var gotAuth, gotDate, gotSHA string
+	var gotAuth, gotDate, gotSHA, gotCache string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -36,6 +36,7 @@ func TestUploadFromURL_Success(t *testing.T) {
 			gotAuth = r.Header.Get("Authorization")
 			gotDate = r.Header.Get("x-amz-date")
 			gotSHA = r.Header.Get("x-amz-content-sha256")
+			gotCache = r.Header.Get("Cache-Control")
 			w.WriteHeader(http.StatusOK)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -63,6 +64,9 @@ func TestUploadFromURL_Success(t *testing.T) {
 	}
 	if gotDate == "" || gotSHA == "" {
 		t.Error("должны быть выставлены заголовки x-amz-date и x-amz-content-sha256")
+	}
+	if gotCache != "public, max-age=31536000, immutable" {
+		t.Errorf("Cache-Control = %q, ожидали immutable-кэширование", gotCache)
 	}
 }
 
