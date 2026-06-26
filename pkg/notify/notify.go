@@ -17,6 +17,12 @@ type Notifier interface {
 	// email и phone могут быть пустыми — реализация сама выбирает канал.
 	NotifyOrderComplete(ctx context.Context, n OrderCompleteNotification) error
 
+	// NotifyOrderFailed отправляет клиенту уведомление о неудаче генерации
+	// и просьбу обратиться в поддержку. Вызывается из двух мест:
+	// 1. CheckGenerationStatus — Suno вернул статус failed.
+	// 2. FailGeneration — исчерпаны все ретраи Asynq-задачи.
+	NotifyOrderFailed(ctx context.Context, n OrderFailedNotification) error
+
 	// NotifyAdminFeedback отправляет клиенту сообщение администратора по заказу
 	// (ответ на вопрос, уточнение деталей и т.п.). Email может быть пустым,
 	// если у заказа указан только телефон — реализация молча пропускает отправку.
@@ -35,6 +41,14 @@ type OrderCompleteNotification struct {
 	Phone       string
 	TrackURLs   []string // постоянные ссылки на треки в S3
 	TracksCount int
+}
+
+// OrderFailedNotification содержит данные для уведомления о неудаче генерации.
+type OrderFailedNotification struct {
+	OrderID     string
+	AccessToken string
+	Email       string
+	Phone       string
 }
 
 // AdminFeedbackNotification содержит данные письма с обратной связью администратора.
@@ -68,6 +82,15 @@ func (n *LogNotifier) NotifyOrderComplete(_ context.Context, notification OrderC
 		"email", notification.Email,
 		"phone", notification.Phone,
 		"tracks_count", notification.TracksCount,
+	)
+	return nil
+}
+
+func (n *LogNotifier) NotifyOrderFailed(_ context.Context, notification OrderFailedNotification) error {
+	n.log.Warn("уведомление о провале генерации (stub — реальная отправка не настроена)",
+		"order_id", notification.OrderID,
+		"email", notification.Email,
+		"phone", notification.Phone,
 	)
 	return nil
 }

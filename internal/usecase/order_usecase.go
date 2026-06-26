@@ -568,9 +568,10 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		return fmt.Errorf("атомарное сохранение финального статуса: %w", err)
 	}
 
-	// Уведомляем клиента о готовности. Ошибка уведомления не роняет задачу —
-	// треки уже сохранены и доступны через API.
-	if result.Status == domain.MusicGenerationStatusCompleted {
+	// Уведомляем клиента. Ошибка уведомления не роняет задачу —
+	// финальный статус уже сохранён в БД и доступен через API.
+	switch result.Status {
+	case domain.MusicGenerationStatusCompleted:
 		var trackURLs []string
 		for _, t := range order.Tracks() {
 			trackURLs = append(trackURLs, t.AudioURL)
@@ -583,7 +584,16 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 			TrackURLs:   trackURLs,
 			TracksCount: len(trackURLs),
 		}); notifyErr != nil {
-			uc.log.Error("ошибка отправки уведомления", "order_id", order.ID(), "err", notifyErr)
+			uc.log.Error("ошибка отправки уведомления об успехе", "order_id", order.ID(), "err", notifyErr)
+		}
+	case domain.MusicGenerationStatusFailed:
+		if notifyErr := uc.notifier.NotifyOrderFailed(ctx, notify.OrderFailedNotification{
+			OrderID:     order.ID().String(),
+			AccessToken: order.AccessToken(),
+			Email:       order.CustomerEmail(),
+			Phone:       order.CustomerPhone(),
+		}); notifyErr != nil {
+			uc.log.Error("ошибка отправки уведомления о провале", "order_id", order.ID(), "err", notifyErr)
 		}
 	}
 
@@ -632,6 +642,7 @@ func (uc *OrderUseCase) FailGeneration(ctx context.Context, orderID uuid.UUID, r
 		}
 		uc.log.Warn("заказ переведён в failed, аккаунт освобождён",
 			"order_id", orderID, "account", account.Email(), "reason", reason)
+		uc.notifyOrderFailed(ctx, order)
 		return nil
 	}
 
@@ -639,7 +650,19 @@ func (uc *OrderUseCase) FailGeneration(ctx context.Context, orderID uuid.UUID, r
 		return fmt.Errorf("сохранение упавшего заказа: %w", err)
 	}
 	uc.log.Warn("заказ переведён в failed (аккаунт не был захвачен)", "order_id", orderID, "reason", reason)
+	uc.notifyOrderFailed(ctx, order)
 	return nil
+}
+
+func (uc *OrderUseCase) notifyOrderFailed(ctx context.Context, order *domain.Order) {
+	if notifyErr := uc.notifier.NotifyOrderFailed(ctx, notify.OrderFailedNotification{
+		OrderID:     order.ID().String(),
+		AccessToken: order.AccessToken(),
+		Email:       order.CustomerEmail(),
+		Phone:       order.CustomerPhone(),
+	}); notifyErr != nil {
+		uc.log.Error("ошибка отправки уведомления о провале", "order_id", order.ID(), "err", notifyErr)
+	}
 }
 
 func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {

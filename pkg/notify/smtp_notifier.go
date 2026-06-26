@@ -56,6 +56,16 @@ func (n *SmtpNotifier) NotifyOrderComplete(_ context.Context, notif OrderComplet
 	return n.send(notif.Email, subject, textBody, htmlBody)
 }
 
+func (n *SmtpNotifier) NotifyOrderFailed(_ context.Context, notif OrderFailedNotification) error {
+	if notif.Email == "" {
+		return nil
+	}
+	subject := "Ошибка генерации песни — Numaestra"
+	htmlBody := n.buildFailedBody(notif)
+	textBody := n.buildPlainFailedBody(notif)
+	return n.send(notif.Email, subject, textBody, htmlBody)
+}
+
 func (n *SmtpNotifier) NotifyAdminFeedback(_ context.Context, notif AdminFeedbackNotification) error {
 	if notif.Email == "" {
 		return nil
@@ -260,6 +270,28 @@ func (n *SmtpNotifier) buildPlainAccessLinkBody(notif AccessLinkNotification) st
 	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
 	return fmt.Sprintf(
 		"Здравствуйте!\n\nВы запросили ссылку на заказ в Numaestra.\n\nОткрыть заказ:\n%s\n\nНе пересылайте это письмо — в ссылке секретный ключ доступа.\n\n—\nNumaestra\n",
+		statusURL,
+	)
+}
+
+func (n *SmtpNotifier) buildFailedBody(notif OrderFailedNotification) string {
+	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
+	hero := emailHero("😔", "Не удалось создать песню", "Заказ #"+shortOrderID(notif.OrderID))
+
+	body := emailContentRow("28px 32px 8px", fmt.Sprintf(`%s%s%s`,
+		emailParagraph("К сожалению, при генерации вашей песни произошла ошибка. Мы уже видим проблему и разберёмся в ближайшее время."),
+		emailParagraph("Пожалуйста, свяжитесь с нами — мы перегенерируем песню вручную или вернём оплату."),
+		emailCTAButton(statusURL, "Открыть заказ"),
+	))
+
+	return n.emailDocument("Ошибка генерации — Numaestra", hero, body, "")
+}
+
+func (n *SmtpNotifier) buildPlainFailedBody(notif OrderFailedNotification) string {
+	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
+	return fmt.Sprintf(
+		"Здравствуйте!\n\nК сожалению, при генерации вашей песни (заказ #%s) произошла ошибка.\n\nМы уже видим проблему. Пожалуйста, свяжитесь с нами — мы перегенерируем вручную или вернём оплату.\n\nСтраница заказа:\n%s\n\n—\nNumaestra\n",
+		shortOrderID(notif.OrderID),
 		statusURL,
 	)
 }
