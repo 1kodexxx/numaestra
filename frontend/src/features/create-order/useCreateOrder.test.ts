@@ -49,7 +49,7 @@ describe('useCreateOrder', () => {
     vi.restoreAllMocks()
   })
 
-  it('при успехе сохраняет заказ, редиректит на оплату и возвращает id', async () => {
+  it('при успехе сохраняет заказ, ведёт на страницу статуса (демо-first) и возвращает id', async () => {
     vi.mocked(orderApi.create).mockResolvedValueOnce(response)
 
     const { result } = renderHook(() => useCreateOrder())
@@ -62,10 +62,12 @@ describe('useCreateOrder', () => {
     expect(returned).toBe('order-1')
     expect(orderStorage.getOrderId()).toBe('order-1')
     expect(orderStorage.getAccessToken()).toBe('tok-xyz')
-    expect(hrefSpy).toHaveBeenCalledWith('https://auth.robokassa.ru/pay/order-1')
+    // Демо-first: ведём на /status, а не сразу на Robokassa — там клиент слушает
+    // демо и оттуда переходит к оплате.
+    expect(hrefSpy).toHaveBeenCalledWith('/status/order-1')
     expect(result.current.error).toBeNull()
-    // loading намеренно остаётся true: дальше следует редирект на оплату,
-    // гасить спиннер до ухода со страницы незачем.
+    // loading намеренно остаётся true: дальше следует редирект, гасить спиннер
+    // до ухода со страницы незачем.
     expect(result.current.loading).toBe(true)
   })
 

@@ -27,12 +27,12 @@ export function useCreateOrder() {
       orderStorage.saveOrder(result.id, result.access_token)
       orderStorage.saveInvoiceOrder(result.invoice_id, result.id)
       reachGoal(GOALS.ORDER_SUBMIT, { category_id: payload.category_id || 'custom' })
-      if (result.payment_url) {
-        window.location.href = result.payment_url
-      } else {
-        // Бесплатный заказ (100% промокод) — Robokassa не нужна, идём на страницу статуса.
-        window.location.href = `/status/${result.id}`
-      }
+      // Демо-first воронка: всегда ведём на страницу статуса. Там клиент видит
+      // «приготовление» бесплатного демо, слушает фрагмент и оттуда переходит к
+      // оплате (кнопка «Перейти к оплате» запрашивает свежий payment-url).
+      // Прямой редирект на Robokassa лишал бы клиента демо до оплаты — это и был
+      // недоделанный демо-UX. Бесплатный заказ (100% промокод) тоже идёт на статус.
+      window.location.href = `/status/${result.id}`
       return result.id
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Неизвестная ошибка'
