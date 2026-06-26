@@ -36,8 +36,8 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
   }, [loading, onClose])
 
   function go() {
-    if (!email && !phone) { setErr('Укажите email или телефон'); return }
-    if (email && !EMAIL_RE.test(email.trim())) { setErr('Некорректный формат email'); return }
+    if (!email.trim()) { setErr('Укажите email — мы отправим треки на почту'); return }
+    if (!EMAIL_RE.test(email.trim())) { setErr('Некорректный формат email'); return }
     if (!agree) { setErr('Необходимо согласие с условиями'); return }
     setErr('')
     onSubmit(email.trim(), phone.trim())

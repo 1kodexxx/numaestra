@@ -139,8 +139,8 @@ type Order struct {
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
 func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, sunoPrompt, consentDocVersion string, amountKopecks int64) (*Order, error) {
-	if customerEmail == "" && customerPhone == "" {
-		return nil, errors.New("должен быть указан хотя бы один контакт клиента")
+	if customerEmail == "" {
+		return nil, errors.New("email клиента обязателен")
 	}
 	if brief == "" {
 		return nil, errors.New("техническое задание на песню не может быть пустым")

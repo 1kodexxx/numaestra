@@ -82,10 +82,10 @@ func TestNewOrder_RequiresPositiveAmount(t *testing.T) {
 	}
 }
 
-func TestNewOrder_OnlyPhone(t *testing.T) {
-	_, err := NewOrder(1, "", "+79991234567", "Р‘СЂРёС„", "", "", CurrentConsentDocVersion, 100)
-	if err != nil {
-		t.Errorf("С‚РµР»РµС„РѕРЅ Р±РµР· email РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РґРѕРїСѓСЃС‚РёРј: %v", err)
+func TestNewOrder_EmailRequired(t *testing.T) {
+	_, err := NewOrder(1, "", "+79991234567", "Бриф", "", "", CurrentConsentDocVersion, 100)
+	if err == nil {
+		t.Error("телефон без email должен возвращать ошибку — email обязателен")
 	}
 }
 
@@ -371,8 +371,9 @@ func TestSameCustomer(t *testing.T) {
 	a, _ := NewOrder(1, "User@Mail.com", "", "a", "", "", CurrentConsentDocVersion, 100)
 	b, _ := NewOrder(2, "user@mail.com", "", "b", "", "", CurrentConsentDocVersion, 100)
 	c, _ := NewOrder(3, "other@mail.com", "", "c", "", "", CurrentConsentDocVersion, 100)
-	p1, _ := NewOrder(4, "", "+7999", "p1", "", "", CurrentConsentDocVersion, 100)
-	p2, _ := NewOrder(5, "", "+7999", "p2", "", "", CurrentConsentDocVersion, 100)
+	// p1/p2 — разные email, но одинаковый телефон: SameCustomer должен вернуть true по телефону.
+	p1, _ := NewOrder(4, "p1@test.com", "+7999", "p1", "", "", CurrentConsentDocVersion, 100)
+	p2, _ := NewOrder(5, "p2@test.com", "+7999", "p2", "", "", CurrentConsentDocVersion, 100)
 
 	if !SameCustomer(a, b) {
 		t.Error("одинаковый email (разный регистр) — один клиент")

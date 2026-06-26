@@ -169,8 +169,8 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Email == "" && req.Phone == "" {
-		respondError(w, r, http.StatusBadRequest, "укажите email или телефон")
+	if req.Email == "" {
+		respondError(w, r, http.StatusBadRequest, "укажите email")
 		return
 	}
 	if req.Brief == "" {

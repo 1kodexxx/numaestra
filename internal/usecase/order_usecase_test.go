@@ -84,10 +84,10 @@ func TestCreateOrder_InvalidEmail(t *testing.T) {
 		t.Fatalf("ожидали ErrInvalidEmail для строки 'не_email', получили %v", err)
 	}
 
-	// Пустой email допустим — поле необязательное.
+	// Email обязателен: пустой email должен возвращать ошибку.
 	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
-	if err != nil {
-		t.Fatalf("пустой email при наличии телефона должен быть допустим: %v", err)
+	if err == nil {
+		t.Fatal("пустой email должен возвращать ошибку — email теперь обязателен")
 	}
 
 	// Корректный email проходит.
@@ -100,8 +100,8 @@ func TestCreateOrder_InvalidEmail(t *testing.T) {
 func TestCreateOrder_InvalidPhone(t *testing.T) {
 	f := newFixture(t)
 
-	// Явно некорректный телефон.
-	_, err := f.uc.CreateOrder(context.Background(), "", "abc", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	// Явно некорректный телефон (при наличии email).
+	_, err := f.uc.CreateOrder(context.Background(), "u@example.com", "abc", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if !errors.Is(err, ErrInvalidPhone) {
 		t.Fatalf("ожидали ErrInvalidPhone для 'abc', получили %v", err)
 	}
@@ -112,8 +112,8 @@ func TestCreateOrder_InvalidPhone(t *testing.T) {
 		t.Fatalf("пустой телефон должен быть допустим: %v", err)
 	}
 
-	// Корректный российский номер.
-	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	// Корректный российский номер при наличии email.
+	_, err = f.uc.CreateOrder(context.Background(), "u@example.com", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("корректный телефон должен проходить: %v", err)
 	}

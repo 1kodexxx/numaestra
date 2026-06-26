@@ -151,9 +151,9 @@ func TestHandler_ErrorResponse_IncludesRequestID(t *testing.T) {
 func TestHandler_CreateOrder_MissingFields(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 	cases := []string{
-		`{"brief":"Песня"}`,        // нет контакта
+		`{"brief":"Песня"}`,        // нет email
 		`{"email":"a@b.c"}`,        // нет brief
-		`{"phone":"+79990000000"}`, // нет brief (только телефон)
+		`{"phone":"+79990000000"}`, // нет email
 	}
 	for i, body := range cases {
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -722,8 +722,8 @@ func TestHandler_GetOrder_InvalidUUID(t *testing.T) {
 
 func TestHandler_ListOrders_ByPhone(t *testing.T) {
 	h, router, _ := newTestHandler(t)
-	// Создаём заказ только с телефоном (без email)
-	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	// Создаём заказ с email и телефоном; листинг происходит по email
+	order, err := h.uc.CreateOrder(context.Background(), "phone@example.com", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
