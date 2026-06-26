@@ -24,12 +24,9 @@ import { stockImage } from "@widgets/side-panel";
 import { useFocusTrap } from "@shared/lib/useFocusTrap";
 import { useBreakpoint } from "@shared/lib/useBreakpoint";
 import { GOALS, reachGoal } from "@shared/lib/analytics";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearCatalogDraft, loadCatalogDraft, saveCatalogDraft } from "./catalogDraft";
-import { HomeBanners } from "./HomeBanners";
-import { HowItWorksStrip } from "./HowItWorksStrip";
-import { HomeFaq } from "./HomeFaq";
 import {
   EMPTY_FORM,
   GENRES_FALLBACK,
@@ -155,13 +152,9 @@ function Equalizer() {
 function Hero({
   compact,
   priceLabel,
-  onCreate,
-  onListen,
 }: {
   compact: boolean;
   priceLabel: string;
-  onCreate: () => void;
-  onListen: () => void;
 }) {
   return (
     <div
@@ -315,20 +308,6 @@ function Hero({
               {t}
             </div>
           ))}
-        </div>
-
-        <div
-          className="hero-enter-d4"
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            gap: 10,
-            marginTop: compact ? 18 : 24,
-          }}
-        >
-          <Button size="lg" onClick={onCreate}>Создать песню →</Button>
-          <Button size="lg" variant="outlined" onClick={onListen}>Послушать пример</Button>
         </div>
       </div>
     </div>
@@ -1127,7 +1106,6 @@ export function CatalogPage() {
     null,
   );
   const audioRef = useRef<HTMLAudioElement>(null);
-  const examplesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     saveCatalogDraft(form);
@@ -1226,20 +1204,6 @@ export function CatalogPage() {
     setBriefOpen(true);
   }
 
-  function resumeDraft() {
-    openBuilder();
-  }
-
-  function scrollToExamples() {
-    examplesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  function listenToExample() {
-    scrollToExamples();
-    const first = examples[0];
-    if (first) playExample(first);
-  }
-
   function openContact() {
     reachGoal(GOALS.CONTACT_OPEN, { source: "catalog" });
     setShowContact(true);
@@ -1268,13 +1232,11 @@ export function CatalogPage() {
     ? "repeat(2, 1fr)"
     : "repeat(auto-fill, minmax(150px, 1fr))";
   const popular = categories.slice(0, 10);
-  const popularIds = useMemo(() => new Set(popular.map((c) => c.id)), [popular]);
   const filterNorm = categoryFilter.trim().toLowerCase();
   const matchesFilter = (c: Category) =>
     !filterNorm || c.title.toLowerCase().includes(filterNorm) || c.id.toLowerCase().includes(filterNorm);
   const filteredCategories = categories.filter(matchesFilter);
   const filteredPopular = popular.filter(matchesFilter);
-  const gridCategories = filteredCategories.filter((c) => !popularIds.has(c.id));
 
   // Конструктор промпта — непрозрачный полноэкранный оверлей поверх всего.
   const constructorOverlay = briefOpen && (
@@ -1356,14 +1318,8 @@ export function CatalogPage() {
             <Hero
               compact={isMobile || isShort}
               priceLabel={publicConfig.price_label}
-              onCreate={openBuilder}
-              onListen={listenToExample}
             />
           </div>
-
-          <HomeBanners onResumeDraft={resumeDraft} />
-
-          <HowItWorksStrip />
 
           {/* Search → конструктор */}
           {error && (
@@ -1407,26 +1363,6 @@ export function CatalogPage() {
             </p>
           </div>
 
-          {/* Примеры — раньше категорий: сначала послушать */}
-          {!loading && (
-            <div ref={examplesRef} style={{ marginTop: 8, scrollMarginTop: 72 }}>
-              <HSection
-                icon="🎧"
-                title="Послушать примеры"
-                sub="нажмите play"
-                minCol={180}
-              >
-                {examples.map((ex) => (
-                  <ExampleCard
-                    key={ex.id}
-                    ex={ex}
-                    onPlay={() => playExample(ex)}
-                  />
-                ))}
-              </HSection>
-            </div>
-          )}
-
           {!loading && !error && categories.length === 0 && (
             <div
               style={{
@@ -1463,8 +1399,7 @@ export function CatalogPage() {
             </div>
           )}
 
-          {/* Все категории — без дубля с «Популярное» */}
-          {(loading || gridCategories.length > 0 || filterNorm) && (
+          {/* Все категории — сетка */}
           <section style={{ marginTop: "32px" }}>
             <div
               style={{
@@ -1483,11 +1418,11 @@ export function CatalogPage() {
                   color: "#fff",
                 }}
               >
-                {filterNorm ? "Категории" : "Остальные категории"}
+                Все категории
               </h2>
               {!loading && (
                 <span style={{ fontSize: "12px", color: TEXT3 }}>
-                  {filterNorm ? `${gridCategories.length} из ${categories.length - popular.length}` : gridCategories.length}
+                  {filterNorm ? `${filteredCategories.length} из ${categories.length}` : categories.length}
                 </span>
               )}
             </div>
@@ -1516,15 +1451,13 @@ export function CatalogPage() {
             >
               {loading
                 ? Array.from({ length: 12 }, (_, i) => <SkeletonCard key={i} />)
-                : gridCategories.length === 0
+                : filteredCategories.length === 0
                   ? (
                       <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "24px 12px", color: TEXT2, fontSize: 14 }}>
-                        {filterNorm
-                          ? `Ничего не найдено по запросу «${categoryFilter.trim()}»`
-                          : "Все категории уже в блоке «Популярное»"}
+                        Ничего не найдено по запросу «{categoryFilter.trim()}»
                       </div>
                     )
-                  : gridCategories.map((cat, i) => (
+                  : filteredCategories.map((cat, i) => (
                     <div
                       key={cat.id}
                       className="fade-up"
@@ -1542,11 +1475,28 @@ export function CatalogPage() {
                   ))}
             </div>
           </section>
+
+          {/* Примеры — горизонтальная секция с плавающим плеером */}
+          {!loading && (
+            <div style={{ marginTop: "36px" }}>
+              <HSection
+                icon="🎧"
+                title="Послушать примеры"
+                sub="нажмите play"
+                minCol={180}
+              >
+                {examples.map((ex) => (
+                  <ExampleCard
+                    key={ex.id}
+                    ex={ex}
+                    onPlay={() => playExample(ex)}
+                  />
+                ))}
+              </HSection>
+            </div>
           )}
 
           <ReviewsSnippet />
-
-          <HomeFaq priceLabel={publicConfig.price_label} />
         </div>
 
         <Footer />
