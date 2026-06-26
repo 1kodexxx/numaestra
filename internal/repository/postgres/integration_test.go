@@ -522,7 +522,7 @@ func TestIntegration_ListByPhone(t *testing.T) {
 	ctx := context.Background()
 
 	inv, _ := repo.NextInvoiceID(ctx)
-	order, _ := domain.NewOrder(inv, "", "+79991234567", "Бриф по телефону", "", "", domain.CurrentConsentDocVersion, 150000)
+	order, _ := domain.NewOrder(inv, "phone@example.com", "+79991234567", "Бриф по телефону", "", "", domain.CurrentConsentDocVersion, 150000)
 	if err := repo.Create(ctx, order); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
