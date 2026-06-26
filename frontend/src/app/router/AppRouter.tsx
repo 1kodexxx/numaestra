@@ -43,7 +43,7 @@ export function AppRouter() {
       <Route path="/order/fail" element={<Lazy><OrderFailPage /></Lazy>} />
       <Route path="/legal/:slug" element={<Lazy><LegalPage /></Lazy>} />
 
-      <Route path="/admin" element={<AdminRoot />}>
+      <Route path="/admin/*" element={<AdminRoot />}>
         <Route
           path="*"
           element={(
