@@ -97,7 +97,7 @@ func DefaultCORSOptions(origins []string) CORSOptions {
 	return CORSOptions{
 		AllowedOrigins: origins,
 		AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
-		AllowedHeaders: []string{"Content-Type", "X-Access-Token", "Authorization"},
+		AllowedHeaders: []string{"Content-Type", "X-Access-Token", "Authorization", "Idempotency-Key"},
 		MaxAge:         300,
 	}
 }

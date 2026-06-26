@@ -17,7 +17,10 @@ export const orderApi = {
     return apiFetch<CreateOrderResponse>('/orders/', {
       method: 'POST',
       body: payload,
-      headers: { 'X-Idempotency-Key': crypto.randomUUID() },
+      // Имя заголовка должно совпадать с тем, что читает idempotencyMiddleware на
+      // бэкенде (Idempotency-Key, без префикса X-). Иначе ключ не дойдёт и защита
+      // от дублей при двойной отправке/сетевом ретрае молча отключится.
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
     })
   },
 

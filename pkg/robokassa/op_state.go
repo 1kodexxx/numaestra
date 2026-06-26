@@ -61,11 +61,15 @@ func (c *Client) GetPaidAmountKopecks(ctx context.Context, invID int64) (kopecks
 	if outSum == "" {
 		return 0, false, fmt.Errorf("opstate: OutSum отсутствует в ответе для InvoiceID=%d", invID)
 	}
-	rubles, err := strconv.ParseFloat(strings.ReplaceAll(outSum, ",", "."), 64)
+	// Парсим строкой, без float: int64(rubles*100) даёт ошибку округления на копейку
+	// для нецелых сумм (например 1999.99 → 199998 вместо 199999), из-за чего сверка
+	// с суммой заказа ложно бы не совпала. ParseAmountKopecks делает то же, что и
+	// разбор вебхука, — гарантируя идентичную сумму на обоих путях подтверждения.
+	kopecks, err = ParseAmountKopecks(strings.ReplaceAll(outSum, ",", "."))
 	if err != nil {
 		return 0, false, fmt.Errorf("opstate: не удалось разобрать OutSum %q: %w", outSum, err)
 	}
-	return int64(rubles * 100), true, nil
+	return kopecks, true, nil
 }
 
 func (c *Client) fetchOperationState(ctx context.Context, invID int64) (*operationStateResponse, error) {
