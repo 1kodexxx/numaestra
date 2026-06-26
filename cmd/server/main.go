@@ -201,9 +201,17 @@ func run(ctx context.Context) error {
 				Queues: map[string]int{
 					"generation": 5,
 					"polling":    5,
+					// Демо — низший приоритет: Asynq обслуживает очереди
+					// пропорционально весам, поэтому платные задачи всегда идут
+					// вперёд, а демо берётся только когда есть запас.
+					"demo": 1,
 				},
 				RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
 					if errors.Is(e, usecase.ErrGenerationNotReady) {
+						return 15 * time.Second
+					}
+					// Демо-опрос ретраим часто и фиксированно (как платный поллинг).
+					if t != nil && t.Type() == queue.TaskTypeDemoCheck {
 						return 15 * time.Second
 					}
 					// Любая ошибка задачи поллинга (опрос Suno + перезаливка готовых треков
@@ -240,6 +248,8 @@ func run(ctx context.Context) error {
 		mux := asynq.NewServeMux()
 		mux.HandleFunc(queue.TaskTypeGenerateTrack, processor.HandleGenerateTask)
 		mux.HandleFunc(queue.TaskTypeCheckStatus, processor.HandleStatusCheckTask)
+		mux.HandleFunc(queue.TaskTypeDemoGenerate, processor.HandleDemoGenerateTask)
+		mux.HandleFunc(queue.TaskTypeDemoCheck, processor.HandleDemoCheckTask)
 
 		go func() {
 			log.Info("запуск Asynq worker-сервера")
@@ -268,6 +278,10 @@ func run(ctx context.Context) error {
 					// Сверка платежей: ловит «клиент заплатил, но вебхук не дошёл».
 					if err := orderUC.ReconcilePendingPayments(ctx); err != nil {
 						log.Error("ошибка сверки платежей с Robokassa", "err", err)
+					}
+					// Освобождение слотов у застрявших демо (краш воркера).
+					if err := orderUC.RecoverStuckDemos(ctx); err != nil {
+						log.Error("ошибка восстановления застрявших демо", "err", err)
 					}
 				}
 			}

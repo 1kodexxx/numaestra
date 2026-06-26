@@ -34,6 +34,17 @@ const (
 	GenerationStatusFailed     GenerationStatus = "failed"     // отказ после всех ретраев
 )
 
+// DemoStatus — состояние бесплатного демо-фрагмента (отдельная от оплаты полоса).
+// Демо генерируется ДО оплаты и не влияет на payment_status/generation_status.
+type DemoStatus string
+
+const (
+	DemoStatusNone       DemoStatus = "none"       // демо не запрашивалось
+	DemoStatusProcessing DemoStatus = "processing" // демо генерируется
+	DemoStatusReady      DemoStatus = "ready"      // демо готово (demoURL заполнен)
+	DemoStatusFailed     DemoStatus = "failed"     // демо не удалось (можно повторить)
+)
+
 // GenerationPhase — детальная стадия пайплайна (для прогресс-бара на странице статуса).
 type GenerationPhase string
 
@@ -135,6 +146,14 @@ type Order struct {
 	updatedAt   time.Time
 	paidAt      *time.Time
 	completedAt *time.Time
+
+	// Демо-фрагмент (бесплатный, до оплаты). Отдельная полоса, не пересекается
+	// с платёжной генерацией: пишется только через демо-поток.
+	demoStatus DemoStatus
+	demoURL    string
+	// demoAccountID — аккаунт, чей слот захвачен под текущее демо (processing).
+	// Отдельно от assignedAccountID платного потока. nil вне processing.
+	demoAccountID *uuid.UUID
 }
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
@@ -175,6 +194,7 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, 
 		currency:          "RUB",
 		paymentStatus:     PaymentStatusPending,
 		generationStatus:  GenerationStatusNew,
+		demoStatus:        DemoStatusNone,
 		accessToken:       token,
 		consentGivenAt:    &consentAt,
 		consentDocVersion: consentDocVersion,
@@ -225,6 +245,9 @@ type OrderSnapshot struct {
 	UpdatedAt             time.Time
 	PaidAt                *time.Time
 	CompletedAt           *time.Time
+	DemoStatus            DemoStatus
+	DemoURL               string
+	DemoAccountID         *uuid.UUID
 }
 
 // RestoreOrder восстанавливает агрегат из снапшота хранилища.
@@ -248,7 +271,17 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		discountKopecks:       s.DiscountKopecks,
 		referralCode:          s.ReferralCode,
 		createdAt:             s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
+		demoStatus: normalizeDemoStatus(s.DemoStatus), demoURL: s.DemoURL, demoAccountID: s.DemoAccountID,
 	}
+}
+
+// normalizeDemoStatus защищает от пустого значения у старых заказов (до миграции
+// колонка отсутствовала) — трактуем пустую строку как «демо не запрашивалось».
+func normalizeDemoStatus(s DemoStatus) DemoStatus {
+	if s == "" {
+		return DemoStatusNone
+	}
+	return s
 }
 
 // --- Геттеры ---
@@ -284,6 +317,9 @@ func (o *Order) ReferralCode() string               { return o.referralCode }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
+func (o *Order) DemoStatus() DemoStatus             { return o.demoStatus }
+func (o *Order) DemoURL() string                    { return o.demoURL }
+func (o *Order) DemoAccountID() *uuid.UUID          { return o.demoAccountID }
 
 // SameCustomer сообщает, что два заказа принадлежат одному клиенту (один email
 // или один телефон). Используется для доступа к «соседним» заказам по любому
@@ -542,6 +578,14 @@ type QueuePublisher interface {
 
 	// EnqueueStatusCheckTask ставит задачу на опрос статуса генерации в Suno (polling).
 	EnqueueStatusCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string) error
+
+	// EnqueueDemoTask ставит задачу генерации бесплатного демо (очередь "demo").
+	EnqueueDemoTask(ctx context.Context, orderID uuid.UUID) error
+
+	// EnqueueDemoCheckTask ставит задачу опроса демо. account_id нужен для
+	// освобождения захваченного слота аккаунта по завершении (демо не хранит его
+	// на агрегате заказа).
+	EnqueueDemoCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string, accountID uuid.UUID) error
 }
 
 func (o *Order) Snapshot() OrderSnapshot {
@@ -577,7 +621,47 @@ func (o *Order) Snapshot() OrderSnapshot {
 		UpdatedAt:             o.updatedAt,
 		PaidAt:                o.paidAt,
 		CompletedAt:           o.completedAt,
+		DemoStatus:            o.demoStatus,
+		DemoURL:               o.demoURL,
+		DemoAccountID:         o.demoAccountID,
 	}
+}
+
+// --- Демо-фрагмент (отдельная полоса, не пересекается с оплатой/генерацией) ---
+
+// StartDemo помечает начало генерации демо и фиксирует захваченный аккаунт.
+// Допустимо только из none/failed — защищает от повторного запуска уже идущего/
+// готового демо.
+func (o *Order) StartDemo(accountID uuid.UUID) error {
+	if o.demoStatus == DemoStatusProcessing {
+		return errors.New("демо уже генерируется")
+	}
+	if o.demoStatus == DemoStatusReady {
+		return errors.New("демо уже готово")
+	}
+	o.demoStatus = DemoStatusProcessing
+	o.demoAccountID = &accountID
+	o.touch()
+	return nil
+}
+
+// CompleteDemo фиксирует готовое демо и снимает привязку к аккаунту (слот освобождён).
+func (o *Order) CompleteDemo(url string) error {
+	if url == "" {
+		return errors.New("demo url не может быть пустым")
+	}
+	o.demoStatus = DemoStatusReady
+	o.demoURL = url
+	o.demoAccountID = nil
+	o.touch()
+	return nil
+}
+
+// FailDemo помечает демо как неуспешное (можно повторить) и снимает привязку к аккаунту.
+func (o *Order) FailDemo() {
+	o.demoStatus = DemoStatusFailed
+	o.demoAccountID = nil
+	o.touch()
 }
 
 // ApplyPromo применяет скидку промокода к заказу.
@@ -647,6 +731,15 @@ type OrderRepository interface {
 	// клиенте. Нижняя граница окна отсекает свежие заказы (ещё на странице оплаты),
 	// верхняя — выход за платёжное окно.
 	ListPendingPayment(ctx context.Context, createdAfter, createdBefore time.Time) ([]*Order, error)
+
+	// UpdateDemo пишет только demo-колонки (status/url/account_id), не затрагивая
+	// платёжные. Изолирует демо-полосу от платёжного Update (исключает взаимное
+	// затирание).
+	UpdateDemo(ctx context.Context, order *Order) error
+
+	// ListStuckDemo возвращает заказы с демо в processing дольше порога — для
+	// освобождения захваченного слота аккаунта при крахе демо-задачи.
+	ListStuckDemo(ctx context.Context, olderThan time.Time) ([]*Order, error)
 
 	// Delete безвозвратно удаляет заказ и связанные треки (CASCADE в БД).
 	Delete(ctx context.Context, id uuid.UUID) error

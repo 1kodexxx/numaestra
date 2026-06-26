@@ -363,6 +363,9 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
           })}
         </div>
 
+        {/* Бесплатное демо до оплаты: короткий фрагмент, без скачивания. */}
+        {ps === 'pending' && <DemoPreview status={order.demo_status} url={order.demo_url} />}
+
         {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
         {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
           <div style={{ marginTop: '28px' }}>
@@ -494,6 +497,56 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
       )}
     </div>
   )
+}
+
+/**
+ * Демо-фрагмент до оплаты: показываем «готовим…» пока генерируется и плеер-стрим
+ * без скачивания, когда готово. Это тизер (короткий фрагмент с водяным знаком в
+ * будущих версиях) — полную песню из 4 версий клиент получает после оплаты.
+ */
+function DemoPreview({ status, url }: { status?: string; url?: string }) {
+  if (status === 'processing') {
+    return (
+      <div style={{
+        marginTop: '24px', background: 'rgba(0,229,192,0.06)', border: `1px solid rgba(0,229,192,0.2)`,
+        borderRadius: '16px', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: '12px',
+      }}>
+        <div className="spin-anim" style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: ACCENT, flexShrink: 0 }} />
+        <div style={{ fontSize: '13px', color: TEXT2 }}>
+          Готовим бесплатное демо — это займёт пару минут. Можно дождаться его здесь.
+        </div>
+      </div>
+    )
+  }
+
+  if (status === 'ready' && url) {
+    return (
+      <div style={{
+        marginTop: '24px', background: '#0f0f0f', border: `1px solid ${BORDER}`,
+        borderRadius: '16px', padding: '18px 20px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+          <span style={{
+            fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase',
+            color: '#080808', background: ACCENT, borderRadius: '6px', padding: '3px 7px',
+          }}>Демо</span>
+          <span style={{ fontSize: '13px', fontWeight: 600 }}>Послушайте фрагмент бесплатно</span>
+        </div>
+        <audio
+          src={url}
+          controls
+          controlsList="nodownload noplaybackrate"
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ width: '100%', height: 40 }}
+        />
+        <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px', lineHeight: 1.5 }}>
+          Это короткий фрагмент. После оплаты вы получите <b style={{ color: TEXT2 }}>4 полные версии</b> песни с возможностью скачать.
+        </div>
+      </div>
+    )
+  }
+
+  return null
 }
 
 function ShareSection({ orderId, shareRevoked: initialRevoked, canManage }: { orderId: string; shareRevoked: boolean; canManage: boolean }) {

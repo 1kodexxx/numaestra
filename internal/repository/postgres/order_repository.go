@@ -126,6 +126,37 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 	})
 }
 
+// UpdateDemo пишет ТОЛЬКО demo-колонки — это намеренная изоляция от платёжного
+// пути: обычный Update не упоминает demo_*, поэтому параллельный платный апдейт
+// не может затереть результат демо-генерации (и наоборот). updated_at трогаем,
+// чтобы recovery-крон демо мог находить «застрявшие» processing по времени.
+func (r *OrderRepository) UpdateDemo(ctx context.Context, order *domain.Order) error {
+	snap := order.Snapshot()
+	query := `UPDATE orders SET demo_status = $1, demo_url = $2, demo_account_id = $3, updated_at = $4 WHERE id = $5`
+	cmd, err := r.conn(ctx).Exec(ctx, query,
+		string(snap.DemoStatus), nullableString(snap.DemoURL), snap.DemoAccountID, snap.UpdatedAt, snap.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update demo: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrOrderNotFound
+	}
+	return nil
+}
+
+// ListStuckDemo возвращает заказы с демо в статусе processing дольше порога —
+// их демо-задача потеряна (краш воркера). Recovery освобождает захваченный слот
+// аккаунта и помечает демо failed, чтобы не отъедать ёмкость у платных генераций.
+func (r *OrderRepository) ListStuckDemo(ctx context.Context, olderThan time.Time) ([]*domain.Order, error) {
+	query := `SELECT ` + orderSelectColumns + ` FROM orders WHERE demo_status = 'processing' AND updated_at < $1 ORDER BY updated_at ASC`
+	rows, err := r.conn(ctx).Query(ctx, query, olderThan)
+	if err != nil {
+		return nil, fmt.Errorf("list stuck demo: %w", err)
+	}
+	return r.ordersFromRows(ctx, rows)
+}
+
 // ApplyPaymentSuccess атомарно и идемпотентно переводит заказ в paid+queued.
 // Условие WHERE payment_status = 'pending' гарантирует, что при двух параллельных
 // доставках вебхука переход выполнит только одна транзакция (вторая получит

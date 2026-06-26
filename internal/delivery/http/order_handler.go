@@ -230,6 +230,13 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Запускаем бесплатное демо в фоне (best-effort, отдельная полоса). Ошибка
+	// постановки не влияет ни на заказ, ни на оплату — клиент в худшем случае
+	// просто не увидит демо и оплатит как обычно.
+	if err := h.uc.TriggerDemo(r.Context(), order.ID()); err != nil {
+		h.log.Warn("не удалось поставить задачу демо", "order_id", order.ID(), "err", err)
+	}
+
 	// Бесплатный заказ (промокод 100% скидки): Robokassa отклоняет 0 ₽ — применяем оплату сразу.
 	if order.AmountKopecks() == 0 {
 		if err := h.uc.HandlePaymentSuccess(r.Context(), order.InvoiceID(), 0); err != nil {
@@ -355,6 +362,10 @@ type OrderDetailResponse struct {
 	// фронте. Пусто, пока заказ не оплачен.
 	PaidAt       string `json:"paid_at,omitempty"`
 	ShareRevoked bool   `json:"share_revoked"`
+	// Демо-фрагмент (до оплаты). DemoStatus: none|processing|ready|failed.
+	// DemoURL заполнен только при ready; фронт отдаёт его как стрим без скачивания.
+	DemoStatus string `json:"demo_status"`
+	DemoURL    string `json:"demo_url,omitempty"`
 }
 
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
@@ -406,6 +417,8 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		Tracks:             tracks,
 		PaidAt:             paidAt,
 		ShareRevoked:       order.ShareRevoked(),
+		DemoStatus:         string(order.DemoStatus()),
+		DemoURL:            order.DemoURL(),
 	})
 }
 
@@ -534,6 +547,8 @@ type PublicStatusResponse struct {
 	PaidAt             string          `json:"paid_at,omitempty"`
 	ShareRevoked       bool            `json:"share_revoked"`
 	Tracks             []TrackResponse `json:"tracks,omitempty"`
+	DemoStatus         string          `json:"demo_status"`
+	DemoURL            string          `json:"demo_url,omitempty"`
 }
 
 // GetPublicShare отдаёт минимальный публичный вид завершённого заказа — только
@@ -623,6 +638,8 @@ func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 		PaidAt:             paidAt,
 		ShareRevoked:       order.ShareRevoked(),
 		Tracks:             tracks,
+		DemoStatus:         string(order.DemoStatus()),
+		DemoURL:            order.DemoURL(),
 	})
 }
 

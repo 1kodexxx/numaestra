@@ -314,6 +314,10 @@ func (r *wOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.
 func (r *wOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }
+func (r *wOrderRepo) UpdateDemo(_ context.Context, _ *domain.Order) error { return nil }
+func (r *wOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
 func (r *wOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -389,6 +393,10 @@ type wQueue struct {
 }
 
 func (q *wQueue) EnqueueGenerationTask(_ context.Context, _ uuid.UUID) error { return nil }
+func (q *wQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error { return nil }
+func (q *wQueue) EnqueueDemoCheckTask(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID) error {
+	return nil
+}
 func (q *wQueue) EnqueueStatusCheckTask(_ context.Context, _ uuid.UUID, jobID string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()

@@ -26,6 +26,10 @@ const (
 	// statusCheckTaskTimeout покрывает опрос статуса в Suno и перезаливку
 	// готовых треков в S3 (несколько файлов по 3–5 МБ).
 	statusCheckTaskTimeout = 3 * time.Minute
+	// demoGenerateTaskTimeout покрывает захват аккаунта и submit демо в Suno.
+	demoGenerateTaskTimeout = 90 * time.Second
+	// demoCheckTaskTimeout покрывает опрос демо и заливку одного клипа в S3.
+	demoCheckTaskTimeout = 2 * time.Minute
 )
 
 // OrderProcessor содержит логику обработки фоновых задач из Asynq
@@ -76,6 +80,13 @@ func (p *OrderProcessor) HandleGenerateTask(ctx context.Context, t *asynq.Task) 
 // ретраи и она отправляется в архив. Без этого аккаунт навсегда застрянет в Busy,
 // а заказ — в processing/queued. Переводим заказ в failed и освобождаем аккаунт.
 func (p *OrderProcessor) HandleDeadTask(ctx context.Context, t *asynq.Task, taskErr error) {
+	// Демо-задачи best-effort: их «смерть» не переводит заказ в failed — слот
+	// аккаунта и статус демо чинит RecoverStuckDemos. Просто логируем и выходим.
+	if t.Type() == queue.TaskTypeDemoGenerate || t.Type() == queue.TaskTypeDemoCheck {
+		p.taskLogger(ctx, t.Type(), "demo").Info("демо-задача исчерпала ретраи — очистит RecoverStuckDemos", "task_err", taskErr)
+		return
+	}
+
 	orderID, ok := orderIDFromTask(t)
 	if !ok {
 		p.taskLogger(ctx, t.Type(), "unknown").Error(
@@ -110,6 +121,51 @@ func orderIDFromTask(t *asynq.Task) (uuid.UUID, bool) {
 	default:
 		return uuid.Nil, false
 	}
+}
+
+// HandleDemoGenerateTask запускает генерацию бесплатного демо (очередь "demo").
+// Демо best-effort: при нехватке аккаунтов задача ретраится, не мешая платным.
+func (p *OrderProcessor) HandleDemoGenerateTask(ctx context.Context, t *asynq.Task) error {
+	var payload queue.DemoTaskPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("json.Unmarshal demo failed: %w: %w", err, asynq.SkipRetry)
+	}
+
+	log := p.taskLogger(ctx, t.Type(), payload.OrderID.String())
+	log.Debug("воркер взял задачу генерации демо")
+
+	ctx, cancel := context.WithTimeout(ctx, demoGenerateTaskTimeout)
+	defer cancel()
+
+	if err := p.uc.GenerateDemo(ctx, payload.OrderID); err != nil {
+		log.Info("демо не запущено, будет повтор", "error", err)
+		return err
+	}
+	return nil
+}
+
+// HandleDemoCheckTask опрашивает статус демо-генерации (очередь "demo").
+func (p *OrderProcessor) HandleDemoCheckTask(ctx context.Context, t *asynq.Task) error {
+	var payload queue.DemoCheckTaskPayload
+	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+		return fmt.Errorf("json.Unmarshal demo check failed: %w: %w", err, asynq.SkipRetry)
+	}
+
+	log := p.taskLogger(ctx, t.Type(), payload.OrderID.String())
+	log.Debug("воркер проверяет статус демо", "suno_job_id", payload.SunoJobID)
+
+	ctx, cancel := context.WithTimeout(ctx, demoCheckTaskTimeout)
+	defer cancel()
+
+	if err := p.uc.CheckDemoStatus(ctx, payload.OrderID, payload.SunoJobID, payload.AccountID); err != nil {
+		if errors.Is(err, usecase.ErrGenerationNotReady) {
+			log.Debug("демо ещё не готово, откладываем проверку")
+			return err
+		}
+		log.Warn("ошибка при проверке статуса демо", "error", err)
+		return err
+	}
+	return nil
 }
 
 // HandleStatusCheckTask вызывается воркером для периодического опроса статуса

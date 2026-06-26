@@ -21,6 +21,8 @@ export interface CreateOrderResponse {
   access_token: string
 }
 
+export type DemoStatus = 'none' | 'processing' | 'ready' | 'failed'
+
 // Ответ GET /api/v1/orders/:id (детали)
 export interface OrderDetail {
   id: string
@@ -34,6 +36,9 @@ export interface OrderDetail {
   generation_progress?: number
   tracks_ready?: number
   share_revoked?: boolean
+  // Демо-фрагмент (бесплатный, до оплаты). demo_url заполнен только при ready.
+  demo_status?: DemoStatus
+  demo_url?: string
 }
 
 // Элемент ответа GET /api/v1/orders/ (список заказов владельца по токену)

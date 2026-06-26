@@ -934,6 +934,197 @@ func (uc *OrderUseCase) ReconcilePendingPayments(ctx context.Context) error {
 	return nil
 }
 
+// ==========================================
+// 4. ДЕМО-ФРАГМЕНТ (бесплатное демо до оплаты — отдельная полоса)
+// ==========================================
+//
+// Демо полностью изолировано от платёжного пути: пишет только demo-колонки
+// (UpdateDemo), крутится на низкоприоритетной очереди "demo" и при нехватке
+// аккаунтов уступает платным генерациям. Захваченный слот аккаунта хранится в
+// demo_account_id, чтобы RecoverStuckDemos освободил его при крахе воркера.
+
+// stuckDemoThreshold — после этого времени демо в processing считается застрявшим
+// (демо-задача потеряна). Больше максимального окна опроса демо (40×15с = 10 мин).
+const stuckDemoThreshold = 12 * time.Minute
+
+// TriggerDemo ставит фоновую задачу генерации демо. Best-effort: вызывается при
+// создании заказа, ошибка постановки не влияет на сам заказ и оплату.
+func (uc *OrderUseCase) TriggerDemo(ctx context.Context, orderID uuid.UUID) error {
+	return uc.queue.EnqueueDemoTask(ctx, orderID)
+}
+
+// GenerateDemo запускает генерацию демо: захватывает слот аккаунта, отправляет ОДНУ
+// задачу Suno (1 клип) и ставит задачу опроса. Идемпотентно и безопасно к гонкам:
+// для оплаченного заказа и для уже идущего/готового демо — no-op.
+func (uc *OrderUseCase) GenerateDemo(ctx context.Context, orderID uuid.UUID) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("демо: заказ не найден: %w", err)
+	}
+
+	// Оплаченному заказу демо не нужно — полная генерация уже идёт/сделает своё.
+	if order.PaymentStatus() != domain.PaymentStatusPending {
+		return nil
+	}
+	if order.DemoStatus() == domain.DemoStatusProcessing || order.DemoStatus() == domain.DemoStatusReady {
+		return nil
+	}
+
+	account, err := uc.accRepo.FetchAndLockAvailable(ctx)
+	if err != nil {
+		if errors.Is(err, domain.ErrNoAvailableAccount) {
+			// Пул занят платными — не отбираем, тихо ретраим демо позже.
+			uc.log.Info("демо отложено: нет свободных аккаунтов", "order_id", orderID)
+			return err
+		}
+		return fmt.Errorf("демо: захват аккаунта: %w", err)
+	}
+
+	if err := order.StartDemo(account.ID()); err != nil {
+		// Демо уже запущено параллельно — освобождаем только что захваченный слот.
+		uc.releaseDemoSlot(ctx, account)
+		return nil
+	}
+	if err := uc.orderRepo.UpdateDemo(ctx, order); err != nil {
+		uc.releaseDemoSlot(ctx, account)
+		return fmt.Errorf("демо: сохранение статуса processing: %w", err)
+	}
+
+	req := domain.MusicGenerationRequest{
+		Briefs:       []string{demoBrief(order)},
+		Style:        resolveSunoStyleTags(order.SunoPrompt(), order.Brief()),
+		Instrumental: false,
+		TrackCount:   1,
+	}
+	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
+	if err != nil {
+		uc.releaseDemoSlot(ctx, account)
+		uc.markDemoFailed(ctx, order)
+		return fmt.Errorf("демо: submit в Suno: %w", err)
+	}
+
+	if err := uc.queue.EnqueueDemoCheckTask(ctx, order.ID(), sunoJobID, account.ID()); err != nil {
+		uc.releaseDemoSlot(ctx, account)
+		uc.markDemoFailed(ctx, order)
+		return fmt.Errorf("демо: постановка опроса: %w", err)
+	}
+
+	uc.log.Info("демо: генерация запущена", "order_id", order.ID(), "suno_job", sunoJobID)
+	return nil
+}
+
+// CheckDemoStatus опрашивает демо-задачу и при готовности заливает 1 клип в S3.
+// Возвращает ErrGenerationNotReady, пока Suno не закончил (Asynq ретраит).
+func (uc *OrderUseCase) CheckDemoStatus(ctx context.Context, orderID uuid.UUID, sunoJobID string, accountID uuid.UUID) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("демо: заказ не найден: %w", err)
+	}
+	// Демо уже не в работе (recovery пометил failed / гонка) — выходим.
+	if order.DemoStatus() != domain.DemoStatusProcessing {
+		return nil
+	}
+
+	result, err := uc.provider.FetchResult(ctx, sunoJobID)
+	if err != nil {
+		return fmt.Errorf("демо: опрос Suno: %w", err)
+	}
+	if result.Status == domain.MusicGenerationStatusPending || result.Status == domain.MusicGenerationStatusRunning {
+		return ErrGenerationNotReady
+	}
+
+	// Успех с клипами: заливаем первый клип в S3. При ошибке S3 — оставляем
+	// processing и ретраим (слот держим), как в платном потоке.
+	if result.Status == domain.MusicGenerationStatusCompleted && len(result.Tracks) > 0 {
+		s3Key := fmt.Sprintf("demos/%s.mp3", order.ID())
+		demoURL, uploadErr := uc.storage.UploadFromURL(ctx, result.Tracks[0].SourceURL, s3Key, "audio/mpeg")
+		if uploadErr != nil {
+			uc.log.Warn("демо: ошибка загрузки в S3, задача будет повторена", "order_id", order.ID(), "err", uploadErr)
+			return fmt.Errorf("демо: загрузка клипа в S3: %w", uploadErr)
+		}
+		uc.releaseDemoAccount(ctx, accountID, true)
+		if err := order.CompleteDemo(demoURL); err != nil {
+			return fmt.Errorf("демо: завершение в домене: %w", err)
+		}
+		if err := uc.orderRepo.UpdateDemo(ctx, order); err != nil {
+			return fmt.Errorf("демо: сохранение результата: %w", err)
+		}
+		uc.log.Info("демо готово", "order_id", order.ID())
+		return nil
+	}
+
+	// Терминально без клипов (failed/timeout) — освобождаем слот, помечаем failed.
+	uc.releaseDemoAccount(ctx, accountID, false)
+	uc.markDemoFailed(ctx, order)
+	uc.log.Warn("демо не удалось", "order_id", order.ID(), "status", result.Status)
+	return nil
+}
+
+// RecoverStuckDemos освобождает слоты аккаунтов у демо, застрявших в processing
+// (краш воркера), и помечает их failed — чтобы демо не отъедало ёмкость пула.
+func (uc *OrderUseCase) RecoverStuckDemos(ctx context.Context) error {
+	threshold := time.Now().UTC().Add(-stuckDemoThreshold)
+	orders, err := uc.orderRepo.ListStuckDemo(ctx, threshold)
+	if err != nil {
+		return fmt.Errorf("поиск застрявших демо: %w", err)
+	}
+	if len(orders) == 0 {
+		return nil
+	}
+
+	uc.log.Warn("обнаружены застрявшие демо, освобождаем слоты", "count", len(orders))
+	for _, order := range orders {
+		if accountID := order.DemoAccountID(); accountID != nil {
+			uc.releaseDemoAccount(ctx, *accountID, false)
+		}
+		uc.markDemoFailed(ctx, order)
+	}
+	return nil
+}
+
+// releaseDemoSlot освобождает слот аккаунта (без расхода токена) — для откатов,
+// когда демо-генерация не стартовала.
+func (uc *OrderUseCase) releaseDemoSlot(ctx context.Context, account *domain.SunoAccount) {
+	account.ReleaseSlot()
+	if err := uc.accRepo.Update(ctx, account); err != nil {
+		uc.log.Error("демо: не удалось освободить слот аккаунта", "account_id", account.ID(), "err", err)
+	}
+}
+
+// releaseDemoAccount загружает аккаунт по ID и освобождает слот. consumed=true
+// дополнительно списывает токен (демо реально потратило кредит Suno).
+func (uc *OrderUseCase) releaseDemoAccount(ctx context.Context, accountID uuid.UUID, consumed bool) {
+	account, err := uc.accRepo.GetByID(ctx, accountID)
+	if err != nil {
+		uc.log.Error("демо: аккаунт для освобождения слота не найден", "account_id", accountID, "err", err)
+		return
+	}
+	if consumed {
+		_ = account.ConsumeTokens(1)
+		account.ResetFailures()
+	}
+	account.ReleaseSlot()
+	if err := uc.accRepo.Update(ctx, account); err != nil {
+		uc.log.Error("демо: не удалось сохранить освобождение слота", "account_id", accountID, "err", err)
+	}
+}
+
+// markDemoFailed помечает демо неуспешным (снимает привязку к аккаунту).
+func (uc *OrderUseCase) markDemoFailed(ctx context.Context, order *domain.Order) {
+	order.FailDemo()
+	if err := uc.orderRepo.UpdateDemo(ctx, order); err != nil {
+		uc.log.Error("демо: не удалось пометить failed", "order_id", order.ID(), "err", err)
+	}
+}
+
+// demoBrief возвращает единственный бриф для демо: готовый промпт квиза либо brief.
+func demoBrief(order *domain.Order) string {
+	if raw := order.SunoPrompt(); raw != "" {
+		return raw
+	}
+	return order.Brief()
+}
+
 func (uc *OrderUseCase) recoverStuckOrder(ctx context.Context, order *domain.Order) error {
 	// Сохраняем ID до вызова RequeueForRetry, который очищает assignedAccountID.
 	accountID := order.AssignedAccountID()

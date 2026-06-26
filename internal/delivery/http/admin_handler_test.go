@@ -192,6 +192,12 @@ func (r *adminOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) (
 	return nil, nil
 }
 
+func (r *adminOrderRepo) UpdateDemo(_ context.Context, _ *domain.Order) error { return nil }
+
+func (r *adminOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
+
 func (r *adminOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -20,6 +20,10 @@ var queuesWithGenTasks = []string{"generation", "default"}
 const (
 	TaskTypeGenerateTrack = "suno:generate"
 	TaskTypeCheckStatus   = "suno:check_status"
+	// Демо-таски — отдельная полоса на очереди "demo" (низший приоритет), чтобы
+	// бесплатные демо никогда не вытесняли платные генерации из пула аккаунтов.
+	TaskTypeDemoGenerate = "demo:generate"
+	TaskTypeDemoCheck    = "demo:check_status"
 )
 
 // GenerationTaskPayload - полезная нагрузка задачи на генерацию.
@@ -33,6 +37,21 @@ type GenerationTaskPayload struct {
 type StatusCheckTaskPayload struct {
 	OrderID   uuid.UUID `json:"order_id"`
 	SunoJobID string    `json:"suno_job_id"`
+}
+
+// DemoTaskPayload — задача запуска демо. Только ID заказа: воркер сам загрузит заказ.
+type DemoTaskPayload struct {
+	OrderID uuid.UUID `json:"order_id"`
+}
+
+// DemoCheckTaskPayload — задача опроса демо. Кроме заказа и suno job несёт
+// account_id захваченного слота: демо НЕ хранит его на агрегате заказа (это поле
+// принадлежит платному потоку), поэтому account_id путешествует в payload и нужен
+// для освобождения слота по завершении опроса.
+type DemoCheckTaskPayload struct {
+	OrderID   uuid.UUID `json:"order_id"`
+	SunoJobID string    `json:"suno_job_id"`
+	AccountID uuid.UUID `json:"account_id"`
 }
 
 // AsynqPublisher - реализация domain.QueuePublisher поверх клиента Asynq.
@@ -121,6 +140,44 @@ func (p *AsynqPublisher) EnqueueStatusCheckTask(ctx context.Context, orderID uui
 	// При исчерпании ретраев HandleDeadTask переводит заказ в failed с уведомлением.
 	if _, err := p.client.EnqueueContext(ctx, task, asynq.Queue("polling"), asynq.MaxRetry(80)); err != nil {
 		return fmt.Errorf("постановка задачи проверки статуса в очередь: %w", err)
+	}
+	return nil
+}
+
+// EnqueueDemoTask ставит задачу генерации бесплатного демо на очередь "demo"
+// (низший приоритет). TaskID дедуплицирует повторные триггеры одного заказа.
+// MaxRetry мал: демо — best-effort, при нехватке аккаунтов лучше тихо не показать
+// демо, чем отнимать пул у платных заказов. ErrTaskIDConflict трактуем как успех.
+func (p *AsynqPublisher) EnqueueDemoTask(ctx context.Context, orderID uuid.UUID) error {
+	payload, err := json.Marshal(DemoTaskPayload{OrderID: orderID})
+	if err != nil {
+		return fmt.Errorf("сериализация задачи демо: %w", err)
+	}
+	task := asynq.NewTask(TaskTypeDemoGenerate, payload)
+	opts := []asynq.Option{
+		asynq.Queue("demo"),
+		asynq.MaxRetry(3),
+		asynq.TaskID("demo:" + orderID.String()),
+	}
+	if _, err := p.client.EnqueueContext(ctx, task, opts...); err != nil {
+		if errors.Is(err, asynq.ErrTaskIDConflict) {
+			return nil // демо для этого заказа уже поставлено — не плодим дубли
+		}
+		return fmt.Errorf("постановка задачи демо в очередь: %w", err)
+	}
+	return nil
+}
+
+// EnqueueDemoCheckTask ставит задачу опроса демо на очередь "demo".
+func (p *AsynqPublisher) EnqueueDemoCheckTask(ctx context.Context, orderID uuid.UUID, sunoJobID string, accountID uuid.UUID) error {
+	payload, err := json.Marshal(DemoCheckTaskPayload{OrderID: orderID, SunoJobID: sunoJobID, AccountID: accountID})
+	if err != nil {
+		return fmt.Errorf("сериализация задачи опроса демо: %w", err)
+	}
+	task := asynq.NewTask(TaskTypeDemoCheck, payload)
+	// 40 × 15 сек = 10 минут ожидания одной демо-задачи (1 клип, обычно быстрее).
+	if _, err := p.client.EnqueueContext(ctx, task, asynq.Queue("demo"), asynq.MaxRetry(40)); err != nil {
+		return fmt.Errorf("постановка задачи опроса демо в очередь: %w", err)
 	}
 	return nil
 }

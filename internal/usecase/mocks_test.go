@@ -55,6 +55,8 @@ type inMemOrderRepo struct {
 	listStuckQueuedErr     error
 	pendingOrders          []*domain.Order
 	listPendingErr         error
+	stuckDemoOrders        []*domain.Order
+	listStuckDemoErr       error
 }
 
 func newInMemOrderRepo() *inMemOrderRepo {
@@ -225,6 +227,23 @@ func (r *inMemOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) (
 		return nil, r.listPendingErr
 	}
 	return r.pendingOrders, nil
+}
+
+func (r *inMemOrderRepo) UpdateDemo(_ context.Context, order *domain.Order) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.orders[order.ID()]; !ok {
+		return domain.ErrOrderNotFound
+	}
+	r.save(order)
+	return nil
+}
+
+func (r *inMemOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	if r.listStuckDemoErr != nil {
+		return nil, r.listStuckDemoErr
+	}
+	return r.stuckDemoOrders, nil
 }
 
 func (r *inMemOrderRepo) CountAll(_ context.Context) (int, error) {
@@ -403,8 +422,11 @@ type mockQueue struct {
 	mu              sync.Mutex
 	genCalls        []uuid.UUID
 	statusCalls     []statusCheckCall
+	demoCalls       []uuid.UUID
+	demoCheckCalls  []uuid.UUID
 	enqueueGenErr   error
 	enqueueCheckErr error
+	enqueueDemoErr  error
 }
 
 type statusCheckCall struct {
@@ -429,6 +451,23 @@ func (q *mockQueue) EnqueueStatusCheckTask(_ context.Context, orderID uuid.UUID,
 		return q.enqueueCheckErr
 	}
 	q.statusCalls = append(q.statusCalls, statusCheckCall{OrderID: orderID, SunoJobID: sunoJobID})
+	return nil
+}
+
+func (q *mockQueue) EnqueueDemoTask(_ context.Context, orderID uuid.UUID) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.enqueueDemoErr != nil {
+		return q.enqueueDemoErr
+	}
+	q.demoCalls = append(q.demoCalls, orderID)
+	return nil
+}
+
+func (q *mockQueue) EnqueueDemoCheckTask(_ context.Context, orderID uuid.UUID, _ string, _ uuid.UUID) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.demoCheckCalls = append(q.demoCheckCalls, orderID)
 	return nil
 }
 

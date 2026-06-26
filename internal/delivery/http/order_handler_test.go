@@ -1061,6 +1061,12 @@ func (r *hOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*d
 	return nil, nil
 }
 
+func (r *hOrderRepo) UpdateDemo(_ context.Context, _ *domain.Order) error { return nil }
+
+func (r *hOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
+	return nil, nil
+}
+
 func (r *hOrderRepo) Delete(_ context.Context, id uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1078,6 +1084,12 @@ var _ domain.OrderRepository = (*hOrderRepo)(nil)
 type hQueue struct{}
 
 func (q *hQueue) EnqueueGenerationTask(_ context.Context, _ uuid.UUID) error { return nil }
+func (q *hQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error { return nil }
+
+func (q *hQueue) EnqueueDemoCheckTask(_ context.Context, _ uuid.UUID, _ string, _ uuid.UUID) error {
+	return nil
+}
+
 func (q *hQueue) EnqueueStatusCheckTask(_ context.Context, _ uuid.UUID, _ string) error {
 	return nil
 }

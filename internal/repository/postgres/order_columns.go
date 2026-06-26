@@ -14,4 +14,6 @@ const orderSelectColumns = `
 	promo_code_id, COALESCE(original_amount_kopecks, 0) AS original_amount_kopecks,
 	COALESCE(discount_kopecks, 0) AS discount_kopecks,
 	COALESCE(referral_code, '') AS referral_code,
-	created_at, updated_at, paid_at, completed_at`
+	created_at, updated_at, paid_at, completed_at,
+	COALESCE(demo_status, 'none') AS demo_status, COALESCE(demo_url, '') AS demo_url,
+	demo_account_id`
