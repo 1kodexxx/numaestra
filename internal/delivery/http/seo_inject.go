@@ -213,18 +213,25 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 			canonical:   baseURL + "/how-it-works",
 			body:        `<main><h1>Как это работает</h1><p>От идеи до готовой песни за 6 шагов: выбор повода, бриф, контакты, оплата, генерация нейросетью и 4 готовые версии за 10 минут.</p></main>`,
 		}
-	case strings.HasPrefix(path, "/s/"):
-		// Публичная страница «поделиться песней». noindex — это не контент для
-		// поиска, а capability-ссылка конкретного пользователя; но title/OG
-		// нужны для красивого превью при шеринге в Telegram/VK/WhatsApp.
+	case strings.HasPrefix(path, "/s/"), strings.HasPrefix(path, "/status/"):
+		// Страницы шеринга песни (/s/{id}) и статуса заказа (/status/{id}).
+		// noindex — это не контент для поиска, а capability-ссылка конкретного
+		// пользователя; но полный OG-блок (title/description/og:url/og:image)
+		// нужен для красивой карточки-превью при шеринге в VK/Telegram/WhatsApp.
+		// VK строит сниппет только при наличии og:url, поэтому canonical задаём
+		// всегда — он же даёт og:url в Render. Краулеры соцсетей читают OG
+		// независимо от robots=noindex, так что превью и приватность не конфликтуют.
 		return seoData{
-			title:       "Мне сделали песню в Numaestra 🎵",
-			description: "Послушайте персональную песню, созданную нейросетью в Numaestra — AI-студии песен на заказ.",
+			title:       "Послушайте мою песню от Numaestra 🎵",
+			description: "Персональная песня, созданная нейросетью под конкретный повод. Послушайте — и закажите свою за 10 минут в AI-студии Numaestra.",
 			canonical:   baseURL + path,
 			noindex:     true,
 		}
-	case strings.HasPrefix(path, "/admin"), strings.HasPrefix(path, "/status"):
-		// Служебные экраны не индексируем.
+	case path == "/status":
+		// Экран поиска заказа без id — не для поиска и не для шеринга.
+		return seoData{noindex: true}
+	case strings.HasPrefix(path, "/admin"):
+		// Служебные экраны админки не индексируем.
 		return seoData{noindex: true}
 	default:
 		return s.homeData(ctx, baseURL)

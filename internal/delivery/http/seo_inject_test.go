@@ -253,7 +253,7 @@ func TestSEOInjector_ShareSong(t *testing.T) {
 	inj := newSEOInjector(&stubPromptBuilder{})
 	html := inj.Render(context.Background(), "/s/8e250afe-894e-4d70-8a64-54bdc474117a", "https://numaestra.ru")
 
-	if !strings.Contains(html, "Мне сделали песню в Numaestra") {
+	if !strings.Contains(html, "Послушайте мою песню от Numaestra") {
 		t.Error("страница шеринга должна иметь своё og:title")
 	}
 	if !strings.Contains(html, `<meta name="robots" content="noindex, nofollow" />`) {
@@ -262,11 +262,48 @@ func TestSEOInjector_ShareSong(t *testing.T) {
 	if !strings.Contains(html, `href="https://numaestra.ru/s/8e250afe-894e-4d70-8a64-54bdc474117a"`) {
 		t.Error("canonical должен указывать на конкретную ссылку шеринга")
 	}
+	if !strings.Contains(html, `property="og:url" content="https://numaestra.ru/s/8e250afe-894e-4d70-8a64-54bdc474117a"`) {
+		t.Error("og:url обязателен для построения сниппета в VK")
+	}
 	wantImg := `property="og:image" content="https://numaestra.ru/og-image.png?v=2"`
 	if !strings.Contains(html, wantImg) {
 		t.Errorf("og:image должен быть абсолютным PNG для превью в мессенджерах, ожидали %q", wantImg)
 	}
 	if !strings.Contains(html, `property="og:image:secure_url" content="https://numaestra.ru/og-image.png?v=2"`) {
 		t.Error("og:image:secure_url обязателен для HTTPS-превью в Telegram")
+	}
+}
+
+// Страница статуса заказа (/status/{id}) — частая ссылка для шеринга. Должна
+// получать полную OG-карточку (og:title/description/og:url/og:image), оставаясь
+// noindex для Google.
+func TestSEOInjector_StatusOrderShareCard(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	html := inj.Render(context.Background(), "/status/1044cd49-6f73-4b43-b88c-7f3ba64c44d2", "https://numaestra.ru")
+
+	if !strings.Contains(html, `property="og:title" content="Послушайте мою песню от Numaestra`) {
+		t.Error("страница статуса должна иметь песенный og:title для красивого превью")
+	}
+	if !strings.Contains(html, `property="og:url" content="https://numaestra.ru/status/1044cd49-6f73-4b43-b88c-7f3ba64c44d2"`) {
+		t.Error("og:url обязателен — без него VK не строит карточку")
+	}
+	if !strings.Contains(html, `property="og:image" content="https://numaestra.ru/og-image.png?v=2"`) {
+		t.Error("og:image должен присутствовать для превью")
+	}
+	if !strings.Contains(html, `<meta name="robots" content="noindex, nofollow" />`) {
+		t.Error("приватная страница статуса должна оставаться noindex для Google")
+	}
+}
+
+// Экран поиска заказа без id (/status) не шерится — только noindex, без OG-карточки.
+func TestSEOInjector_StatusLookupNoindex(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	html := inj.Render(context.Background(), "/status", "https://numaestra.ru")
+
+	if !strings.Contains(html, `<meta name="robots" content="noindex, nofollow" />`) {
+		t.Error("экран поиска заказа должен быть noindex")
+	}
+	if strings.Contains(html, "Послушайте мою песню") {
+		t.Error("экран поиска без id не должен получать песенную OG-карточку")
 	}
 }
