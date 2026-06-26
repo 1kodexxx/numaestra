@@ -200,6 +200,7 @@ export function CategoryPage() {
   const [promoCode, setPromoCode] = useState("");
   const [promoStatus, setPromoStatus] = useState<{ discount_kopecks: number; label: string } | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
   const category = categories.find((c) => c.id === id);
@@ -309,6 +310,7 @@ export function CategoryPage() {
     if (!code) return;
     setPromoLoading(true);
     setPromoStatus(null);
+    setPromoError(null);
     try {
       const res = await promoApi.validate(code, publicConfig.price_kopecks);
       const label =
@@ -316,9 +318,11 @@ export function CategoryPage() {
           ? `−${res.discount_value}%`
           : `−${res.discount_value} ₽`;
       setPromoStatus({ discount_kopecks: res.discount_kopecks, label });
+      setPromoError(null);
     } catch {
+      // Сохраняем введённый код, но показываем явную обратную связь.
       setPromoStatus(null);
-      setPromoCode("");
+      setPromoError("Промокод недействителен или истёк");
     } finally {
       setPromoLoading(false);
     }
@@ -587,12 +591,12 @@ export function CategoryPage() {
           <TextField
             label="Промокод (необязательно)"
             value={promoCode}
-            onChange={v => { setPromoCode(v.toUpperCase()); setPromoStatus(null); }}
+            onChange={v => { setPromoCode(v.toUpperCase()); setPromoStatus(null); setPromoError(null); }}
             disabled={!!promoStatus}
           />
         </div>
         {promoStatus ? (
-          <Button size="sm" onClick={() => { setPromoCode(""); setPromoStatus(null); }}>✕</Button>
+          <Button size="sm" onClick={() => { setPromoCode(""); setPromoStatus(null); setPromoError(null); }}>✕</Button>
         ) : (
           <Button size="sm" onClick={applyPromoCode} disabled={!promoCode.trim() || promoLoading}>
             {promoLoading ? "…" : "Применить"}
@@ -602,6 +606,11 @@ export function CategoryPage() {
       {promoDiscountLabel && (
         <div style={{ fontSize: "12px", color: ACCENT, marginBottom: "8px", textAlign: "center" }}>
           ✓ Промокод применён: {promoDiscountLabel}
+        </div>
+      )}
+      {promoError && (
+        <div style={{ fontSize: "12px", color: "#f87171", marginBottom: "8px", textAlign: "center" }}>
+          ✕ {promoError}
         </div>
       )}
       {quizError && (
