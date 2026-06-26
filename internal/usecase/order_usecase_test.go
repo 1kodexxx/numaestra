@@ -52,7 +52,7 @@ func (f *fixture) addAccount(t *testing.T, tokens int) *domain.SunoAccount {
 
 func TestCreateOrder_Success(t *testing.T) {
 	f := newFixture(t)
-	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Песня на ДР", "", domain.CurrentConsentDocVersion, nil)
+	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Песня на ДР", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder упал: %v", err)
 	}
@@ -79,19 +79,19 @@ func TestCreateOrder_InvalidEmail(t *testing.T) {
 	f := newFixture(t)
 
 	// Некорректный email должен возвращать ErrInvalidEmail.
-	_, err := f.uc.CreateOrder(context.Background(), "не_email", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err := f.uc.CreateOrder(context.Background(), "не_email", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if !errors.Is(err, ErrInvalidEmail) {
 		t.Fatalf("ожидали ErrInvalidEmail для строки 'не_email', получили %v", err)
 	}
 
 	// Пустой email допустим — поле необязательное.
-	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("пустой email при наличии телефона должен быть допустим: %v", err)
 	}
 
 	// Корректный email проходит.
-	_, err = f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err = f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("корректный email должен проходить валидацию: %v", err)
 	}
@@ -101,19 +101,19 @@ func TestCreateOrder_InvalidPhone(t *testing.T) {
 	f := newFixture(t)
 
 	// Явно некорректный телефон.
-	_, err := f.uc.CreateOrder(context.Background(), "", "abc", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err := f.uc.CreateOrder(context.Background(), "", "abc", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if !errors.Is(err, ErrInvalidPhone) {
 		t.Fatalf("ожидали ErrInvalidPhone для 'abc', получили %v", err)
 	}
 
 	// Пустой телефон допустим (необязательное поле).
-	_, err = f.uc.CreateOrder(context.Background(), "u@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err = f.uc.CreateOrder(context.Background(), "u@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("пустой телефон должен быть допустим: %v", err)
 	}
 
 	// Корректный российский номер.
-	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err = f.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("корректный телефон должен проходить: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestCreateOrder_InvalidPhone(t *testing.T) {
 
 func TestCreateOrder_ValidationError(t *testing.T) {
 	f := newFixture(t)
-	_, err := f.uc.CreateOrder(context.Background(), "", "", "", "", domain.CurrentConsentDocVersion, nil)
+	_, err := f.uc.CreateOrder(context.Background(), "", "", "", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err == nil {
 		t.Fatal("ожидали ошибку валидации при пустых данных")
 	}
@@ -130,7 +130,7 @@ func TestCreateOrder_ValidationError(t *testing.T) {
 func TestCreateOrder_RepoError(t *testing.T) {
 	f := newFixture(t)
 	f.orderRepo.createErr = errors.New("db down")
-	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	_, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err == nil {
 		t.Fatal("ожидали ошибку при сбое сохранения")
 	}
@@ -139,7 +139,7 @@ func TestCreateOrder_RepoError(t *testing.T) {
 func TestCreateOrder_PriceFromServer_NotClient(t *testing.T) {
 	f := newFixture(t)
 	// Заказ не принимает сумму от клиента вообще — цена всегда фиксированная серверная.
-	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, err := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder упал: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestCreateOrder_PriceFromServer_NotClient(t *testing.T) {
 
 func TestHandlePaymentSuccess_Success(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
 		t.Fatalf("HandlePaymentSuccess упал: %v", err)
@@ -172,7 +172,7 @@ func TestHandlePaymentSuccess_Success(t *testing.T) {
 
 func TestHandlePaymentSuccess_AmountMismatch(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 100000)
 	if !errors.Is(err, ErrPaymentAmountMismatch) {
@@ -198,7 +198,7 @@ func TestHandlePaymentSuccess_UnknownInvoice(t *testing.T) {
 
 func TestHandlePaymentSuccess_DuplicateWebhook_Idempotent(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	// Первая доставка вебхука.
 	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
@@ -215,7 +215,7 @@ func TestHandlePaymentSuccess_DuplicateWebhook_Idempotent(t *testing.T) {
 
 func TestAdminConfirmPayment_Success(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	if err := f.uc.AdminConfirmPayment(context.Background(), order.ID()); err != nil {
 		t.Fatalf("AdminConfirmPayment упал: %v", err)
@@ -232,7 +232,7 @@ func TestAdminConfirmPayment_Success(t *testing.T) {
 
 func TestAdminConfirmPayment_NotPending(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	_ = f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000)
 
 	err := f.uc.AdminConfirmPayment(context.Background(), order.ID())
@@ -245,7 +245,7 @@ func TestAdminConfirmPayment_NotPending(t *testing.T) {
 // репозитория: повторное применение к уже оплаченному заказу даёт applied=false.
 func TestApplyPaymentSuccess_OnlyFromPending(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	loaded, _ := f.orderRepo.GetByID(context.Background(), order.ID())
 	_ = loaded.MarkPaid()
@@ -410,7 +410,7 @@ func TestProcessGenerationTask_WrongStatus_Skipped(t *testing.T) {
 	f := newFixture(t)
 	f.addAccount(t, 10)
 	// Заказ в статусе New (не Queued) — задача должна быть пропущена без ошибки.
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	if err := f.uc.ProcessGenerationTask(context.Background(), order.ID()); err != nil {
 		t.Fatalf("пропуск задачи с неверным статусом не должен возвращать ошибку: %v", err)
@@ -611,11 +611,11 @@ func TestListOrdersByEmail_EmptyEmail(t *testing.T) {
 
 func TestListOrdersByEmail_ReturnsMatching(t *testing.T) {
 	f := newFixture(t)
-	order, err := f.uc.CreateOrder(context.Background(), "find@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, err := f.uc.CreateOrder(context.Background(), "find@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
-	_, _ = f.uc.CreateOrder(context.Background(), "other@example.com", "", "Другой", "", domain.CurrentConsentDocVersion, nil)
+	_, _ = f.uc.CreateOrder(context.Background(), "other@example.com", "", "Другой", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	list, err := f.uc.ListOrdersByEmail(context.Background(), "find@example.com", 20, 0)
 	if err != nil {
@@ -638,8 +638,8 @@ func TestGetOrderByToken_Empty(t *testing.T) {
 
 func TestGetOrderForCustomer_SiblingSameEmail(t *testing.T) {
 	f := newFixture(t)
-	first, _ := f.uc.CreateOrder(context.Background(), "sib@test.com", "", "первый", "", domain.CurrentConsentDocVersion, nil)
-	second, _ := f.uc.CreateOrder(context.Background(), "sib@test.com", "", "второй", "", domain.CurrentConsentDocVersion, nil)
+	first, _ := f.uc.CreateOrder(context.Background(), "sib@test.com", "", "первый", "", domain.CurrentConsentDocVersion, "", "", nil)
+	second, _ := f.uc.CreateOrder(context.Background(), "sib@test.com", "", "второй", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	got, err := f.uc.GetOrderForCustomer(context.Background(), first, second.ID())
 	if err != nil {
@@ -652,8 +652,8 @@ func TestGetOrderForCustomer_SiblingSameEmail(t *testing.T) {
 
 func TestGetOrderForCustomer_DifferentCustomerDenied(t *testing.T) {
 	f := newFixture(t)
-	owner, _ := f.uc.CreateOrder(context.Background(), "a@test.com", "", "мой", "", domain.CurrentConsentDocVersion, nil)
-	other, _ := f.uc.CreateOrder(context.Background(), "b@test.com", "", "чужой", "", domain.CurrentConsentDocVersion, nil)
+	owner, _ := f.uc.CreateOrder(context.Background(), "a@test.com", "", "мой", "", domain.CurrentConsentDocVersion, "", "", nil)
+	other, _ := f.uc.CreateOrder(context.Background(), "b@test.com", "", "чужой", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	_, err := f.uc.GetOrderForCustomer(context.Background(), owner, other.ID())
 	if !errors.Is(err, domain.ErrOrderAccessDenied) {
@@ -663,7 +663,7 @@ func TestGetOrderForCustomer_DifferentCustomerDenied(t *testing.T) {
 
 func TestGetOrder_Found(t *testing.T) {
 	f := newFixture(t)
-	order, err := f.uc.CreateOrder(context.Background(), "get@test.com", "", "бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, err := f.uc.CreateOrder(context.Background(), "get@test.com", "", "бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
@@ -757,7 +757,7 @@ func TestFailGeneration_AccountNotFound_StillUpdatesOrder(t *testing.T) {
 
 func TestHandlePaymentSuccess_NotApplied_SkipsEnqueue(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	f.orderRepo.applyPaymentNotApplied = true
 
@@ -771,7 +771,7 @@ func TestHandlePaymentSuccess_NotApplied_SkipsEnqueue(t *testing.T) {
 
 func TestHandlePaymentSuccess_EnqueueError(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	f.queue.enqueueGenErr = errors.New("очередь недоступна")
 
@@ -783,7 +783,7 @@ func TestHandlePaymentSuccess_EnqueueError(t *testing.T) {
 
 func TestHandlePaymentSuccess_ApplyPaymentError(t *testing.T) {
 	f := newFixture(t)
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 
 	f.orderRepo.applyPaymentErr = errors.New("db error")
 
@@ -813,7 +813,7 @@ func TestSaveOrderAndAccount_AccountUpdateFails(t *testing.T) {
 
 func (f *fixture) queuedOrder(t *testing.T) *domain.Order {
 	t.Helper()
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
 		t.Fatalf("подготовка queued-заказа: %v", err)
 	}
@@ -935,7 +935,7 @@ func TestRecoverStuckOrders_WithoutAccount_RequeuesOrder(t *testing.T) {
 	f := newFixture(t)
 
 	// Создаём processing-заказ без привязанного аккаунта (не через StartProcessing).
-	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	_ = f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000)
 	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
 	// Переводим напрямую в processing без аккаунта (симулируем edge case через raw snapshot).

@@ -723,7 +723,7 @@ func TestHandler_GetOrder_InvalidUUID(t *testing.T) {
 func TestHandler_ListOrders_ByPhone(t *testing.T) {
 	h, router, _ := newTestHandler(t)
 	// Создаём заказ только с телефоном (без email)
-	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, err := h.uc.CreateOrder(context.Background(), "", "+79991234567", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateOrder: %v", err)
 	}
@@ -755,7 +755,7 @@ func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 	h := NewOrderHandler(uc, discardLogger(), rk, nil).WithRedis(rdb)
 	router := h.Routes()
 
-	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, nil)
+	order, err := uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
@@ -909,7 +909,7 @@ func TestHandler_SyncPayment_AlreadyPaid(t *testing.T) {
 
 func mustCreate(t *testing.T, h *OrderHandler, email, phone, brief string) *domain.Order {
 	t.Helper()
-	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, "", domain.CurrentConsentDocVersion, nil)
+	order, err := h.uc.CreateOrder(context.Background(), email, phone, brief, "", domain.CurrentConsentDocVersion, "", "", nil)
 	if err != nil {
 		t.Fatalf("подготовка заказа: %v", err)
 	}
