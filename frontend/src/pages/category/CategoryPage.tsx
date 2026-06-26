@@ -28,6 +28,11 @@ import { breadcrumbJsonLd, injectJsonLd } from "@shared/lib/jsonLd";
 
 const ACCENT = theme.accent;
 const BORDER = theme.border;
+
+// Жанры: пользователь может выбирать пресеты И добавлять свои, но суммарно не
+// более трёх. mapping_key совпадает с ключом GENRE в Suno-тегах на бэкенде.
+const GENRE_KEY = "GENRE";
+const MAX_GENRES = 3;
 const TEXT2 = theme.text2;
 const TEXT3 = theme.text3;
 const PANEL_W = 240;
@@ -129,13 +134,19 @@ function QuestionField({
   tagValues,
   onText,
   onToggleTag,
+  allowCustom,
+  maxSelect,
 }: {
   q: Question;
   textValue: string;
   tagValues: string[];
   onText: (v: string) => void;
   onToggleTag: (v: string) => void;
+  allowCustom?: boolean;
+  maxSelect?: number;
 }) {
+  const [customInput, setCustomInput] = useState("");
+
   if (q.ui_type === "text" || q.ui_type === "textarea") {
     return (
       <TextField
@@ -152,10 +163,27 @@ function QuestionField({
   }
 
   const multi = q.ui_type === "tags";
+  // Свои значения = выбранные, которых нет среди пресетов (добавлены пользователем).
+  const optionValues = q.options.map((o) => o.value);
+  const customValues = multi ? tagValues.filter((v) => !optionValues.includes(v)) : [];
+  const atLimit = maxSelect != null && tagValues.length >= maxSelect;
+
   const hint = q.config?.hint
     ?? (multi
-      ? `можно выбрать несколько${q.config?.max_select ? `, до ${q.config.max_select}` : ""}`
+      ? allowCustom
+        ? `до ${maxSelect ?? MAX_GENRES} — выбирайте из списка или добавьте свой`
+        : `можно выбрать несколько${maxSelect ? `, до ${maxSelect}` : ""}`
       : undefined);
+
+  function addCustom() {
+    const v = customInput.trim();
+    if (!v) return;
+    // Дедуп без учёта регистра, уважение лимита (контролируется в toggleTag).
+    const exists = tagValues.some((x) => x.toLowerCase() === v.toLowerCase());
+    if (!exists) onToggleTag(v);
+    setCustomInput("");
+  }
+
   return (
     <Section
       label={q.question_text}
@@ -179,6 +207,31 @@ function QuestionField({
           />
         );
       })}
+      {/* Свои жанры — клик по чипу убирает его */}
+      {customValues.map((v) => (
+        <Chip key={`custom:${v}`} label={`${v} ✕`} selected onClick={() => onToggleTag(v)} />
+      ))}
+      {allowCustom && (
+        <div style={{ display: "flex", gap: "6px", width: "100%", marginTop: "4px" }}>
+          <input
+            value={customInput}
+            onChange={(e) => setCustomInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+            disabled={atLimit}
+            placeholder={atLimit ? `Достигнут лимит — ${maxSelect ?? MAX_GENRES} жанра` : "Свой жанр…"}
+            maxLength={40}
+            style={{
+              flex: 1, minWidth: 0, padding: "9px 14px", borderRadius: "20px",
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+              color: "#fff", fontSize: "13px", fontFamily: "inherit", outline: "none",
+              opacity: atLimit ? 0.5 : 1,
+            }}
+          />
+          <Button size="sm" onClick={addCustom} disabled={atLimit || !customInput.trim()}>
+            Добавить
+          </Button>
+        </div>
+      )}
     </Section>
   );
 }
@@ -501,7 +554,9 @@ export function CategoryPage() {
                 onText={(v) =>
                   setAnswers((prev) => ({ ...prev, [q.mapping_key]: v }))
                 }
-                onToggleTag={(v) => toggleTag(q.mapping_key, v, q.config?.max_select)}
+                allowCustom={q.mapping_key === GENRE_KEY}
+                maxSelect={q.mapping_key === GENRE_KEY ? MAX_GENRES : q.config?.max_select}
+                onToggleTag={(v) => toggleTag(q.mapping_key, v, q.mapping_key === GENRE_KEY ? MAX_GENRES : q.config?.max_select)}
               />
             ))
           : wizardLoading
