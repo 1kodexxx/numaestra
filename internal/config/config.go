@@ -77,6 +77,7 @@ type RobokassaConfig struct {
 	Password2     string // Для проверки подписи вебхука
 	Password3     string // Для JWT API возвратов (генерируется отдельно в кабинете)
 	IsTest        bool   // Флаг тестового режима
+	TestAutoPay   bool   // В тестовом режиме считать все счета оплаченными (для sync-payment)
 	// AllowedIPs — список IP/CIDR, с которых принимаются вебхуки ResultURL.
 	// Пустой список отключает фильтрацию по IP (подпись проверяется всегда).
 	// Актуальные подсети Robokassa см. в их документации/поддержке.
@@ -154,8 +155,9 @@ func Load() (*Config, error) {
 			// Дефолт false: в проде безопаснее «боевой» режим. Тестовый режим
 			// нужно включать осознанно через ROBOKASSA_IS_TEST=true в dev-окружении,
 			// иначе платежи уходят в тест и Robokassa их не зачисляет.
-			IsTest:     getBoolEnv("ROBOKASSA_IS_TEST", false),
-			AllowedIPs: getCSVEnv("ROBOKASSA_ALLOWED_IPS"),
+			IsTest:      getBoolEnv("ROBOKASSA_IS_TEST", false),
+			TestAutoPay: getBoolEnv("ROBOKASSA_TEST_AUTO_PAY", false),
+			AllowedIPs:  getCSVEnv("ROBOKASSA_ALLOWED_IPS"),
 		},
 		Suno: SunoConfig{
 			APIURL: getEnv("SUNO_API_URL", "https://sunor.cc"),

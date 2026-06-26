@@ -1,10 +1,23 @@
 const ORDER_ID_KEY = 'numaestra_order_id'
 const ACCESS_TOKEN_KEY = 'numaestra_access_token'
+const INVOICE_MAP_KEY = 'numaestra_invoice_map'
 
 export const orderStorage = {
   saveOrder(id: string, token: string) {
     localStorage.setItem(ORDER_ID_KEY, id)
     localStorage.setItem(ACCESS_TOKEN_KEY, token)
+  },
+  saveInvoiceOrder(invoiceId: number, orderId: string) {
+    const raw = localStorage.getItem(INVOICE_MAP_KEY)
+    const map: Record<string, string> = raw ? JSON.parse(raw) : {}
+    map[String(invoiceId)] = orderId
+    localStorage.setItem(INVOICE_MAP_KEY, JSON.stringify(map))
+  },
+  getOrderIdByInvoice(invoiceId: number): string | null {
+    const raw = localStorage.getItem(INVOICE_MAP_KEY)
+    if (!raw) return null
+    const map: Record<string, string> = JSON.parse(raw)
+    return map[String(invoiceId)] ?? null
   },
   getOrderId(): string | null {
     return localStorage.getItem(ORDER_ID_KEY)

@@ -186,13 +186,15 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 	if promoCode != "" && uc.promoRepo != nil {
 		promo, err := uc.promoRepo.GetByCode(ctx, strings.ToUpper(promoCode))
 		if err != nil {
-			if !errors.Is(err, domain.ErrPromoCodeNotFound) {
-				return nil, fmt.Errorf("проверка промокода: %w", err)
+			if errors.Is(err, domain.ErrPromoCodeNotFound) {
+				return nil, domain.ErrPromoCodeNotFound
 			}
-			uc.log.Warn("промокод не найден, заказ создаётся без скидки", "promo_code", promoCode)
-		} else if promo.IsValid() {
-			appliedPromo = promo
+			return nil, fmt.Errorf("проверка промокода: %w", err)
 		}
+		if !promo.IsValid() {
+			return nil, domain.ErrPromoCodeInvalid
+		}
+		appliedPromo = promo
 	}
 
 	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, consentDocVersion, amountKopecks)
@@ -210,17 +212,27 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 		order.SetReferralCode(strings.TrimSpace(referralCode))
 	}
 
-	if err := uc.orderRepo.Create(ctx, order); err != nil {
-		return nil, fmt.Errorf("ошибка сохранения заказа: %w", err)
-	}
-
-	// Атомарно увеличиваем счётчик использований промокода после успешного сохранения заказа.
-	if appliedPromo != nil {
-		if ok, err := uc.promoRepo.IncrementUses(ctx, appliedPromo.ID()); err != nil {
-			uc.log.Error("не удалось увеличить счётчик промокода", "promo_id", appliedPromo.ID(), "err", err)
-		} else if !ok {
-			uc.log.Warn("промокод исчерпан в момент записи (гонка)", "promo_code", appliedPromo.Code())
+	// Атомарно: сначала IncrementUses (SQL WHERE current_uses < max_uses), затем Create.
+	// Порядок критичен: если бы мы сначала Create, а потом IncrementUses, то при гонке
+	// два конкурентных запроса оба успели бы создать заказ со скидкой, а IncrementUses
+	// одного из них вернул бы false уже после сохранения заказа. При текущем порядке
+	// только выигравший гонку создаёт заказ; проигравший получает ErrPromoCodeInvalid.
+	if err := uc.tx.Do(ctx, func(ctx context.Context) error {
+		if appliedPromo != nil {
+			ok, err := uc.promoRepo.IncrementUses(ctx, appliedPromo.ID())
+			if err != nil {
+				return fmt.Errorf("увеличение счётчика промокода: %w", err)
+			}
+			if !ok {
+				return domain.ErrPromoCodeInvalid
+			}
 		}
+		return uc.orderRepo.Create(ctx, order)
+	}); err != nil {
+		if errors.Is(err, domain.ErrPromoCodeInvalid) {
+			return nil, domain.ErrPromoCodeInvalid
+		}
+		return nil, fmt.Errorf("ошибка сохранения заказа: %w", err)
 	}
 
 	metrics.OrdersCreated.Inc()

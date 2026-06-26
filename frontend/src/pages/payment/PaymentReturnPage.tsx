@@ -16,7 +16,14 @@ const REDIRECT_SEC = 4
 export function OrderSuccessPage() {
   const navigate = useNavigate()
   const [seconds, setSeconds] = useState(REDIRECT_SEC)
-  const orderId = orderStorage.getOrderId()
+
+  // Robokassa appends ?InvId=...&OutSum=...&SignatureValue=... to the SuccessURL.
+  // We use InvId to resolve the order UUID via the localStorage invoice map,
+  // falling back to the primary order key in case the user switched browsers.
+  const params = new URLSearchParams(window.location.search)
+  const invId = params.get('InvId')
+  const orderId = (invId ? orderStorage.getOrderIdByInvoice(Number(invId)) : null)
+    ?? orderStorage.getOrderId()
 
   useEffect(() => {
     reachGoal(GOALS.PAYMENT_SUCCESS, { order_id: orderId ?? undefined })

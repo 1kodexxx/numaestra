@@ -25,7 +25,8 @@ type operationStateResponse struct {
 		Code int `xml:"Code"`
 	} `xml:"State"`
 	Info struct {
-		OpKey string `xml:"OpKey"`
+		OutSum string `xml:"OutSum"`
+		OpKey  string `xml:"OpKey"`
 	} `xml:"Info"`
 }
 
@@ -40,6 +41,31 @@ func (c *Client) IsInvoicePaid(ctx context.Context, invID int64) (bool, error) {
 		return false, err
 	}
 	return state.State.Code == StateCodePaid, nil
+}
+
+// GetPaidAmountKopecks проверяет статус счёта через OpStateExt и возвращает
+// фактически списанную сумму в копейках. Если счёт не оплачен — возвращает (0, false, nil).
+// Работает только в боевом режиме.
+func (c *Client) GetPaidAmountKopecks(ctx context.Context, invID int64) (kopecks int64, paid bool, err error) {
+	if c.isTest {
+		return 0, false, nil
+	}
+	state, err := c.fetchOperationState(ctx, invID)
+	if err != nil {
+		return 0, false, err
+	}
+	if state.State.Code != StateCodePaid {
+		return 0, false, nil
+	}
+	outSum := strings.TrimSpace(state.Info.OutSum)
+	if outSum == "" {
+		return 0, false, fmt.Errorf("opstate: OutSum отсутствует в ответе для InvoiceID=%d", invID)
+	}
+	rubles, err := strconv.ParseFloat(strings.ReplaceAll(outSum, ",", "."), 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("opstate: не удалось разобрать OutSum %q: %w", outSum, err)
+	}
+	return int64(rubles * 100), true, nil
 }
 
 func (c *Client) fetchOperationState(ctx context.Context, invID int64) (*operationStateResponse, error) {

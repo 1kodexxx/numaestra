@@ -17,6 +17,7 @@ export const orderApi = {
     return apiFetch<CreateOrderResponse>('/orders/', {
       method: 'POST',
       body: payload,
+      headers: { 'X-Idempotency-Key': crypto.randomUUID() },
     })
   },
 

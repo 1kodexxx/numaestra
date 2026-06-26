@@ -52,7 +52,7 @@ export function StatusPage() {
     if (active && (justPaid || returnedFromRobokassa)) markPaidPending(active)
   }, [active, justPaid, returnedFromRobokassa])
 
-  const { order, loading, error, canManage } = usePollOrderStatus(active, { confirmPayment })
+  const { order, loading, error, canManage, pollingTooLong } = usePollOrderStatus(active, { confirmPayment })
 
   useEffect(() => {
     if (order?.payment_status !== 'pending') clearPaidPending(order?.id ?? '')
@@ -122,6 +122,7 @@ export function StatusPage() {
         justPaid={justPaid || returnedFromRobokassa}
         confirmAwaitingPayment={confirmPayment}
         canManage={canManage}
+        pollingTooLong={pollingTooLong}
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
       />
@@ -233,7 +234,7 @@ function OrdersOverview({ currentId, enabled, onSelect }: { currentId: string; e
 const STEPS   = ['Оплата', 'Очередь', 'Создание', 'Готово']
 const STEPKEYS = ['paid', 'queued', 'processing', 'completed'] as const
 
-function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; confirmAwaitingPayment?: boolean; canManage: boolean; onClear: () => void; onBack: () => void }) {
+function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, pollingTooLong, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; confirmAwaitingPayment?: boolean; canManage: boolean; pollingTooLong?: boolean; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
   const awaitingPaymentConfirm = Boolean(confirmAwaitingPayment && ps === 'pending')
@@ -279,12 +280,25 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, onClear
 
   return (
     <div className="fade-in">
-      {justPaid && (
+      {justPaid && ps !== 'pending' && (
         <div style={{
           background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.25)',
           borderRadius: '14px', padding: '14px 18px', marginBottom: '14px', fontSize: '14px', color: ACCENT,
         }}>
           Оплата принята — начинаем создавать вашу песню. Статус обновится автоматически.
+        </div>
+      )}
+      {pollingTooLong && !isTerminal && ps !== 'pending' && (
+        <div style={{
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+          borderRadius: '14px', padding: '14px 18px', marginBottom: '14px', fontSize: '13px', color: '#fbbf24',
+          display: 'flex', alignItems: 'flex-start', gap: '10px',
+        }}>
+          <span style={{ fontSize: '18px', lineHeight: 1, flexShrink: 0 }}>⚠️</span>
+          <div>
+            Генерация занимает дольше обычного. Обновите страницу через несколько минут — если проблема не исчезнет,{' '}
+            <Link to="/legal/contacts" style={{ color: '#fbbf24', fontWeight: 600 }}>напишите нам</Link>.
+          </div>
         </div>
       )}
       {/* Header */}

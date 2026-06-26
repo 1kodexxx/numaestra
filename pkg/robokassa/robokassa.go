@@ -35,6 +35,7 @@ type Client struct {
 	password2       string // для проверки подписи вебхука и OpStateExt
 	password3       string // для JWT API возвратов
 	isTest          bool
+	testAutoPay     bool // для тестового режима: IsInvoicePaid/GetPaidAmountKopecks возвращают true
 	httpClient      *http.Client
 	opStateURL      string // переопределяется в тестах
 	refundCreateURL string // переопределяется в тестах
@@ -65,6 +66,19 @@ func New(merchantLogin, password1, password2, password3 string, isTest bool) *Cl
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
 		pendingRefunds: make(map[int64]string),
 	}
+}
+
+// WithTestAutoPay включает режим автоматического подтверждения оплаты в тестовой среде.
+// Активируется через ROBOKASSA_TEST_AUTO_PAY=true только при IsTest=true.
+func (c *Client) WithTestAutoPay() *Client {
+	c.testAutoPay = true
+	return c
+}
+
+// IsTestAutoPay сообщает, включён ли тестовый автоплатёж.
+// Используется в обработчике sync-payment, чтобы пропустить реальный запрос к Robokassa.
+func (c *Client) IsTestAutoPay() bool {
+	return c.isTest && c.testAutoPay
 }
 
 // WithTestHTTP подключает httptest-сервер к XML/Refund API (используется в HTTP-тестах).

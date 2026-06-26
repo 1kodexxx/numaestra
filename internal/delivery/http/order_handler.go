@@ -103,13 +103,18 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Post("/webhook/robokassa", h.HandleRobokassaWebhook)
 	})
 
+	// sync-payment публичный: Robokassa — источник истины, токен не нужен.
+	r.Group(func(r chi.Router) {
+		r.Use(clientLimiter)
+		r.Post("/{id}/sync-payment", h.SyncPayment)
+	})
+
 	r.Group(func(r chi.Router) {
 		r.Use(clientLimiter)
 		r.Use(h.requireOrderAccess)
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Get("/{id}/payment-url", h.GetPaymentURL)
-		r.Post("/{id}/sync-payment", h.SyncPayment)
 		r.Post("/{id}/share/revoke", h.RevokeShare)
 		r.Post("/{id}/share/restore", h.RestoreShare)
 	})
@@ -222,6 +227,25 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Error("ошибка создания заказа", "err", err)
 		respondError(w, r, http.StatusInternalServerError, "не удалось создать заказ")
+		return
+	}
+
+	// Бесплатный заказ (промокод 100% скидки): Robokassa отклоняет 0 ₽ — применяем оплату сразу.
+	if order.AmountKopecks() == 0 {
+		if err := h.uc.HandlePaymentSuccess(r.Context(), order.InvoiceID(), 0); err != nil {
+			h.log.Error("ошибка активации бесплатного заказа", "order_id", order.ID(), "err", err)
+			respondError(w, r, http.StatusInternalServerError, "не удалось активировать заказ")
+			return
+		}
+		respondJSON(w, http.StatusCreated, OrderResponse{
+			ID:               order.ID().String(),
+			InvoiceID:        order.InvoiceID(),
+			PaymentStatus:    string(domain.PaymentStatusPaid),
+			GenerationStatus: string(order.GenerationStatus()),
+			AmountKopecks:    0,
+			PaymentURL:       "",
+			AccessToken:      order.AccessToken(),
+		})
 		return
 	}
 
@@ -427,24 +451,20 @@ func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
 }
 
 // SyncPayment подтягивает статус оплаты из Robokassa, если ResultURL не дошёл.
+// Публичный эндпоинт: X-Access-Token не требуется — Robokassa сама является источником
+// истины, поэтому риска выдачи лишних привилегий нет.
 // POST /api/v1/orders/{id}/sync-payment
 func (h *OrderHandler) SyncPayment(w http.ResponseWriter, r *http.Request) {
-	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
-
 	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
 		return
 	}
 
-	order, err := h.uc.GetOrderForCustomer(r.Context(), owner, orderID)
+	order, err := h.uc.GetOrder(r.Context(), orderID)
 	if err != nil {
 		if errors.Is(err, domain.ErrOrderNotFound) {
 			respondError(w, r, http.StatusNotFound, "заказ не найден")
-			return
-		}
-		if errors.Is(err, domain.ErrOrderAccessDenied) {
-			respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
 			return
 		}
 		h.log.Error("ошибка получения заказа для синхронизации оплаты", "order_id", orderID, "err", err)
@@ -461,19 +481,27 @@ func (h *OrderHandler) SyncPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	paid, err := h.rk.IsInvoicePaid(r.Context(), order.InvoiceID())
-	if err != nil {
-		h.log.Warn("sync-payment: не удалось проверить оплату в Robokassa",
-			"order_id", orderID, "invoice_id", order.InvoiceID(), "err", err)
-		respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
-		return
-	}
-	if !paid {
-		respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
-		return
+	var paidKopecks int64
+	if h.rk.IsTestAutoPay() {
+		// Тестовый режим: пропускаем реальный запрос к Robokassa, используем сумму из БД.
+		paidKopecks = order.AmountKopecks()
+	} else {
+		var paid bool
+		var err error
+		paidKopecks, paid, err = h.rk.GetPaidAmountKopecks(r.Context(), order.InvoiceID())
+		if err != nil {
+			h.log.Warn("sync-payment: не удалось проверить оплату в Robokassa",
+				"order_id", orderID, "invoice_id", order.InvoiceID(), "err", err)
+			respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+			return
+		}
+		if !paid {
+			respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+			return
+		}
 	}
 
-	if err := h.uc.HandlePaymentSuccess(r.Context(), order.InvoiceID(), order.AmountKopecks()); err != nil {
+	if err := h.uc.HandlePaymentSuccess(r.Context(), order.InvoiceID(), paidKopecks); err != nil {
 		if errors.Is(err, usecase.ErrPaymentAmountMismatch) || errors.Is(err, usecase.ErrPaymentWindowExpired) {
 			h.log.Warn("sync-payment: оплата в Robokassa не применена", "order_id", orderID, "err", err)
 			respondJSON(w, http.StatusOK, map[string]bool{"synced": false})

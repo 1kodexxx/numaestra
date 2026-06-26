@@ -261,6 +261,9 @@ func run(ctx context.Context) error {
 
 	// 6. HTTP-хендлеры и роутер — режимы "all" и "api".
 	rkClient := robokassa.New(cfg.Robokassa.MerchantLogin, cfg.Robokassa.Password1, cfg.Robokassa.Password2, cfg.Robokassa.Password3, cfg.Robokassa.IsTest)
+	if cfg.Robokassa.TestAutoPay {
+		rkClient.WithTestAutoPay()
+	}
 	webhookAllowedNets, err := apphttp.ParseCIDRs(cfg.Robokassa.AllowedIPs)
 	if err != nil {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)

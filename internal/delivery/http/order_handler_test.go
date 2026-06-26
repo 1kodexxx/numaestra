@@ -818,7 +818,8 @@ func TestHandler_Webhook_PaymentWindowExpired(t *testing.T) {
 }
 
 func paidOpStateXML() string {
-	return `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><State><Code>100</Code></State><Info><OpKey>op-key</OpKey></Info></OperationStateResponse>`
+	// OutSum должен совпадать с тестовой ценой заказа (200000 копеек = 2000.00 руб.)
+	return `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>0</Code></Result><State><Code>100</Code></State><Info><OutSum>2000.00</OutSum><OpKey>op-key</OpKey></Info></OperationStateResponse>`
 }
 
 func newHandlerWithOpState(t *testing.T, xmlBody string) (*OrderHandler, http.Handler) {
