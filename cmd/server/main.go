@@ -32,6 +32,7 @@ import (
 	"github.com/numaestra/numaestra/internal/worker"
 	"github.com/numaestra/numaestra/migrations"
 	"github.com/numaestra/numaestra/pkg/banner"
+	"github.com/numaestra/numaestra/pkg/demolimit"
 	"github.com/numaestra/numaestra/pkg/encryption"
 	"github.com/numaestra/numaestra/pkg/health"
 	"github.com/numaestra/numaestra/pkg/idempotency"
@@ -184,9 +185,24 @@ func run(ctx context.Context) error {
 		rkClient.WithTestAutoPay()
 	}
 
+	// Redis-клиент создаём здесь (а не только в HTTP-секции), чтобы ограничитель
+	// демо (дневной лимит + лимит на email) работал и в worker-режиме, где крутится
+	// фоновая генерация демо.
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+	})
+	defer rdb.Close() //nolint:errcheck
+
+	if err := pingRedisWithRetry(ctx, rdb, log); err != nil {
+		return fmt.Errorf("redis недоступен после всех попыток: %w", err)
+	}
+	log.Info("соединение с redis установлено")
+
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log).
 		WithPromoRepo(promoRepo).
-		WithPaymentVerifier(rkClient)
+		WithPaymentVerifier(rkClient).
+		WithDemoGuards(demolimit.New(rdb, cfg.Demo.DailyLimit, cfg.Demo.PerEmailHours), cfg.Demo.TokenReserve)
 
 	mode := runMode(cfg.Mode)
 
@@ -303,16 +319,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("разбор ROBOKASSA_ALLOWED_IPS: %w", err)
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Redis.Addr,
-		Password: cfg.Redis.Password,
-	})
-	defer rdb.Close() //nolint:errcheck
-
-	if err := pingRedisWithRetry(ctx, rdb, log); err != nil {
-		return fmt.Errorf("redis недоступен после всех попыток: %w", err)
-	}
-	log.Info("соединение с redis установлено")
+	// rdb создан выше (нужен ограничителю демо в worker-режиме).
 
 	if cfg.AdminToken == "" {
 		log.Warn("ADMIN_TOKEN не задан — административный API (Bearer-доступ для скриптов) будет отклонять все запросы")

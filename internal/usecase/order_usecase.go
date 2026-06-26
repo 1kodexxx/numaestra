@@ -55,6 +55,14 @@ type PaymentVerifier interface {
 	GetPaidAmountKopecks(ctx context.Context, invID int64) (kopecks int64, paid bool, err error)
 }
 
+// DemoLimiter — порт защиты расхода кредитов на бесплатные демо: дневной лимит и
+// лимит «одно демо на email». Reserve вызывается, когда демо уже прошло проверку
+// токенового резерва и вот-вот стартует. Идемпотентен по orderID — повторная
+// демо-задача (retry Asynq) не тратит лимит повторно. nil → лимиты отключены.
+type DemoLimiter interface {
+	Reserve(ctx context.Context, orderID uuid.UUID, email string) (allowed bool, err error)
+}
+
 type OrderUseCase struct {
 	orderRepo orderRepository
 	accRepo   accountRepository
@@ -68,10 +76,12 @@ type OrderUseCase struct {
 	// priceKopecks — фиксированная серверная цена заказа (4 версии песни).
 	// Клиент не может повлиять на сумму — иначе её можно занизить и пройти
 	// сверку в вебхуке оплаты (см. CreateOrder).
-	priceKopecks    int64
-	tx              TransactionManager
-	paymentVerifier PaymentVerifier // nil → сверка платежей отключена
-	log             *slog.Logger
+	priceKopecks     int64
+	tx               TransactionManager
+	paymentVerifier  PaymentVerifier // nil → сверка платежей отключена
+	demoLimiter      DemoLimiter     // nil → лимиты демо отключены
+	demoTokenReserve int             // 0 → резерв токенов под платные отключён
+	log              *slog.Logger
 }
 
 // Алиасы для интерфейсов, чтобы сократить код (или используйте напрямую domain.*)
@@ -118,6 +128,15 @@ func (uc *OrderUseCase) WithPromoRepo(repo domain.PromoCodeRepository) *OrderUse
 // pending-заказов (ReconcilePendingPayments). Без него сверка отключена.
 func (uc *OrderUseCase) WithPaymentVerifier(v PaymentVerifier) *OrderUseCase {
 	uc.paymentVerifier = v
+	return uc
+}
+
+// WithDemoGuards подключает защиту расхода кредитов на демо: лимитер (дневной/email)
+// и резерв токенов под платные заказы. limiter может быть nil (тогда лимиты
+// отключены), tokenReserve=0 отключает резерв.
+func (uc *OrderUseCase) WithDemoGuards(limiter DemoLimiter, tokenReserve int) *OrderUseCase {
+	uc.demoLimiter = limiter
+	uc.demoTokenReserve = tokenReserve
 	return uc
 }
 
@@ -978,6 +997,32 @@ func (uc *OrderUseCase) GenerateDemo(ctx context.Context, orderID uuid.UUID) err
 			return err
 		}
 		return fmt.Errorf("демо: захват аккаунта: %w", err)
+	}
+
+	// Резерв токенов: не запускаем демо, если у аккаунта баланс на грани — кредиты
+	// бронируются под платные заказы. Освобождаем слот и тихо выходим (без ретрая).
+	if uc.demoTokenReserve > 0 && account.TokenBalance() <= uc.demoTokenReserve {
+		uc.releaseDemoSlot(ctx, account)
+		uc.log.Info("демо пропущено: баланс аккаунта в зоне резерва под платные",
+			"order_id", orderID, "balance", account.TokenBalance(), "reserve", uc.demoTokenReserve)
+		return nil
+	}
+
+	// Лимиты демо (дневной + на email). Идемпотентно по orderID. При запрете —
+	// освобождаем слот и выходим без ретрая. При ошибке лимитера — fail-closed
+	// (не тратим кредиты, если не можем проверить лимит).
+	if uc.demoLimiter != nil {
+		allowed, limErr := uc.demoLimiter.Reserve(ctx, order.ID(), order.CustomerEmail())
+		if limErr != nil {
+			uc.releaseDemoSlot(ctx, account)
+			uc.log.Warn("демо пропущено: ошибка проверки лимита", "order_id", orderID, "err", limErr)
+			return nil
+		}
+		if !allowed {
+			uc.releaseDemoSlot(ctx, account)
+			uc.log.Info("демо пропущено: достигнут лимит (дневной или на email)", "order_id", orderID)
+			return nil
+		}
 	}
 
 	if err := order.StartDemo(account.ID()); err != nil {

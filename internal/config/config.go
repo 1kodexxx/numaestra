@@ -24,6 +24,7 @@ type Config struct {
 	S3         S3Config
 	OpenAI     OpenAIConfig
 	Pricing    PricingConfig
+	Demo       DemoConfig
 	Notify     NotifyConfig
 	AdminToken string // ADMIN_TOKEN — Bearer-токен для /api/v1/admin/* маршрутов (скрипты/CI)
 	// AdminLogin/AdminPassword — учётные данные для входа в /admin на фронтенде
@@ -127,6 +128,18 @@ type PricingConfig struct {
 	PriceKopecks int64 // фиксированная цена заказа в копейках
 }
 
+// DemoConfig — защита расхода кредитов на бесплатные демо.
+type DemoConfig struct {
+	// DailyLimit — максимум демо в сутки (глобально). 0 = без лимита.
+	DailyLimit int
+	// TokenReserve — сколько токенов аккаунта бронируется под платные заказы:
+	// демо не запускается, если баланс аккаунта ≤ резерва. 0 = без резерва.
+	TokenReserve int
+	// PerEmailHours — окно (часы), в течение которого один email получает не
+	// более одного демо. 0 = без ограничения на email.
+	PerEmailHours int
+}
+
 // Load считывает переменные окружения и собирает их в структуру Config.
 // Если обязательные переменные отсутствуют, возвращает ошибку.
 func Load() (*Config, error) {
@@ -178,6 +191,13 @@ func Load() (*Config, error) {
 		Pricing: PricingConfig{
 			// Фиксированная цена за 4 версии песни. По умолчанию — 2000 ₽.
 			PriceKopecks: getInt64Env("PRICE_KOPECKS", 200000),
+		},
+		Demo: DemoConfig{
+			// По умолчанию — разумные значения: 200 демо/сутки, бронь 10 токенов
+			// под платные, 1 демо на email в 24 ч. Можно отключить любую защиту нулём.
+			DailyLimit:    int(getInt64Env("DEMO_DAILY_LIMIT", 200)),
+			TokenReserve:  int(getInt64Env("DEMO_TOKEN_RESERVE", 10)),
+			PerEmailHours: int(getInt64Env("DEMO_PER_EMAIL_HOURS", 24)),
 		},
 		Notify: NotifyConfig{
 			SMTPHost:     getEnv("SMTP_HOST", ""),

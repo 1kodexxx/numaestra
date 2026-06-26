@@ -34,6 +34,19 @@ func (v *fakeVerifier) GetPaidAmountKopecks(_ context.Context, invID int64) (int
 	return v.kopecks, v.paid, v.err
 }
 
+// --- fake DemoLimiter ---
+
+type fakeDemoLimiter struct {
+	allowed bool
+	err     error
+	calls   []uuid.UUID
+}
+
+func (l *fakeDemoLimiter) Reserve(_ context.Context, orderID uuid.UUID, _ string) (bool, error) {
+	l.calls = append(l.calls, orderID)
+	return l.allowed, l.err
+}
+
 // --- in-memory OrderRepository ---
 
 type inMemOrderRepo struct {

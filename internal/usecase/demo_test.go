@@ -194,6 +194,84 @@ func TestRecoverStuckDemos_ReleasesSlotAndFails(t *testing.T) {
 	}
 }
 
+// Резерв токенов: демо не запускается, если баланс аккаунта ≤ резерва, слот
+// возвращается, токены не тратятся.
+func TestGenerateDemo_TokenReserve_SkipsAndReleasesSlot(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 5) // баланс 5
+	f.uc.WithDemoGuards(nil, 5) // резерв 5 → 5<=5, демо пропускается
+	order := demoOrder(t, f)
+
+	called := false
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		called = true
+		return "x", nil
+	}
+
+	if err := f.uc.GenerateDemo(context.Background(), order.ID()); err != nil {
+		t.Fatalf("GenerateDemo: %v", err)
+	}
+	if called {
+		t.Error("при балансе в зоне резерва демо не должно сабмититься")
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.DemoStatus() != domain.DemoStatusNone {
+		t.Errorf("демо должно остаться none, получили %q", got.DemoStatus())
+	}
+	accNow, _ := f.accRepo.GetByID(context.Background(), acc.ID())
+	if accNow.ConcurrentTasks() != 0 {
+		t.Errorf("слот должен быть освобождён, concurrent=%d", accNow.ConcurrentTasks())
+	}
+}
+
+// Лимитер запрещает демо → слот возвращается, генерация не идёт.
+func TestGenerateDemo_LimiterDenied_SkipsAndReleasesSlot(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 50)
+	f.uc.WithDemoGuards(&fakeDemoLimiter{allowed: false}, 0)
+	order := demoOrder(t, f)
+
+	called := false
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		called = true
+		return "x", nil
+	}
+
+	if err := f.uc.GenerateDemo(context.Background(), order.ID()); err != nil {
+		t.Fatalf("GenerateDemo: %v", err)
+	}
+	if called {
+		t.Error("при запрете лимитера демо не должно сабмититься")
+	}
+	accNow, _ := f.accRepo.GetByID(context.Background(), acc.ID())
+	if accNow.ConcurrentTasks() != 0 {
+		t.Errorf("слот должен быть освобождён, concurrent=%d", accNow.ConcurrentTasks())
+	}
+}
+
+// Лимитер разрешает → демо стартует как обычно.
+func TestGenerateDemo_LimiterAllowed_Proceeds(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount(t, 50)
+	lim := &fakeDemoLimiter{allowed: true}
+	f.uc.WithDemoGuards(lim, 0)
+	order := demoOrder(t, f)
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "demo-job", nil
+	}
+
+	if err := f.uc.GenerateDemo(context.Background(), order.ID()); err != nil {
+		t.Fatalf("GenerateDemo: %v", err)
+	}
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.DemoStatus() != domain.DemoStatusProcessing {
+		t.Errorf("ожидали processing, получили %q", got.DemoStatus())
+	}
+	if len(lim.calls) != 1 || lim.calls[0] != order.ID() {
+		t.Errorf("ожидали один вызов лимитера для заказа, получили %v", lim.calls)
+	}
+}
+
 // TriggerDemo ставит фоновую задачу демо.
 func TestTriggerDemo_Enqueues(t *testing.T) {
 	f := newFixture(t)
