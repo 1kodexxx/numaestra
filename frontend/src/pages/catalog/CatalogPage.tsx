@@ -15,6 +15,7 @@ import { useSeo } from "@shared/lib/seo";
 import type { GenreOption } from "@shared/lib/sunoPrompt";
 import { composeCatalogBrief } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
+import { theme } from "@shared/lib/theme";
 import { Button, TextField, useRipple } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import { FloatingPlayer } from "@widgets/floating-player";
@@ -24,10 +25,10 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 /* ─── tokens ─── */
-const ACCENT = "#00e5c0";
-const BORDER = "rgba(255,255,255,0.07)";
+const ACCENT = theme.accent;
+const BORDER = theme.border;
 const TEXT2 = "rgba(255,255,255,0.48)";
-const TEXT3 = "rgba(255,255,255,0.2)";
+const TEXT3 = theme.text3;
 
 /* ─── breakpoints ─── */
 function useBreakpoint() {
@@ -770,6 +771,7 @@ function CategoryCard({
       onPointerDown={onPointerDown}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
+      className="interactive-card chip-press"
       aria-label={`Категория: ${cat.title}`}
       style={{
         width: "100%",
@@ -940,6 +942,7 @@ function PopularCard({
       onClick={onClick}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
+      className="interactive-card chip-press"
       style={{
         width: "100%",
         display: "flex",
@@ -1050,6 +1053,7 @@ function ExampleCard({ ex, onPlay }: { ex: ExampleSong; onPlay: () => void }) {
       onClick={onPlay}
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
+      className="interactive-card chip-press"
       style={{
         width: "100%",
         display: "flex",
@@ -1290,8 +1294,9 @@ export function CatalogPage() {
         alignItems: "flex-start",
         justifyContent: "center",
         overflowY: "auto",
-        padding: isMobile ? "20px 16px 40px" : "32px 24px",
+        padding: isMobile ? "20px 16px" : "32px 24px",
       }}
+      className="safe-overlay-bottom"
     >
       <div style={{ width: "100%", maxWidth: 640, margin: "auto" }}>
         <PromptBuilder

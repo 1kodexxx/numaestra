@@ -12,12 +12,13 @@ import { ShareBar } from '@widgets/share-bar'
 import { AccessRecoveryForm } from '@widgets/access-recovery'
 import { GenerationProgress } from './GenerationProgress'
 import type { OrderDetail, OrderSummary } from '@entities/order'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const DARK   = '#080808'
-const TEXT2  = 'rgba(255,255,255,0.5)'
-const TEXT3  = 'rgba(255,255,255,0.25)'
-const BORDER = 'rgba(255,255,255,0.07)'
+const ACCENT = theme.accent
+const DARK   = theme.dark
+const TEXT2  = theme.text2
+const TEXT3  = theme.text3
+const BORDER = theme.border
 
 export function StatusPage() {
   const { orderId: pathOrderId } = useParams<{ orderId?: string }>()
@@ -81,17 +82,17 @@ export function StatusPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', textAlign: 'left' }}>
-            <div style={{ flex: 1 }} onKeyDown={(e) => e.key === 'Enter' && setActive(input.trim())}>
+          <div className="status-find-form">
+            <div className="status-find-form__field" onKeyDown={(e) => e.key === 'Enter' && setActive(input.trim())}>
               <TextField
                 label="ID заказа"
                 value={input}
                 onChange={setInput}
                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                surfaceColor="#0f0f0f"
+                surfaceColor={theme.surface}
               />
             </div>
-            <Button size="lg" onClick={() => setActive(input.trim())}>Найти</Button>
+            <Button className="status-find-form__btn" size="lg" onClick={() => setActive(input.trim())}>Найти</Button>
           </div>
 
           {input.trim().length >= 8 && (

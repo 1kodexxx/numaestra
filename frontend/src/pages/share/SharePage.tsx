@@ -37,7 +37,7 @@ export function SharePage() {
   }, [id])
 
   return (
-    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '40px' }}>
       <div style={{ flex: 1, maxWidth: 560, width: '100%', margin: '0 auto', padding: '48px 20px 24px' }} className="fade-in">
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '10px' }}>

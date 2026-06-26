@@ -295,6 +295,291 @@ button { font-family: inherit; }
     border-color var(--dur-short) var(--ease-standard);
 }
 
+/* Мобильное меню навбара */
+.mobile-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 48;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.mobile-nav-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 49;
+  background: #0f0f0f;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px 20px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.mobile-nav-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 4px auto 14px;
+}
+
+.mobile-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  transition: background var(--dur-short) var(--ease-standard), color var(--dur-short);
+}
+
+.mobile-nav-link:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mobile-nav-link--active {
+  color: var(--color-accent);
+  background: rgba(0, 229, 192, 0.08);
+}
+
+.mobile-nav-link-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 10px rgba(0, 229, 192, 0.5);
+}
+
+.mobile-nav-sheet-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  justify-content: center;
+}
+
+.mobile-nav-sheet-footer a {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .mobile-nav-toggle,
+  .mobile-nav-backdrop,
+  .mobile-nav-sheet {
+    display: none !important;
+  }
+}
+
+/* ── Status: форма поиска заказа ── */
+.status-find-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.status-find-form__field {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .status-find-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .status-find-form__btn {
+    width: 100%;
+  }
+}
+
+/* ── Music player ── */
+.music-player-tabs {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  z-index: 1;
+}
+
+.music-player-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.music-player-tab {
+  flex: 1 0 auto;
+  min-width: 5.5rem;
+  padding: 14px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+  transition: all 0.18s;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.music-player-body {
+  padding: clamp(18px, 4vw, 28px) clamp(16px, 4vw, 32px) clamp(18px, 4vw, 24px);
+  position: relative;
+  z-index: 1;
+}
+
+.music-player-volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  margin: 0 auto;
+}
+
+@media (max-width: 520px) {
+  .music-player-tab {
+    min-width: 3.25rem;
+    padding: 12px 8px;
+    font-size: 12px;
+  }
+
+  .music-player-tab-short {
+    display: inline;
+  }
+
+  .music-player-tab-full {
+    display: none;
+  }
+
+  .music-player-volume {
+    display: none;
+  }
+}
+
+@media (min-width: 521px) {
+  .music-player-tab-short {
+    display: none;
+  }
+
+  .music-player-tab-full {
+    display: inline;
+  }
+}
+
+/* ── Floating demo player ── */
+.floating-player-shell {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  background: rgba(15, 15, 15, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(0, 229, 192, 0.2);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.floating-player-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.floating-player-detail-label {
+  display: inline;
+}
+
+.floating-player-detail-icon {
+  display: none;
+  font-size: 16px;
+  line-height: 1;
+}
+
+@media (max-width: 480px) {
+  .floating-player-inner {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .floating-player-detail-label {
+    display: none;
+  }
+
+  .floating-player-detail-icon {
+    display: inline;
+  }
+
+  .floating-player-detail-btn {
+    width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* ── How it works: timeline ── */
+.how-steps-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+.how-steps-timeline::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 24px;
+  bottom: 24px;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(0, 229, 192, 0.45), rgba(0, 229, 192, 0.08));
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.how-step-item {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Safe area helpers ── */
+.safe-bottom {
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+.safe-overlay-bottom {
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
 .footer-enter { animation: fade-up 0.55s var(--ease-decelerate) 0.08s both; }
 
 /* Фирменная марка: столбики статичны, «играют» эквалайзером при наведении на лого. */

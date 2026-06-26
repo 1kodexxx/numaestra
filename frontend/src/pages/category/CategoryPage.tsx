@@ -7,6 +7,7 @@ import { categoryCover } from "@shared/lib/categoryCover";
 import { useSeo } from "@shared/lib/seo";
 import { composeCategoryBrief } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
+import { theme } from "@shared/lib/theme";
 import { Button, TextField } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import {
@@ -20,8 +21,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-const ACCENT = "#00e5c0";
-const BORDER = "rgba(255,255,255,0.07)";
+const ACCENT = theme.accent;
+const BORDER = theme.border;
 const TEXT2 = "rgba(255,255,255,0.48)";
 const TEXT3 = "rgba(255,255,255,0.22)";
 const SURFACE = "#080808";
@@ -519,6 +520,7 @@ export function CategoryPage() {
 
   const orderBar = (pad: string) => (
     <div
+      className="safe-bottom"
       style={{
         padding: pad,
         borderTop: `1px solid ${BORDER}`,

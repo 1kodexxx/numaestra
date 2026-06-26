@@ -146,37 +146,28 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
       )}
 
       {/* Track tabs */}
-      <div style={{
-        display: 'flex',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        position: 'relative', zIndex: 1,
-      }}>
+      <div className="music-player-tabs">
         {tracks.map((t, i) => (
           <button
             key={t.index}
+            type="button"
+            className="music-player-tab chip-press"
+            aria-label={`Вариант ${t.index || i + 1}`}
             onClick={() => switchTrack(i)}
             style={{
-              flex: 1,
-              padding: '14px 8px',
-              fontSize: '13px',
-              fontWeight: 600,
-              fontFamily: 'inherit',
-              border: 'none',
-              cursor: 'pointer',
-              transition: 'all 0.18s',
               background: i === idx ? 'rgba(0,229,192,0.1)' : 'transparent',
               color: i === idx ? '#00e5c0' : 'rgba(255,255,255,0.3)',
               borderBottom: i === idx ? '2px solid #00e5c0' : '2px solid transparent',
-              letterSpacing: '0.01em',
             }}
           >
-            Вариант {t.index || i + 1}
+            <span className="music-player-tab-short">{t.index || i + 1}</span>
+            <span className="music-player-tab-full">Вариант {t.index || i + 1}</span>
           </button>
         ))}
       </div>
 
       {/* Body */}
-      <div style={{ padding: '28px 32px 24px', position: 'relative', zIndex: 1 }}>
+      <div className="music-player-body">
 
         {/* Waveform */}
         <div
@@ -283,7 +274,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
         </div>
 
         {/* Volume */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '260px', margin: '0 auto' }}>
+        <div className="music-player-volume">
           <IconButton label={muted ? 'Включить звук' : 'Выключить звук'} size={36} onClick={() => setMuted(m => !m)}>
             <VolIcon muted={muted} />
           </IconButton>

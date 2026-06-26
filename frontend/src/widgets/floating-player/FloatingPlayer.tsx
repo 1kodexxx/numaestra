@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ExampleSong } from '@shared/data/examples'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
-const TEXT2 = 'rgba(255,255,255,0.5)'
+const ACCENT = theme.accent
+const TEXT2 = theme.text2
 
 function fmt(s: number) {
   if (!isFinite(s)) return '0:00'
@@ -13,11 +14,6 @@ function fmt(s: number) {
 
 /**
  * Плавающий мини-плеер демо-примера (как в Spotify).
- *
- * Сам `<audio>`-элемент живёт в родителе (CatalogPage) и стартует синхронно
- * в обработчике тапа — так воспроизведение не блокируется автоплей-политикой
- * мобильных браузеров. Этот виджет — только UI: подписывается на события
- * переданного аудио-элемента и управляет play/pause/seek.
  */
 export function FloatingPlayer({
   example,
@@ -36,7 +32,6 @@ export function FloatingPlayer({
   const [dur, setDur] = useState(track?.duration ?? 0)
   const ready = !!track
 
-  // Подписка на состояние внешнего аудио-элемента.
   useEffect(() => {
     const el = audioRef.current
     if (!el) return
@@ -50,7 +45,6 @@ export function FloatingPlayer({
     el.addEventListener('play', onPlay)
     el.addEventListener('pause', onPause)
     el.addEventListener('ended', onEnded)
-    // Первичная синхронизация (элемент мог уже начать играть из жеста).
     setPlaying(!el.paused && !el.ended)
     setTime(el.currentTime)
     if (isFinite(el.duration) && el.duration > 0) setDur(el.duration)
@@ -82,20 +76,13 @@ export function FloatingPlayer({
   const pct = dur > 0 ? (time / dur) * 100 : 0
 
   return (
-    <div className="slide-up-in" style={{
-      position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 35,
-      background: 'rgba(15,15,15,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-      borderTop: '1px solid rgba(0,229,192,0.2)', boxShadow: '0 -10px 30px rgba(0,0,0,0.45)',
-      paddingBottom: 'env(safe-area-inset-bottom)',
-    }}>
-      <div style={{
-        maxWidth: 1000, margin: '0 auto', padding: '12px 16px',
-        display: 'flex', alignItems: 'center', gap: '14px',
-      }}>
-        {/* art + play */}
+    <div className="floating-player-shell slide-up-in">
+      <div className="floating-player-inner">
         <button
+          type="button"
           onClick={toggle}
           aria-label={playing ? 'Пауза' : 'Воспроизвести'}
+          className="chip-press"
           style={{
             position: 'relative', flexShrink: 0, width: 48, height: 48, borderRadius: '12px',
             border: 'none', cursor: 'pointer', overflow: 'hidden',
@@ -121,7 +108,6 @@ export function FloatingPlayer({
           </span>
         </button>
 
-        {/* title + progress */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ fontSize: '14px', fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -140,20 +126,25 @@ export function FloatingPlayer({
           </div>
         </div>
 
-        {/* actions */}
         <button
+          type="button"
           onClick={() => navigate(`/examples/${example.id}`)}
+          className="floating-player-detail-btn chip-press"
+          aria-label="Подробнее о примере"
           style={{
             flexShrink: 0, padding: '8px 14px', borderRadius: '12px', cursor: 'pointer',
             background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.3)',
             color: ACCENT, fontSize: '12px', fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap',
           }}
         >
-          Подробнее
+          <span className="floating-player-detail-label">Подробнее</span>
+          <span className="floating-player-detail-icon" aria-hidden>→</span>
         </button>
         <button
+          type="button"
           onClick={onClose}
           aria-label="Закрыть плеер"
+          className="chip-press"
           style={{
             flexShrink: 0, width: 36, height: 36, borderRadius: '50%', cursor: 'pointer',
             background: 'transparent', border: 'none', color: TEXT2,

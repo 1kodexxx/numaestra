@@ -4,10 +4,11 @@ import { Button } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
 import { useScrollReveal } from '@shared/lib/useScrollReveal'
+import { theme } from '@shared/lib/theme'
 
-const ACCENT = '#00e5c0'
+const ACCENT = theme.accent
 const BORDER = 'rgba(255,255,255,0.08)'
-const SURFACE = '#0f0f0f'
+const SURFACE = theme.surface
 const TEXT2 = 'rgba(255,255,255,0.55)'
 const TEXT3 = 'rgba(255,255,255,0.32)'
 
@@ -95,12 +96,12 @@ export function HowItWorksPage() {
         </div>
 
         {/* Алгоритм */}
-        <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <ol className="how-steps-timeline">
           {steps.map((s, i) => (
             <li
               key={i}
               data-reveal
-              className="reveal reveal-up interactive-card glow-hover"
+              className="how-step-item reveal reveal-up interactive-card glow-hover"
               style={{
                 display: 'flex', gap: '16px', alignItems: 'flex-start',
                 background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: '16px', padding: '18px 20px',

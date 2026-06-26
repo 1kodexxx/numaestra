@@ -1,12 +1,13 @@
 import { BUSINESS } from "@shared/config/business";
 import { BrandMark } from "@shared/ui";
 import { useScrollReveal } from "@shared/lib/useScrollReveal";
+import { theme } from "@shared/lib/theme";
 import { Link } from "react-router-dom";
 
-const TEXT2 = "rgba(255,255,255,0.5)";
+const TEXT2 = theme.text2;
 const TEXT3 = "rgba(255,255,255,0.32)";
-const BORDER = "rgba(255,255,255,0.07)";
-const ACCENT = "#00e5c0";
+const BORDER = theme.border;
+const ACCENT = theme.accent;
 
 function FootLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
