@@ -7,9 +7,130 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestNew_DefaultsAndCustom(t *testing.T) {
+	p := New("", 0, -1, true)
+	if p.ffmpeg != "ffmpeg" {
+		t.Errorf("ffmpeg path: %q", p.ffmpeg)
+	}
+	if p.clipSeconds != 28 {
+		t.Errorf("clipSeconds: %d", p.clipSeconds)
+	}
+	if p.introSkip != 0 {
+		t.Errorf("introSkip: %d", p.introSkip)
+	}
+	if !p.watermark {
+		t.Error("watermark должен быть true")
+	}
+
+	custom := New("/usr/bin/ffmpeg", 20, 5, false)
+	if custom.ffmpeg != "/usr/bin/ffmpeg" || custom.clipSeconds != 20 || custom.introSkip != 5 || custom.watermark {
+		t.Errorf("custom processor: %+v", custom)
+	}
+}
+
+func TestProcess_DownloadError(t *testing.T) {
+	p := New("ffmpeg", 10, 0, false)
+	_, err := p.Process(context.Background(), "http://127.0.0.1:1/no-such-host")
+	if err == nil {
+		t.Fatal("ожидали ошибку при недоступном URL")
+	}
+	if !strings.Contains(err.Error(), "загрузка исходника") {
+		t.Errorf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestDownloadTemp_ExceedsMaxSize(t *testing.T) {
+	body := strings.Repeat("x", maxDownloadBytes+1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(body)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	if _, _, err := downloadTemp(context.Background(), srv.URL); err == nil {
+		t.Fatal("ожидали ошибку при превышении лимита")
+	} else if !strings.Contains(err.Error(), "лимит") {
+		t.Errorf("неожиданная ошибка: %v", err)
+	}
+}
+
+func TestRmsWindows_ZeroSampleRateReturnsNil(t *testing.T) {
+	if got := rmsWindows([]byte{0, 0, 0, 0}, 0); got != nil {
+		t.Errorf("ожидали nil, получили %v", got)
+	}
+}
+
+func TestProcess_WithFakeFFmpeg(t *testing.T) {
+	ffmpeg := buildFakeFFmpeg(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("fake-audio-source")) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	p := New(ffmpeg, 3, 0, false)
+	out, err := p.Process(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatal("ожидали непустой mp3")
+	}
+}
+
+func buildFakeFFmpeg(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "main.go")
+	const fakeMain = `package main
+
+import (
+	"encoding/binary"
+	"os"
+	"strings"
+)
+
+func main() {
+	args := strings.Join(os.Args, " ")
+	if strings.Contains(args, "s16le") {
+		sr := 11025
+		for sec := 0; sec < 12; sec++ {
+			amp := int16(100)
+			if sec >= 5 && sec < 8 {
+				amp = 12000
+			}
+			for i := 0; i < sr; i++ {
+				b := make([]byte, 2)
+				binary.LittleEndian.PutUint16(b, uint16(amp))
+				os.Stdout.Write(b)
+			}
+		}
+		return
+	}
+	if strings.Contains(args, "mp3") {
+		os.Stdout.Write([]byte("fake-mp3-output-bytes"))
+		return
+	}
+	os.Exit(1)
+}
+`
+	if err := os.WriteFile(src, []byte(fakeMain), 0o644); err != nil {
+		t.Fatalf("write fake ffmpeg source: %v", err)
+	}
+	out := filepath.Join(dir, "ffmpeg")
+	if runtime.GOOS == "windows" {
+		out += ".exe"
+	}
+	if err := exec.Command("go", "build", "-o", out, src).Run(); err != nil {
+		t.Fatalf("build fake ffmpeg: %v", err)
+	}
+	return out
+}
 
 func TestBestWindowStart_PicksLoudestWindow(t *testing.T) {
 	// Тихое интро, громкий «припев» в середине, тихий хвост.

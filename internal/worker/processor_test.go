@@ -195,6 +195,100 @@ func TestHandleGenerateTask_UseCaseError_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestHandleDemoGenerateTask_BadPayload_SkipRetry(t *testing.T) {
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 0, nil, discardLogger()), discardLogger())
+	task := asynq.NewTask(queue.TaskTypeDemoGenerate, []byte("{broken"))
+	err := p.HandleDemoGenerateTask(context.Background(), task)
+	if !errors.Is(err, asynq.SkipRetry) {
+		t.Errorf("ожидали asynq.SkipRetry, получили %v", err)
+	}
+}
+
+func TestHandleDemoGenerateTask_Success(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
+	repo.put(order)
+
+	provider := &wProvider{submitFn: func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "demo-job", nil
+	}}
+	q := &wQueue{}
+	uc := usecase.NewOrderUseCase(repo, acc, q, provider, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), 0, passthroughTx{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.DemoTaskPayload{OrderID: order.ID()})
+	task := asynq.NewTask(queue.TaskTypeDemoGenerate, payload)
+
+	if err := p.HandleDemoGenerateTask(context.Background(), task); err != nil {
+		t.Fatalf("HandleDemoGenerateTask: %v", err)
+	}
+	got, _ := repo.GetByID(context.Background(), order.ID())
+	if got.DemoStatus() != domain.DemoStatusProcessing {
+		t.Errorf("ожидали demo processing, получили %q", got.DemoStatus())
+	}
+}
+
+func TestHandleDemoCheckTask_NotReady_PassesThrough(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
+	_ = order.StartDemo(account.ID())
+	repo.put(order)
+
+	provider := &wProvider{fetchFn: func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{Status: domain.MusicGenerationStatusRunning}, nil
+	}}
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, provider, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), 0, passthroughTx{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.DemoCheckTaskPayload{OrderID: order.ID(), SunoJobID: "demo-job", AccountID: account.ID()})
+	task := asynq.NewTask(queue.TaskTypeDemoCheck, payload)
+
+	err := p.HandleDemoCheckTask(context.Background(), task)
+	if !errors.Is(err, usecase.ErrGenerationNotReady) {
+		t.Errorf("ожидали ErrGenerationNotReady, получили %v", err)
+	}
+}
+
+func TestHandleDemoCheckTask_BadPayload_SkipRetry(t *testing.T) {
+	p := NewOrderProcessor(usecase.NewOrderUseCase(nil, nil, nil, nil, nil, nil, nil, usecase.NewNoopPromptUseCase(), 0, nil, discardLogger()), discardLogger())
+	task := asynq.NewTask(queue.TaskTypeDemoCheck, []byte("not-json"))
+	err := p.HandleDemoCheckTask(context.Background(), task)
+	if !errors.Is(err, asynq.SkipRetry) {
+		t.Errorf("ожидали asynq.SkipRetry, получили %v", err)
+	}
+}
+
+func TestHandleDeadTask_DemoTask_DoesNotFailOrder(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
+	_ = order.StartDemo(account.ID())
+	repo.put(order)
+
+	uc := usecase.NewOrderUseCase(repo, acc, &wQueue{}, &wProvider{}, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), 0, passthroughTx{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.DemoTaskPayload{OrderID: order.ID()})
+	task := asynq.NewTask(queue.TaskTypeDemoGenerate, payload)
+	p.HandleDeadTask(context.Background(), task, errors.New("retries exhausted"))
+
+	got, _ := repo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() == domain.GenerationStatusFailed {
+		t.Error("демо-задача не должна переводить заказ в failed")
+	}
+}
+
 func TestHandleStatusCheckTask_CriticalError_Propagates(t *testing.T) {
 	repo := newWOrderRepo()
 	acc := newWAccountRepo()
@@ -314,7 +408,7 @@ func (r *wOrderRepo) ListStuckQueued(_ context.Context, _ time.Time) ([]*domain.
 func (r *wOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }
-func (r *wOrderRepo) UpdateDemo(_ context.Context, _ *domain.Order) error { return nil }
+func (r *wOrderRepo) UpdateDemo(_ context.Context, o *domain.Order) error { r.put(o); return nil }
 func (r *wOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }
