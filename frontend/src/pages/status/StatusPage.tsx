@@ -9,6 +9,7 @@ import { orderApi } from '@entities/order'
 import { useSeo } from '@shared/lib/seo'
 import { downloadFile } from '@shared/lib/download'
 import { ShareBar } from '@widgets/share-bar'
+import { DemoPlayer } from '@widgets/demo-player'
 import { AccessRecoveryForm } from '@widgets/access-recovery'
 import { GenerationProgress } from './GenerationProgress'
 import { StatusOrderSkeleton } from './StatusOrderSkeleton'
@@ -363,8 +364,8 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
           })}
         </div>
 
-        {/* Бесплатное демо до оплаты: короткий фрагмент, без скачивания. */}
-        {ps === 'pending' && <DemoPreview status={order.demo_status} url={order.demo_url} />}
+        {/* Бесплатное демо до оплаты: премиальный плеер + «приготовление». */}
+        {ps === 'pending' && <DemoPlayer status={order.demo_status} url={order.demo_url} />}
 
         {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
         {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
@@ -497,65 +498,6 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
       )}
     </div>
   )
-}
-
-/**
- * Демо-фрагмент до оплаты: «готовим…» пока генерируется и плеер-стрим без
- * скачивания, когда готово. Это тизер — короткий фрагмент (самый яркий участок)
- * с тихим водяным знаком; полную песню из 4 версий без знака и со скачиванием
- * клиент получает после оплаты.
- */
-function DemoPreview({ status, url }: { status?: string; url?: string }) {
-  if (status === 'processing') {
-    return (
-      <div style={{
-        marginTop: '24px', background: 'rgba(0,229,192,0.06)', border: `1px solid rgba(0,229,192,0.2)`,
-        borderRadius: '16px', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: '12px',
-      }}>
-        <div className="spin-anim" style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: ACCENT, flexShrink: 0 }} />
-        <div style={{ fontSize: '13px', color: TEXT2 }}>
-          Готовим бесплатное демо — это займёт пару минут. Можно дождаться его здесь.
-        </div>
-      </div>
-    )
-  }
-
-  if (status === 'ready' && url) {
-    return (
-      <div style={{
-        marginTop: '24px', background: '#0f0f0f', border: `1px solid ${BORDER}`,
-        borderRadius: '16px', padding: '18px 20px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <span style={{
-            fontSize: '10px', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase',
-            color: '#080808', background: ACCENT, borderRadius: '6px', padding: '3px 7px',
-          }}>Демо</span>
-          <span style={{ fontSize: '13px', fontWeight: 600 }}>Послушайте фрагмент бесплатно</span>
-        </div>
-        <div style={{ fontSize: '11px', color: TEXT3, marginBottom: '10px' }}>
-          Самый яркий момент песни · с тихим водяным знаком
-        </div>
-        <audio
-          src={url}
-          controls
-          controlsList="nodownload noplaybackrate"
-          onContextMenu={(e) => e.preventDefault()}
-          style={{ width: '100%', height: 40 }}
-        />
-        <div style={{
-          marginTop: '12px', padding: '10px 14px', borderRadius: '12px',
-          background: 'rgba(0,229,192,0.07)', border: '1px solid rgba(0,229,192,0.2)',
-          fontSize: '12px', color: TEXT2, lineHeight: 1.5,
-        }}>
-          💎 Нравится? После оплаты — <b style={{ color: ACCENT }}>4 полные версии</b> песни,
-          без водяного знака и со скачиванием. Оплата ниже ↓
-        </div>
-      </div>
-    )
-  }
-
-  return null
 }
 
 function ShareSection({ orderId, shareRevoked: initialRevoked, canManage }: { orderId: string; shareRevoked: boolean; canManage: boolean }) {

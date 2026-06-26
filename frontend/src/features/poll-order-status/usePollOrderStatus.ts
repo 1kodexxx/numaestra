@@ -118,11 +118,14 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
   const startPolling = useCallback((id: string) => {
     stopPolling()
     const tick = () => { void fetchOnce(id) }
+    const o = orderRef.current
+    const notTerminal = o?.generation_status !== 'completed' && o?.generation_status !== 'failed'
+    // Быстрый опрос: после возврата с оплаты И пока готовится бесплатное демо
+    // (чтобы плеер появился сразу по готовности — «процесс приготовления» вживую).
     const fast =
-      confirmPayment &&
-      orderRef.current?.payment_status === 'pending' &&
-      orderRef.current?.generation_status !== 'completed' &&
-      orderRef.current?.generation_status !== 'failed'
+      notTerminal &&
+      ((confirmPayment && o?.payment_status === 'pending') ||
+        o?.demo_status === 'processing')
     timerRef.current = setInterval(tick, fast ? FAST_POLL_INTERVAL_MS : POLL_INTERVAL_MS)
   }, [confirmPayment, fetchOnce, stopPolling])
 
@@ -163,6 +166,14 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     if (terminal || state.order.payment_status === 'pending') return
     startPolling(orderId)
   }, [confirmPayment, orderId, state.order?.payment_status, state.order?.generation_status, startPolling])
+
+  // Когда демо перестало готовиться (ready/failed), пересобираем интервал —
+  // возвращаемся с быстрого опроса на обычный.
+  useEffect(() => {
+    if (!orderId || !state.order) return
+    if (state.order.generation_status === 'completed' || state.order.generation_status === 'failed') return
+    startPolling(orderId)
+  }, [orderId, state.order?.demo_status, state.order?.generation_status, startPolling])
 
   // Пока оплата не подтверждена — повторяем sync-payment на каждом быстром тике.
   // Это покрывает сценарий: первый sync вернул { synced: false } (OpState не готов),
