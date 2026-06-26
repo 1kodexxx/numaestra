@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { theme } from '@shared/lib/theme'
+import { injectJsonLd } from '@shared/lib/jsonLd'
 
 const FAQ = [
   {
