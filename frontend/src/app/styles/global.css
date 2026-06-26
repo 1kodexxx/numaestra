@@ -907,26 +907,8 @@ input[type="range"]::-webkit-slider-thumb:hover {
   opacity: 0.35;
 }
 
-/* ── Category sticky CTA (mobile) ── */
-.category-float-cta {
-  position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: 0;
-  z-index: 30;
-  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: rgba(8, 8, 8, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 229, 192, 0.22);
-  border-radius: 16px;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
-  animation: slide-up-in 0.35s var(--ease-decelerate);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .status-order-card--celebrate,
-  .category-float-cta,
   .reveal {
     animation: none !important;
     transition: none !important;

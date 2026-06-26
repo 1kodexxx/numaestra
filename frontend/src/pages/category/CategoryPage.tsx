@@ -18,7 +18,7 @@ import {
   stockImage,
   Thumb,
 } from "@widgets/side-panel";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getReferralCode } from "@shared/lib/referral";
 import { promoApi } from "@entities/admin-promo";
 import { useNavigate, useParams } from "react-router-dom";
@@ -201,25 +201,6 @@ export function CategoryPage() {
   const [promoStatus, setPromoStatus] = useState<{ discount_kopecks: number; label: string } | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [showFloatCta, setShowFloatCta] = useState(false);
-
-  useEffect(() => {
-    if (isDesktop) {
-      setShowFloatCta(false);
-      return;
-    }
-    const el = scrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      const nearBottom = scrollHeight - scrollTop - clientHeight < 140;
-      setShowFloatCta(scrollTop > 160 && !nearBottom);
-    };
-    onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [isDesktop, id, wizardLoading]);
 
   const category = categories.find((c) => c.id === id);
   const categoryMissing = !catalogLoading && categories.length > 0 && !category;
@@ -658,7 +639,6 @@ export function CategoryPage() {
       >
         {modal}
         <div
-          ref={scrollRef}
           style={
             {
               flex: 1,
@@ -672,13 +652,6 @@ export function CategoryPage() {
           {formBody}
         </div>
         {orderBar(`12px ${p} 18px`)}
-        {showFloatCta && (
-          <div className="category-float-cta">
-            <Button size="lg" fullWidth disabled={!wizard || wizardLoading} onClick={openContact}>
-              Заказать песню — {publicConfig.price_label} →
-            </Button>
-          </div>
-        )}
       </div>
     );
   }
