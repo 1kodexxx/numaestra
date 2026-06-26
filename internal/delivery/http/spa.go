@@ -39,7 +39,9 @@ func NewSPAHandler(static fs.FS, seo *SEOInjector) http.Handler {
 			w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 			if seo != nil {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				_, _ = io.WriteString(w, seo.Render(r.Context(), origPath, requestBaseURL(r)))
+				// User-Agent нужен, чтобы краулерам-превью (VK/Telegram) отдавать
+				// страницы шеринга без noindex — иначе VK не строит карточку.
+				_, _ = io.WriteString(w, seo.RenderForUA(r.Context(), origPath, requestBaseURL(r), r.UserAgent()))
 				return
 			}
 			// Без инъектора — отдаём index.html напрямую через FileServer.

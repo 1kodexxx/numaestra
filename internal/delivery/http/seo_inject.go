@@ -116,9 +116,38 @@ type seoData struct {
 	body        string // HTML-блок для вставки в #root
 }
 
+// socialPreviewBots — подстроки User-Agent краулеров, которые строят карточки-превью
+// ссылок (а НЕ индексируют для поиска). Им страницы шеринга/статуса отдаём без
+// noindex: VK, в отличие от Telegram, может не строить карточку для noindex-страниц.
+// Поисковики (Googlebot/YandexBot) сюда не входят — они по-прежнему видят noindex,
+// поэтому приватные capability-ссылки в поиск не попадают.
+var socialPreviewBots = []string{
+	"vkshare", "vkontakte", "telegrambot", "whatsapp", "facebookexternalhit",
+	"facebot", "twitterbot", "slackbot", "discordbot", "pinterest",
+	"skypeuripreview", "viber", "redditbot", "linkedinbot", "odklbot", "ok.ru",
+}
+
+// isSocialPreviewBot сообщает, что запрос пришёл от краулера-построителя превью.
+func isSocialPreviewBot(userAgent string) bool {
+	ua := strings.ToLower(userAgent)
+	for _, b := range socialPreviewBots {
+		if strings.Contains(ua, b) {
+			return true
+		}
+	}
+	return false
+}
+
 // Render возвращает HTML index.html, дополненный SEO под путь. При любой ошибке
 // (нет шаблонных маркеров, категория не найдена) безопасно отдаёт исходный шаблон.
 func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
+	return s.RenderForUA(ctx, path, baseURL, "")
+}
+
+// RenderForUA — как Render, но учитывает User-Agent: краулерам-превью (VK, Telegram
+// и т.п.) noindex-страницы шеринга отдаются без noindex, чтобы они надёжно строили
+// карточку. Поисковые боты и обычные пользователи noindex видят как прежде.
+func (s *SEOInjector) RenderForUA(ctx context.Context, path, baseURL, userAgent string) string {
 	data := s.dataFor(ctx, path, baseURL)
 	out := s.template
 
@@ -132,7 +161,8 @@ func (s *SEOInjector) Render(ctx context.Context, path, baseURL string) string {
 		out = reOgDesc.ReplaceAllLiteralString(out, `<meta property="og:description" content="`+attr(data.description)+`" />`)
 		out = reTwDesc.ReplaceAllLiteralString(out, `<meta name="twitter:description" content="`+attr(data.description)+`" />`)
 	}
-	if data.noindex {
+	// Краулеру-превью noindex не выставляем — иначе VK может не построить карточку.
+	if data.noindex && !isSocialPreviewBot(userAgent) {
 		out = reRobots.ReplaceAllLiteralString(out, `<meta name="robots" content="noindex, nofollow" />`)
 	}
 

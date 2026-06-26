@@ -307,3 +307,27 @@ func TestSEOInjector_StatusLookupNoindex(t *testing.T) {
 		t.Error("экран поиска без id не должен получать песенную OG-карточку")
 	}
 }
+
+// Краулеру-превью (VK/Telegram) страница шеринга отдаётся БЕЗ noindex — иначе VK
+// не строит карточку. При этом OG-данные и og:url остаются на месте.
+func TestSEOInjector_PreviewBotSkipsNoindex(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	path := "/s/1044cd49-6f73-4b43-b88c-7f3ba64c44d2"
+
+	vkHTML := inj.RenderForUA(context.Background(), path, "https://numaestra.ru", "Mozilla/5.0 (compatible; vkShare; +http://vk.com/dev/Share)")
+	if strings.Contains(vkHTML, `content="noindex, nofollow"`) {
+		t.Error("краулеру VK страница шеринга не должна отдаваться с noindex")
+	}
+	if !strings.Contains(vkHTML, `property="og:url" content="https://numaestra.ru/s/1044cd49-6f73-4b43-b88c-7f3ba64c44d2"`) {
+		t.Error("og:url должен остаться для построения карточки")
+	}
+	if !strings.Contains(vkHTML, `property="og:image"`) {
+		t.Error("og:image должен остаться для краулера превью")
+	}
+
+	// Googlebot и обычные пользователи по-прежнему видят noindex (приватность от поиска).
+	googleHTML := inj.RenderForUA(context.Background(), path, "https://numaestra.ru", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+	if !strings.Contains(googleHTML, `content="noindex, nofollow"`) {
+		t.Error("Googlebot должен видеть noindex на приватной странице шеринга")
+	}
+}
