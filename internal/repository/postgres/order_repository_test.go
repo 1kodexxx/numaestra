@@ -17,12 +17,14 @@ import (
 func testNow() time.Time { return time.Now().UTC() }
 
 // orderCols — колонки в SELECT-ах orders (в порядке Scan).
+// Должен совпадать с orderSelectColumns в order_columns.go.
 var orderCols = []string{
 	"id", "invoice_id", "customer_email", "customer_phone", "brief", "category_id", "suno_prompt",
 	"amount_kopecks", "currency", "payment_status", "generation_status", "generation_phase", "generation_progress", "tracks_ready",
 	"assigned_account_id",
 	"failure_reason", "access_token", "admin_feedback", "admin_feedback_at",
 	"consent_given_at", "consent_doc_version", "share_revoked_at",
+	"promo_code_id", "original_amount_kopecks", "discount_kopecks", "referral_code",
 	"created_at", "updated_at", "paid_at", "completed_at",
 }
 
@@ -35,6 +37,7 @@ func orderRowValues(id uuid.UUID, invoice int64) []any {
 		domain.GenerationPhaseCompleted, 100, 4,
 		(*uuid.UUID)(nil),
 		"", "tok", "", (*time.Time)(nil), (*time.Time)(nil), "", (*time.Time)(nil),
+		(*uuid.UUID)(nil), int64(0), int64(0), "",
 		now, now, (*time.Time)(nil), (*time.Time)(nil),
 	}
 }
