@@ -14,6 +14,7 @@ const NAV = [
   { to: '/admin/reviews', label: 'Отзывы', icon: '💬' },
   { to: '/admin/orders', label: 'Заказы', icon: '🧾' },
   { to: '/admin/accounts', label: 'Suno-аккаунты', icon: '🎚️' },
+  { to: '/admin/promo-codes', label: 'Промокоды', icon: '🎟️' },
 ]
 
 function NavItem({ to, label, icon, onNavigate }: { to: string; label: string; icon: string; onNavigate?: () => void }) {

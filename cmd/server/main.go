@@ -138,6 +138,9 @@ func run(ctx context.Context) error {
 	genreUC := usecase.NewGenreUseCase(genreRepo, log)
 	// ============================================
 
+	promoRepo := postgres.NewPromoCodeRepository(pgPool)
+	promoUC := usecase.NewPromoUseCase(promoRepo, log)
+
 	exampleRepo := postgres.NewExampleRepository(pgPool)
 	exampleUC := usecase.NewExampleUseCase(exampleRepo, log)
 	statsUC := usecase.NewStatsUseCase(orderRepo, accountRepo, categoryRepo, exampleRepo, log)
@@ -173,7 +176,8 @@ func run(ctx context.Context) error {
 		log.Warn("SMTP_HOST не задан — уведомления только в лог (заглушка)")
 	}
 
-	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log)
+	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log).
+		WithPromoRepo(promoRepo)
 
 	mode := runMode(cfg.Mode)
 
@@ -301,6 +305,8 @@ func run(ctx context.Context) error {
 	} else {
 		log.Warn("S3-ключи не заданы — загрузка обложек категорий в админке будет недоступна")
 	}
+	promoHandler := apphttp.NewPromoHandler(promoUC, log)
+	adminPromoHandler := apphttp.NewAdminPromoHandler(promoUC, log)
 	adminAuthHandler := apphttp.NewAdminAuthHandler(cfg.AdminLogin, cfg.AdminPassword, adminSessionSecret, cfg.Env != "dev", log).WithRedis(rdb)
 	metricsNets, err := apphttp.ParseCIDRs(cfg.HTTP.MetricsAllowedIPs)
 	if err != nil {
@@ -329,7 +335,7 @@ func run(ctx context.Context) error {
 		WithReviews(reviewUC).
 		WithExamples(exampleUC)
 
-	router := newRouter(log, orderHandler, categoryHandler, genreHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
+	router := newRouter(log, orderHandler, categoryHandler, genreHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, promoHandler, adminPromoHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
 	httpServer := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -379,6 +385,8 @@ func newRouter(
 	reviewHandler *apphttp.ReviewHandler,
 	adminHandler *apphttp.AdminHandler,
 	adminAuthHandler *apphttp.AdminAuthHandler,
+	promoHandler *apphttp.PromoHandler,
+	adminPromoHandler *apphttp.AdminPromoHandler,
 	seoHandler *apphttp.SeoHandler,
 	seoInjector *apphttp.SEOInjector,
 	checker *health.Checker,
@@ -422,15 +430,15 @@ func newRouter(
 	r.Mount("/api/v1/genres", genreHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
 	r.Mount("/api/v1/reviews", reviewHandler.Routes())
+	r.Mount("/api/v1/promo", promoHandler.Routes())
 
 	r.Route("/api/v1/admin", func(r chi.Router) {
-		// /login и /logout — публичные, регистрируем напрямую чтобы избежать
-		// двойного Mount("/", ...) на одном mux (chi запрещает).
 		adminAuthHandler.Register(r)
 
 		r.Group(func(r chi.Router) {
 			r.Use(apphttp.AdminAuth(cfg.AdminToken, adminSessionSecret))
 			r.Get("/me", adminAuthHandler.Me)
+			r.Mount("/promo-codes", adminPromoHandler.Routes())
 			r.Mount("/", adminHandler.Routes())
 		})
 	})

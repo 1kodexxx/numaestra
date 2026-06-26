@@ -125,6 +125,12 @@ type Order struct {
 
 	shareRevokedAt *time.Time
 
+	// Промокод и реферал.
+	promoCodeID           *uuid.UUID
+	originalAmountKopecks int64 // сумма до скидки (0 если промокод не применён)
+	discountKopecks       int64
+	referralCode          string
+
 	createdAt   time.Time
 	updatedAt   time.Time
 	paidAt      *time.Time
@@ -211,6 +217,10 @@ type OrderSnapshot struct {
 	ConsentGivenAt     *time.Time
 	ConsentDocVersion  string
 	ShareRevokedAt     *time.Time
+	PromoCodeID           *uuid.UUID
+	OriginalAmountKopecks int64
+	DiscountKopecks       int64
+	ReferralCode          string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	PaidAt             *time.Time
@@ -227,13 +237,17 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		paymentStatus: s.PaymentStatus, generationStatus: s.GenerationStatus,
 		generationPhase: s.GenerationPhase, generationProgress: s.GenerationProgress, tracksReady: s.TracksReady,
 		assignedAccountID: s.AssignedAccountID, tracks: s.Tracks, failureReason: s.FailureReason,
-		accessToken:       s.AccessToken,
-		adminFeedback:     s.AdminFeedback,
-		adminFeedbackAt:   s.AdminFeedbackAt,
-		consentGivenAt:    s.ConsentGivenAt,
-		consentDocVersion: s.ConsentDocVersion,
-		shareRevokedAt:    s.ShareRevokedAt,
-		createdAt:         s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
+		accessToken:           s.AccessToken,
+		adminFeedback:         s.AdminFeedback,
+		adminFeedbackAt:       s.AdminFeedbackAt,
+		consentGivenAt:        s.ConsentGivenAt,
+		consentDocVersion:     s.ConsentDocVersion,
+		shareRevokedAt:        s.ShareRevokedAt,
+		promoCodeID:           s.PromoCodeID,
+		originalAmountKopecks: s.OriginalAmountKopecks,
+		discountKopecks:       s.DiscountKopecks,
+		referralCode:          s.ReferralCode,
+		createdAt:             s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 	}
 }
 
@@ -263,6 +277,10 @@ func (o *Order) ConsentGivenAt() *time.Time         { return o.consentGivenAt }
 func (o *Order) ConsentDocVersion() string          { return o.consentDocVersion }
 func (o *Order) ShareRevoked() bool                 { return o.shareRevokedAt != nil }
 func (o *Order) ShareRevokedAt() *time.Time         { return o.shareRevokedAt }
+func (o *Order) PromoCodeID() *uuid.UUID            { return o.promoCodeID }
+func (o *Order) OriginalAmountKopecks() int64       { return o.originalAmountKopecks }
+func (o *Order) DiscountKopecks() int64             { return o.discountKopecks }
+func (o *Order) ReferralCode() string               { return o.referralCode }
 func (o *Order) CreatedAt() time.Time               { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time               { return o.updatedAt }
 func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
@@ -528,34 +546,54 @@ type QueuePublisher interface {
 
 func (o *Order) Snapshot() OrderSnapshot {
 	return OrderSnapshot{
-		ID:                 o.id,
-		InvoiceID:          o.invoiceID,
-		CustomerEmail:      o.customerEmail,
-		CustomerPhone:      o.customerPhone,
-		Brief:              o.brief,
-		CategoryID:         o.categoryID,
-		SunoPrompt:         o.sunoPrompt,
-		AmountKopecks:      o.amountKopecks,
-		Currency:           o.currency,
-		PaymentStatus:      o.paymentStatus,
-		GenerationStatus:   o.generationStatus,
-		GenerationPhase:    o.generationPhase,
-		GenerationProgress: o.generationProgress,
-		TracksReady:        o.tracksReady,
-		AssignedAccountID:  o.assignedAccountID,
-		Tracks:             o.tracks,
-		FailureReason:      o.failureReason,
-		AccessToken:        o.accessToken,
-		AdminFeedback:      o.adminFeedback,
-		AdminFeedbackAt:    o.adminFeedbackAt,
-		ConsentGivenAt:     o.consentGivenAt,
-		ConsentDocVersion:  o.consentDocVersion,
-		ShareRevokedAt:     o.shareRevokedAt,
-		CreatedAt:          o.createdAt,
-		UpdatedAt:          o.updatedAt,
-		PaidAt:             o.paidAt,
-		CompletedAt:        o.completedAt,
+		ID:                    o.id,
+		InvoiceID:             o.invoiceID,
+		CustomerEmail:         o.customerEmail,
+		CustomerPhone:         o.customerPhone,
+		Brief:                 o.brief,
+		CategoryID:            o.categoryID,
+		SunoPrompt:            o.sunoPrompt,
+		AmountKopecks:         o.amountKopecks,
+		Currency:              o.currency,
+		PaymentStatus:         o.paymentStatus,
+		GenerationStatus:      o.generationStatus,
+		GenerationPhase:       o.generationPhase,
+		GenerationProgress:    o.generationProgress,
+		TracksReady:           o.tracksReady,
+		AssignedAccountID:     o.assignedAccountID,
+		Tracks:                o.tracks,
+		FailureReason:         o.failureReason,
+		AccessToken:           o.accessToken,
+		AdminFeedback:         o.adminFeedback,
+		AdminFeedbackAt:       o.adminFeedbackAt,
+		ConsentGivenAt:        o.consentGivenAt,
+		ConsentDocVersion:     o.consentDocVersion,
+		ShareRevokedAt:        o.shareRevokedAt,
+		PromoCodeID:           o.promoCodeID,
+		OriginalAmountKopecks: o.originalAmountKopecks,
+		DiscountKopecks:       o.discountKopecks,
+		ReferralCode:          o.referralCode,
+		CreatedAt:             o.createdAt,
+		UpdatedAt:             o.updatedAt,
+		PaidAt:                o.paidAt,
+		CompletedAt:           o.completedAt,
 	}
+}
+
+// ApplyPromo применяет скидку промокода к заказу.
+func (o *Order) ApplyPromo(promoID uuid.UUID, discountKopecks int64) {
+	o.originalAmountKopecks = o.amountKopecks
+	o.promoCodeID = &promoID
+	o.discountKopecks = discountKopecks
+	o.amountKopecks -= discountKopecks
+	if o.amountKopecks < 0 {
+		o.amountKopecks = 0
+	}
+}
+
+// SetReferralCode фиксирует реферальный код, по которому пришёл клиент.
+func (o *Order) SetReferralCode(code string) {
+	o.referralCode = code
 }
 
 // OrderRepository - контракт для персистентности заказов.

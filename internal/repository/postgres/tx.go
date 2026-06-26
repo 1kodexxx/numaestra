@@ -47,6 +47,13 @@ func nullableString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func nullableInt64(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	return &n
 } // открывает одну транзакцию БД и
 // прокидывает её через context во все репозитории, вызванные внутри fn. Это
 // позволяет UseCase атомарно изменять несколько независимых агрегатов (Order и

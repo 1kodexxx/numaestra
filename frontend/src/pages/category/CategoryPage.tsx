@@ -19,6 +19,8 @@ import {
   Thumb,
 } from "@widgets/side-panel";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getReferralCode } from "@shared/lib/referral";
+import { promoApi } from "@entities/admin-promo";
 import { useNavigate, useParams } from "react-router-dom";
 import { useBreakpoint } from "@shared/lib/useBreakpoint";
 import { GOALS, reachGoal } from "@shared/lib/analytics";
@@ -195,6 +197,9 @@ export function CategoryPage() {
   const [tagSel, setTagSel] = useState<Record<string, string[]>>({}); // tags (multi)
   const [customText, setCustomText] = useState("");
   const [showContact, setShowContact] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoStatus, setPromoStatus] = useState<{ discount_kopecks: number; label: string } | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showFloatCta, setShowFloatCta] = useState(false);
@@ -318,6 +323,26 @@ export function CategoryPage() {
     setShowContact(true);
   }
 
+  async function applyPromoCode() {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoStatus(null);
+    try {
+      const res = await promoApi.validate(code, publicConfig.price_kopecks);
+      const label =
+        res.discount_type === "percent"
+          ? `−${res.discount_value}%`
+          : `−${res.discount_value} ₽`;
+      setPromoStatus({ discount_kopecks: res.discount_kopecks, label });
+    } catch {
+      setPromoStatus(null);
+      setPromoCode("");
+    } finally {
+      setPromoLoading(false);
+    }
+  }
+
   async function handleOrder(email: string, phone: string) {
     const orderAnswers = { ...mergedAnswers };
     if (customText.trim()) {
@@ -330,6 +355,8 @@ export function CategoryPage() {
       category_id: id,
       answers: orderAnswers,
       consent_doc_version: publicConfig.consent_doc_version,
+      promo_code: promoStatus ? promoCode.trim().toUpperCase() : undefined,
+      referral_code: getReferralCode() || undefined,
     });
   }
 
@@ -560,6 +587,10 @@ export function CategoryPage() {
     </>
   );
 
+  const promoDiscountLabel = promoStatus
+    ? `${promoStatus.label} — сэкономите ${Math.round(promoStatus.discount_kopecks / 100)} ₽`
+    : null;
+
   const orderBar = (pad: string) => (
     <div
       className="safe-bottom"
@@ -569,6 +600,29 @@ export function CategoryPage() {
         background: SURFACE,
       }}
     >
+      {/* Поле промокода */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "10px", alignItems: "center" }}>
+        <div style={{ flex: 1 }}>
+          <TextField
+            label="Промокод (необязательно)"
+            value={promoCode}
+            onChange={v => { setPromoCode(v.toUpperCase()); setPromoStatus(null); }}
+            disabled={!!promoStatus}
+          />
+        </div>
+        {promoStatus ? (
+          <Button size="sm" onClick={() => { setPromoCode(""); setPromoStatus(null); }}>✕</Button>
+        ) : (
+          <Button size="sm" onClick={applyPromoCode} disabled={!promoCode.trim() || promoLoading}>
+            {promoLoading ? "…" : "Применить"}
+          </Button>
+        )}
+      </div>
+      {promoDiscountLabel && (
+        <div style={{ fontSize: "12px", color: ACCENT, marginBottom: "8px", textAlign: "center" }}>
+          ✓ Промокод применён: {promoDiscountLabel}
+        </div>
+      )}
       {quizError && (
         <div style={{ fontSize: "12px", color: "#f87171", marginBottom: "10px", textAlign: "center" }}>
           {quizError}

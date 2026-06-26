@@ -15,6 +15,8 @@ export interface CreateOrderResponse {
   payment_status: PaymentStatus
   generation_status: GenerationStatus
   amount_kopecks: number
+  original_amount_kopecks?: number
+  discount_kopecks?: number
   payment_url: string
   access_token: string
 }

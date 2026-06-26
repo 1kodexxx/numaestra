@@ -73,7 +73,7 @@ describe('Navbar', () => {
       expect(screen.getByRole('link', { name: /Каталог/ })).toHaveAttribute('href', '/')
       expect(screen.getByRole('link', { name: /Как это работает/ })).toHaveAttribute('href', '/how-it-works')
       expect(screen.getByRole('link', { name: /Отзывы/ })).toHaveAttribute('href', '/reviews')
-      expect(screen.getAllByRole('link', { name: 'Мой заказ' })).toHaveLength(2)
+      expect(screen.getAllByRole('link', { name: 'Мой заказ' })).toHaveLength(1)
     })
 
     it('закрывает меню по Escape', async () => {

@@ -12,6 +12,7 @@ const AdminOrdersPage = lazy(() => import('@pages/admin/orders/AdminOrdersPage')
 const AdminOrderDetailPage = lazy(() => import('@pages/admin/orders/AdminOrderDetailPage').then((m) => ({ default: m.AdminOrderDetailPage })))
 const AdminGenresPage = lazy(() => import('@pages/admin/genres/AdminGenresPage').then((m) => ({ default: m.AdminGenresPage })))
 const AdminAccountsPage = lazy(() => import('@pages/admin/accounts/AdminAccountsPage').then((m) => ({ default: m.AdminAccountsPage })))
+const AdminPromoCodesPage = lazy(() => import('@pages/admin/promo-codes/AdminPromoCodesPage').then((m) => ({ default: m.AdminPromoCodesPage })))
 
 export function AdminRoutes() {
   return (
@@ -28,6 +29,7 @@ export function AdminRoutes() {
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="orders/:id" element={<AdminOrderDetailPage />} />
         <Route path="accounts" element={<AdminAccountsPage />} />
+        <Route path="promo-codes" element={<AdminPromoCodesPage />} />
       </Route>
     </Routes>
   )

@@ -199,7 +199,7 @@ export function Navbar() {
           </button>
         )}
 
-        <StatusOrderLink active={statusActive} compact={!wide} />
+        {wide && <StatusOrderLink active={statusActive} />}
       </nav>
 
       {!wide && menuOpen && (

@@ -11,4 +11,7 @@ const orderSelectColumns = `
 	COALESCE(admin_feedback, '') AS admin_feedback, admin_feedback_at,
 	consent_given_at, COALESCE(consent_doc_version, '') AS consent_doc_version,
 	share_revoked_at,
+	promo_code_id, COALESCE(original_amount_kopecks, 0) AS original_amount_kopecks,
+	COALESCE(discount_kopecks, 0) AS discount_kopecks,
+	COALESCE(referral_code, '') AS referral_code,
 	created_at, updated_at, paid_at, completed_at`

@@ -146,6 +146,8 @@ type CreateOrderRequest struct {
 	CategoryID        string            `json:"category_id"`
 	ConsentDocVersion string            `json:"consent_doc_version"`
 	Answers           map[string]string `json:"answers"`
+	PromoCode         string            `json:"promo_code,omitempty"`
+	ReferralCode      string            `json:"referral_code,omitempty"`
 }
 
 type OrderResponse struct {
@@ -188,7 +190,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.CategoryID, req.ConsentDocVersion, req.Answers)
+	order, err := h.uc.CreateOrder(r.Context(), req.Email, req.Phone, req.Brief, req.CategoryID, req.ConsentDocVersion, req.PromoCode, req.ReferralCode, req.Answers)
 	if err != nil {
 		if errors.Is(err, domain.ErrBriefTooLong) {
 			respondError(w, r, http.StatusBadRequest, "поле brief слишком длинное")

@@ -8,6 +8,8 @@ export interface CreateOrderPayload {
   category_id: string
   answers: Record<string, string>
   consent_doc_version: string
+  promo_code?: string
+  referral_code?: string
 }
 
 export const orderApi = {

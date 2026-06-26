@@ -1101,7 +1101,6 @@ export function CatalogPage() {
   const [genres, setGenres] = useState<GenreOption[]>(GENRES_FALLBACK);
   const [showContact, setShowContact] = useState(false);
   const [playing, setPlaying] = useState<ExampleSong | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState("");
   const [track, setTrack] = useState<{ url: string; duration: number } | null>(
     null,
   );
@@ -1232,11 +1231,8 @@ export function CatalogPage() {
     ? "repeat(2, 1fr)"
     : "repeat(auto-fill, minmax(150px, 1fr))";
   const popular = categories.slice(0, 10);
-  const filterNorm = categoryFilter.trim().toLowerCase();
-  const matchesFilter = (c: Category) =>
-    !filterNorm || c.title.toLowerCase().includes(filterNorm) || c.id.toLowerCase().includes(filterNorm);
-  const filteredCategories = categories.filter(matchesFilter);
-  const filteredPopular = popular.filter(matchesFilter);
+  const filteredCategories = categories;
+  const filteredPopular = popular;
 
   // Конструктор промпта — непрозрачный полноэкранный оверлей поверх всего.
   const constructorOverlay = briefOpen && (
@@ -1322,6 +1318,21 @@ export function CatalogPage() {
           </div>
 
           {/* Search → конструктор */}
+          <div
+            style={{
+              padding: isMobile ? "16px 0 6px" : "22px 0 10px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "10px",
+            }}
+          >
+            <SearchBar onOpen={openBuilder} />
+            <p style={{ fontSize: "12px", color: TEXT3, fontWeight: 500 }}>
+              или выберите категорию ниже
+            </p>
+          </div>
+
           {error && (
             <div
               style={{
@@ -1347,21 +1358,6 @@ export function CatalogPage() {
               </Button>
             </div>
           )}
-
-          <div
-            style={{
-              padding: isMobile ? "16px 0 6px" : "22px 0 10px",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "10px",
-            }}
-          >
-            <SearchBar onOpen={openBuilder} />
-            <p style={{ fontSize: "12px", color: TEXT3, fontWeight: 500 }}>
-              или выберите категорию ниже
-            </p>
-          </div>
 
           {!loading && !error && categories.length === 0 && (
             <div
@@ -1422,26 +1418,10 @@ export function CatalogPage() {
               </h2>
               {!loading && (
                 <span style={{ fontSize: "12px", color: TEXT3 }}>
-                  {filterNorm ? `${filteredCategories.length} из ${categories.length}` : categories.length}
+                  {categories.length}
                 </span>
               )}
             </div>
-            {!loading && categories.length > 6 && (
-              <div className="category-filter-wrap" style={{ marginBottom: 16 }}>
-                <svg className="category-filter-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="M21 21l-4.35-4.35" />
-                </svg>
-                <input
-                  type="search"
-                  className="category-filter-input"
-                  placeholder="Найти категорию…"
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  aria-label="Поиск по категориям"
-                />
-              </div>
-            )}
             <div
               style={{
                 display: "grid",
@@ -1451,13 +1431,7 @@ export function CatalogPage() {
             >
               {loading
                 ? Array.from({ length: 12 }, (_, i) => <SkeletonCard key={i} />)
-                : filteredCategories.length === 0
-                  ? (
-                      <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "24px 12px", color: TEXT2, fontSize: 14 }}>
-                        Ничего не найдено по запросу «{categoryFilter.trim()}»
-                      </div>
-                    )
-                  : filteredCategories.map((cat, i) => (
+                : filteredCategories.map((cat, i) => (
                     <div
                       key={cat.id}
                       className="fade-up"

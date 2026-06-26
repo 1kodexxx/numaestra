@@ -37,8 +37,8 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
 		queryOrder := `
-			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, consent_given_at, consent_doc_version, created_at, updated_at, paid_at, completed_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, consent_given_at, consent_doc_version, promo_code_id, original_amount_kopecks, discount_kopecks, referral_code, created_at, updated_at, paid_at, completed_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
 		`
 		_, err := db.Exec(ctx, queryOrder,
 			snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
@@ -47,6 +47,8 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 			snap.GenerationPhase, snap.GenerationProgress, snap.TracksReady,
 			snap.AssignedAccountID, snap.FailureReason, snap.AccessToken,
 			snap.ConsentGivenAt, nullableString(snap.ConsentDocVersion),
+			snap.PromoCodeID, nullableInt64(snap.OriginalAmountKopecks), snap.DiscountKopecks,
+			nullableString(snap.ReferralCode),
 			snap.CreatedAt, snap.UpdatedAt,
 			snap.PaidAt, snap.CompletedAt,
 		)

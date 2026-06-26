@@ -51,6 +51,7 @@ type TransactionManager interface {
 type OrderUseCase struct {
 	orderRepo orderRepository
 	accRepo   accountRepository
+	promoRepo domain.PromoCodeRepository // nil если не подключён
 	queue     queuePublisher
 	provider  musicProvider
 	storage   domain.TrackStorage
@@ -99,6 +100,12 @@ func NewOrderUseCase(
 	}
 }
 
+// WithPromoRepo подключает репозиторий промокодов для применения скидок при создании заказа.
+func (uc *OrderUseCase) WithPromoRepo(repo domain.PromoCodeRepository) *OrderUseCase {
+	uc.promoRepo = repo
+	return uc
+}
+
 // saveOrderAndAccount атомарно сохраняет заказ и аккаунт в одной транзакции
 // (Unit of Work). Заменяет прежний OrderRepository.SaveWithAccount, который
 // нарушал границы агрегатов, обновляя таблицу аккаунтов из репозитория заказов.
@@ -129,7 +136,7 @@ var ErrInvalidPhone = errors.New("некорректный формат теле
 // Минимум 7 цифр, максимум 15 (E.164), допускаются пробелы, дефисы, скобки.
 var phoneRe = regexp.MustCompile(`^\+?[\d\s\-\(\)]{7,20}$`)
 
-func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, categoryID, consentDocVersion string, answers map[string]string) (*domain.Order, error) {
+func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, categoryID, consentDocVersion, promoCode, referralCode string, answers map[string]string) (*domain.Order, error) {
 	// Проверяем формат email, если он передан. Поле необязательное (можно оставить пустым),
 	// но если передано — должно соответствовать RFC 5322 (net/mail).
 	if email != "" {
@@ -173,17 +180,52 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 		}
 	}
 
+	// Промокод ищем заранее, но применяем к агрегату после его создания —
+	// ApplyPromo сохраняет originalAmountKopecks = полная цена до скидки.
+	var appliedPromo *domain.PromoCode
+	if promoCode != "" && uc.promoRepo != nil {
+		promo, err := uc.promoRepo.GetByCode(ctx, strings.ToUpper(promoCode))
+		if err != nil {
+			if !errors.Is(err, domain.ErrPromoCodeNotFound) {
+				return nil, fmt.Errorf("проверка промокода: %w", err)
+			}
+			uc.log.Warn("промокод не найден, заказ создаётся без скидки", "promo_code", promoCode)
+		} else if promo.IsValid() {
+			appliedPromo = promo
+		}
+	}
+
 	order, err := domain.NewOrder(invoiceID, email, phone, brief, categoryID, sunoPrompt, consentDocVersion, amountKopecks)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка валидации заказа: %w", err)
+	}
+
+	// ApplyPromo устанавливает originalAmountKopecks = текущий amountKopecks (полная цена)
+	// и уменьшает amountKopecks на размер скидки — итоговая сумма к оплате.
+	if appliedPromo != nil {
+		discountKopecks := appliedPromo.Apply(amountKopecks)
+		order.ApplyPromo(appliedPromo.ID(), discountKopecks)
+	}
+	if referralCode != "" {
+		order.SetReferralCode(strings.TrimSpace(referralCode))
 	}
 
 	if err := uc.orderRepo.Create(ctx, order); err != nil {
 		return nil, fmt.Errorf("ошибка сохранения заказа: %w", err)
 	}
 
+	// Атомарно увеличиваем счётчик использований промокода после успешного сохранения заказа.
+	if appliedPromo != nil {
+		if ok, err := uc.promoRepo.IncrementUses(ctx, appliedPromo.ID()); err != nil {
+			uc.log.Error("не удалось увеличить счётчик промокода", "promo_id", appliedPromo.ID(), "err", err)
+		} else if !ok {
+			uc.log.Warn("промокод исчерпан в момент записи (гонка)", "promo_code", appliedPromo.Code())
+		}
+	}
+
 	metrics.OrdersCreated.Inc()
-	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID, "category_id", categoryID)
+	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID,
+		"category_id", categoryID, "promo_code", promoCode, "referral_code", referralCode)
 	return order, nil
 }
 
