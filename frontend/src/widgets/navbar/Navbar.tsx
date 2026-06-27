@@ -7,9 +7,9 @@ import { useFocusTrap } from '@shared/lib/useFocusTrap'
 const ACCENT = theme.accent
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Каталог', isActive: (path: string) => path === '/' || path.startsWith('/category') },
-  { to: '/how-it-works', label: 'Как это работает', isActive: (path: string) => path === '/how-it-works' },
-  { to: '/reviews', label: 'Отзывы', isActive: (path: string) => path === '/reviews' },
+  { to: '/', label: 'Каталог', icon: '🎵', isActive: (path: string) => path === '/' || path.startsWith('/category') },
+  { to: '/how-it-works', label: 'Как это работает', icon: '⚡', isActive: (path: string) => path === '/how-it-works' },
+  { to: '/reviews', label: 'Отзывы', icon: '⭐', isActive: (path: string) => path === '/reviews' },
 ] as const
 
 function NavTextLink({ to, label, active, onNavigate }: { to: string; label: string; active: boolean; onNavigate?: () => void }) {
@@ -279,7 +279,8 @@ export function Navbar() {
                     onClick={() => setMenuOpen(false)}
                     className={`mobile-nav-link state-layer${active ? ' mobile-nav-link--active' : ''}`}
                   >
-                    <span>{item.label}</span>
+                    <span className="mobile-nav-link-icon" aria-hidden>{item.icon}</span>
+                    <span className="mobile-nav-link-label">{item.label}</span>
                     {active && <span className="mobile-nav-link-dot" aria-hidden />}
                   </Link>
                 )
