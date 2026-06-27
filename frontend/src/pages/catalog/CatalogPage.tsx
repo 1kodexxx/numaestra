@@ -402,9 +402,11 @@ function Chip({
   return (
     <button
       onClick={onClick}
+      className="chip-press"
       style={{
         padding: "9px 16px",
         borderRadius: "20px",
+        fontFamily: "inherit",
         background: selected
           ? "rgba(0,229,192,0.14)"
           : "rgba(255,255,255,0.04)",
@@ -658,7 +660,6 @@ function PromptBuilder({
   onBack,
   onSubmit,
   canSubmit,
-  priceLabel,
   promoCode,
   promoStatus,
   promoError,
@@ -673,7 +674,6 @@ function PromptBuilder({
   onBack: () => void;
   onSubmit: () => void;
   canSubmit: boolean;
-  priceLabel: string;
   promoCode: string;
   promoStatus: { discount_kopecks: number; label: string } | null;
   promoError: string | null;
@@ -1057,8 +1057,11 @@ function PromptBuilder({
           </div>
         )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
-          Заказать песню — {priceLabel} →
+          Создать песню — демо бесплатно →
         </Button>
+        <div style={{ fontSize: "12px", color: TEXT3, textAlign: "center" }}>
+          Оплата только после демо, если понравится
+        </div>
       </div>
     </div>
   );
@@ -1701,7 +1704,6 @@ export function CatalogPage() {
             form.moods.length > 0 &&
             form.vocal.trim().length > 0
           }
-          priceLabel={publicConfig.price_label}
           promoCode={promoCode}
           promoStatus={promoStatus}
           promoError={promoError}

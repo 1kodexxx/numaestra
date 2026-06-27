@@ -53,14 +53,14 @@ function Chip({
       onClick={onClick}
       className="chip-press"
       style={{
-        padding: "9px 15px",
+        padding: "9px 16px",
         borderRadius: "20px",
         fontFamily: "inherit",
         background: selected
           ? "rgba(0,229,192,0.14)"
           : "rgba(255,255,255,0.04)",
         border: `1px solid ${selected ? "rgba(0,229,192,0.5)" : "rgba(255,255,255,0.1)"}`,
-        color: selected ? ACCENT : "rgba(255,255,255,0.62)",
+        color: selected ? ACCENT : "rgba(255,255,255,0.6)",
         fontSize: "13px",
         fontWeight: selected ? 600 : 400,
         cursor: "pointer",
@@ -75,7 +75,7 @@ function Chip({
       onMouseLeave={(e) => {
         if (!selected) {
           e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
-          e.currentTarget.style.color = "rgba(255,255,255,0.62)";
+          e.currentTarget.style.color = "rgba(255,255,255,0.6)";
         }
       }}
     >
@@ -527,7 +527,7 @@ export function CategoryPage() {
               style={{
                 height: "100%",
                 width: `${(quizProgress.done / quizProgress.total) * 100}%`,
-                background: `linear-gradient(90deg, ${theme.accent2}, ${theme.accent})`,
+                background: `linear-gradient(90deg, ${theme.accent}, ${theme.accent2})`,
                 transition: "width 0.25s ease",
               }}
             />
@@ -701,8 +701,11 @@ export function CategoryPage() {
         </div>
       )}
       <Button size="lg" fullWidth disabled={!wizard || wizardLoading} onClick={openContact}>
-        Заказать песню — {publicConfig.price_label} →
+        Создать песню — демо бесплатно →
       </Button>
+      <div style={{ fontSize: "12px", color: TEXT3, textAlign: "center", marginTop: "8px" }}>
+        Оплата только после демо, если понравится
+      </div>
     </div>
   );
 
