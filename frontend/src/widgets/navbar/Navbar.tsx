@@ -26,15 +26,12 @@ function NavTextLink({ to, label, active, onNavigate }: { to: string; label: str
         display: 'inline-flex',
         alignItems: 'center',
         height: '38px',
-        padding: '0 14px',
+        padding: '0 12px',
         borderRadius: '20px',
-        background: active ? 'rgba(0,229,192,0.1)' : 'transparent',
-        border: `1px solid ${active ? 'rgba(0,229,192,0.22)' : 'transparent'}`,
-        boxShadow: active ? '0 2px 12px -4px rgba(0,229,192,0.45)' : 'none',
-        transition: 'all 0.18s',
+        transition: 'color 0.15s',
       }}
-      onMouseEnter={(e) => { if (!active) { e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)' } }}
-      onMouseLeave={(e) => { if (!active) { e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; e.currentTarget.style.background = 'transparent' } }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = '#fff' }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.7)' }}
     >
       {label}
     </Link>
@@ -77,7 +74,7 @@ function StatusOrderLink({ active, compact, onNavigate }: { active: boolean; com
         textDecoration: 'none',
         fontSize: '13px',
         fontWeight: 700,
-        color: active ? '#04130f' : 'rgba(0,229,192,0.92)',
+        color: active ? '#00e5c0' : 'rgba(0,229,192,0.92)',
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -85,9 +82,9 @@ function StatusOrderLink({ active, compact, onNavigate }: { active: boolean; com
         height: '38px',
         padding: compact ? '0 16px' : '0 18px',
         borderRadius: '20px',
-        background: active ? 'linear-gradient(135deg, #00e5c0, #00bfa5)' : 'rgba(0,229,192,0.08)',
-        border: `1px solid ${active ? 'transparent' : 'rgba(0,229,192,0.3)'}`,
-        boxShadow: active ? '0 6px 18px -6px rgba(0,229,192,0.55)' : 'none',
+        background: active ? 'rgba(0,229,192,0.18)' : 'rgba(0,229,192,0.08)',
+        border: `1px solid ${active ? 'rgba(0,229,192,0.45)' : 'rgba(0,229,192,0.3)'}`,
+        boxShadow: active ? '0 2px 12px -7px rgba(0,229,192,0.35)' : 'none',
         transition: 'all 0.18s',
         whiteSpace: 'nowrap',
       }}
@@ -196,20 +193,7 @@ export function Navbar() {
         />
 
         <Link to="/" className="brand-link" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-          <span style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <span
-              aria-hidden
-              style={{
-                position: 'absolute',
-                inset: '-7px',
-                background: 'radial-gradient(circle, rgba(0,229,192,0.28), transparent 70%)',
-                filter: 'blur(7px)',
-                opacity: 0.75,
-                pointerEvents: 'none',
-              }}
-            />
-            <BrandMark size={26} />
-          </span>
+          <BrandMark size={26} />
           <span style={{ fontSize: '17px', fontWeight: 700, color: '#fff', letterSpacing: '-0.02em' }}>
             Numaestra
           </span>
