@@ -62,22 +62,27 @@ body {
   text-rendering: optimizeLegibility;
   font-feature-settings: 'cv11', 'ss01';
   font-optical-sizing: auto;
-  /* Атмосферный фон: базовый чёрный + мягкие cyan-свечения сверху (фиксированы
-     при скролле). Просвечивает на публичных страницах с прозрачным контейнером. */
+  /* Атмосферный фон: базовый чёрный + мягкие cyan-свечения + лёгкая нижняя
+     подсветка для глубины + едва заметная технологичная dot-сетка (статичная).
+     Фиксирован при скролле, просвечивает на публичных страницах. */
   background-color: #080808;
   background-image:
-    radial-gradient(62% 48% at 50% -8%, rgba(0, 229, 192, 0.08), transparent 72%),
-    radial-gradient(46% 40% at 100% 2%, rgba(0, 191, 165, 0.05), transparent 70%);
+    radial-gradient(62% 48% at 50% -8%, rgba(0, 229, 192, 0.09), transparent 72%),
+    radial-gradient(46% 40% at 100% 2%, rgba(0, 191, 165, 0.06), transparent 70%),
+    radial-gradient(50% 38% at 12% 108%, rgba(0, 229, 192, 0.045), transparent 72%),
+    radial-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: auto, auto, auto, 26px 26px;
   background-attachment: fixed;
-  background-repeat: no-repeat;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
 }
 
 /* Живой фон: атмосферные cyan-орбы медленно «дышат» позицией и яркостью.
-   Очень тонко и долго — кинематографичная подложка, не отвлекает от контента. */
+   Очень тонко и долго — кинематографичная подложка, не отвлекает от контента.
+   Dot-сетка (последний слой) остаётся неподвижной — у неё фикс. позиция. */
 @keyframes ambient-drift {
-  0%   { background-position: 50% -8%, 100% 2%; }
-  50%  { background-position: 46% -4%, 96% 6%; }
-  100% { background-position: 50% -8%, 100% 2%; }
+  0%   { background-position: 50% -8%, 100% 2%, 12% 108%, 0 0; }
+  50%  { background-position: 46% -4%, 96% 6%, 16% 104%, 0 0; }
+  100% { background-position: 50% -8%, 100% 2%, 12% 108%, 0 0; }
 }
 body { animation: ambient-drift 26s ease-in-out infinite; }
 

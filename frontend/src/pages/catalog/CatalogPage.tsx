@@ -259,14 +259,15 @@ function Hero({
             fontSize: "clamp(14px, 1.6vw, 16px)",
             color: TEXT2,
             lineHeight: 1.6,
-            maxWidth: "460px",
+            maxWidth: "480px",
             margin: "0 auto",
           }}
         >
-          Опишите повод — и получите 4 готовые версии трека уже через 10 минут
+          Соберите запрос и послушайте демо бесплатно — платите, только если
+          понравилось.
         </p>
 
-        {/* trust pills */}
+        {/* trust pills — первый акцентный про бесплатное демо */}
         <div
           className="hero-enter-d3"
           style={{
@@ -278,37 +279,40 @@ function Hero({
           }}
         >
           {[
-            "4 версии трека",
-            "Готово за 10 минут",
-            `${priceLabel} · без подписок`,
-          ].map((t) => (
+            { t: "🎧 Демо бесплатно", accent: true },
+            { t: "4 версии трека", accent: false },
+            { t: "Готово за 10 минут", accent: false },
+            { t: `${priceLabel} · без подписок`, accent: false },
+          ].map(({ t, accent }) => (
             <div
               key={t}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "6px",
-                background: "rgba(255,255,255,0.03)",
-                border: `1px solid ${BORDER}`,
+                background: accent ? "rgba(0,229,192,0.12)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${accent ? "rgba(0,229,192,0.4)" : BORDER}`,
                 borderRadius: "20px",
                 padding: "6px 13px",
                 fontSize: "12px",
-                fontWeight: 500,
-                color: "rgba(255,255,255,0.6)",
+                fontWeight: accent ? 700 : 500,
+                color: accent ? ACCENT : "rgba(255,255,255,0.6)",
               }}
             >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={ACCENT}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M20 6 9 17l-5-5" />
-              </svg>
+              {!accent && (
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={ACCENT}
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              )}
               {t}
             </div>
           ))}
