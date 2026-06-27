@@ -763,29 +763,41 @@ func TestHandler_Webhook_ReplayProtection(t *testing.T) {
 	invID := fmt.Sprintf("%d", order.InvoiceID())
 	outSum := robokassa.FormatAmount(150000)
 
-	// Имитируем уже сохранённый нонс (вебхук был обработан ранее).
-	rdb.Set(context.Background(), "webhook:seen:"+invID, 1, time.Hour)
-
 	form := url.Values{}
 	form.Set("OutSum", outSum)
 	form.Set("InvId", invID)
 	form.Set("SignatureValue", webhookSig(outSum, invID))
 
-	req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	send := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/webhook/robokassa", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("replay должен вернуть 200, получили %d (%s)", rec.Code, rec.Body.String())
+	// P1-9: даже при уже стоящем нонсе, но pending-заказе вебхук ДОЛЖЕН активировать
+	// оплату — источник истины это payment_status в БД, а не нонс (он мог проставиться
+	// по сбою/коллизии; слепое «OK» по нонсу потеряло бы оплату).
+	rdb.Set(context.Background(), "webhook:seen:"+invID, 1, time.Hour)
+	rec := send()
+	if rec.Code != http.StatusOK || rec.Body.String() != "OK"+invID {
+		t.Fatalf("ожидали 'OK%s'/200, получили %d/%q", invID, rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "OK"+invID {
-		t.Errorf("ожидали 'OK%s', получили %q", invID, rec.Body.String())
-	}
-	// Заказ должен оставаться pending — replay-путь не запускает HandlePaymentSuccess.
 	got, _ := repo.GetByInvoiceID(context.Background(), order.InvoiceID())
-	if got.PaymentStatus() != domain.PaymentStatusPending {
-		t.Error("replay не должен изменять статус оплаты заказа")
+	if got.PaymentStatus() != domain.PaymentStatusPaid {
+		t.Fatalf("pending-заказ с валидной подписью должен стать paid даже при нонсе, получили %q", got.PaymentStatus())
+	}
+
+	// Теперь заказ paid — повторная доставка (реальный replay) идемпотентна:
+	// OK и без второй активации (статус неизменен).
+	rec2 := send()
+	if rec2.Code != http.StatusOK || rec2.Body.String() != "OK"+invID {
+		t.Fatalf("replay должен вернуть 'OK%s'/200, получили %d/%q", invID, rec2.Code, rec2.Body.String())
+	}
+	got2, _ := repo.GetByInvoiceID(context.Background(), order.InvoiceID())
+	if got2.PaymentStatus() != domain.PaymentStatusPaid {
+		t.Errorf("повторный вебхук не должен менять статус оплаченного заказа, получили %q", got2.PaymentStatus())
 	}
 }
 

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -132,9 +133,13 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 // чтобы recovery-крон демо мог находить «застрявшие» processing по времени.
 func (r *OrderRepository) UpdateDemo(ctx context.Context, order *domain.Order) error {
 	snap := order.Snapshot()
-	query := `UPDATE orders SET demo_status = $1, demo_url = $2, demo_account_id = $3, updated_at = $4 WHERE id = $5`
+	clipsJSON, err := json.Marshal(snap.DemoClips)
+	if err != nil {
+		return fmt.Errorf("marshal demo clips: %w", err)
+	}
+	query := `UPDATE orders SET demo_status = $1, demo_url = $2, demo_account_id = $3, demo_clips = $4::jsonb, updated_at = $5 WHERE id = $6`
 	cmd, err := r.conn(ctx).Exec(ctx, query,
-		string(snap.DemoStatus), nullableString(snap.DemoURL), snap.DemoAccountID, snap.UpdatedAt, snap.ID,
+		string(snap.DemoStatus), nullableString(snap.DemoURL), snap.DemoAccountID, string(clipsJSON), snap.UpdatedAt, snap.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update demo: %w", err)

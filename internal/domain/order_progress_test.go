@@ -2,6 +2,7 @@ package domain
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,28 @@ func TestUpdateGenerationProgress_Monotonic(t *testing.T) {
 	o.UpdateGenerationProgress(GenerationPhaseGenerating, 55, 2)
 	if o.GenerationProgress() != 55 || o.TracksReady() != 2 {
 		t.Errorf("ожидали 55%% и 2 трека, получили %d/%d", o.GenerationProgress(), o.TracksReady())
+	}
+}
+
+// Heartbeat: каждый опрос статуса должен обновлять updated_at, иначе recovery-крон
+// (ListStuckProcessing по updated_at) сочтёт активно генерирующийся заказ застрявшим
+// и запустит вторую генерацию. Проверяем оба пути: рост прогресса и stale-откат.
+func TestUpdateGenerationProgress_TouchesUpdatedAt(t *testing.T) {
+	o, _ := NewOrder(1, "a@b.c", "", "бриф", "", "", CurrentConsentDocVersion, 100)
+
+	before := o.UpdatedAt()
+	time.Sleep(2 * time.Millisecond) // гарантируем тик настенных часов (touch использует .UTC())
+	o.UpdateGenerationProgress(GenerationPhaseGenerating, 40, 1)
+	if !o.UpdatedAt().After(before) {
+		t.Errorf("обновление прогресса должно сдвигать updated_at: было %v, стало %v", before, o.UpdatedAt())
+	}
+
+	// Даже устаревший (меньший) прогресс в той же фазе = воркер жив → heartbeat.
+	mid := o.UpdatedAt()
+	time.Sleep(2 * time.Millisecond)
+	o.UpdateGenerationProgress(GenerationPhaseGenerating, 30, 0)
+	if !o.UpdatedAt().After(mid) {
+		t.Errorf("stale-опрос тоже должен обновлять updated_at (heartbeat): было %v, стало %v", mid, o.UpdatedAt())
 	}
 }
 

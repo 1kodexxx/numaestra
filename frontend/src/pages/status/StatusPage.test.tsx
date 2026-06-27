@@ -109,6 +109,21 @@ describe('StatusPage', () => {
     expect(hrefSpy).toHaveBeenCalledWith('https://auth.robokassa.ru/pay/retry')
   })
 
+  it('P0-3: придерживает оплату, пока демо генерируется (demo_status=processing)', async () => {
+    vi.mocked(orderApi.getById).mockResolvedValue({ ...pendingOrder(), demo_status: 'processing' })
+    orderStorage.saveOrder(ORDER_ID, ACCESS_TOKEN)
+
+    renderWithRouter(<StatusPage />, { route: '/status' })
+
+    await waitFor(() => {
+      expect(screen.getByText('Ожидание оплаты')).toBeInTheDocument()
+    })
+    // Кнопка оплаты заблокирована и подписана «Готовим демо…», прямой «Перейти к оплате» нет.
+    const payBtn = screen.getByRole('button', { name: /Готовим демо/ })
+    expect(payBtn).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Перейти к оплате/ })).not.toBeInTheDocument()
+  })
+
   it('после SuccessURL не предлагает повторную оплату при pending', async () => {
     vi.mocked(orderApi.getById).mockResolvedValue(pendingOrder())
     orderStorage.saveOrder(ORDER_ID, ACCESS_TOKEN)

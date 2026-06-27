@@ -470,11 +470,25 @@ func (uc *OrderUseCase) ProcessGenerationTask(ctx context.Context, orderID uuid.
 	// 4. Отправка структурированного запроса в Suno API.
 	// Продукт фиксированный — 4 версии песни на заказ, без тарифов.
 	styleTags := resolveSunoStyleTags(order.SunoPrompt(), order.Brief())
+
+	// Переиспользование демо: если демо готово и его полные клипы сохранены, они уже
+	// станут версиями 1–2 (трек №1 = ровно то демо, что слушал клиент). Догенерируем
+	// только недостающие версии текстом варианта 2 (отличным от демо) — это экономит
+	// одну Suno-задачу на конверсию. Без сохранённого демо — полная генерация, как раньше.
+	genBriefs := briefs
+	trackCount := domain.DefaultTrackCount
+	if demoCount := len(order.DemoClips()); demoCount > 0 && demoCount < domain.DefaultTrackCount {
+		trackCount = domain.DefaultTrackCount - demoCount
+		genBriefs = []string{briefs[len(briefs)-1]}
+		uc.log.Info("переиспользуем демо-клипы как версии заказа, догенерируем недостающие",
+			"order_id", order.ID(), "demo_clips", demoCount, "to_generate", trackCount)
+	}
+
 	req := domain.MusicGenerationRequest{
-		Briefs:       briefs,
+		Briefs:       genBriefs,
 		Style:        styleTags,
 		Instrumental: suno.IsInstrumentalFromTags(styleTags),
-		TrackCount:   domain.DefaultTrackCount,
+		TrackCount:   trackCount,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 
@@ -590,6 +604,20 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 		account.ReleaseSlot()
 		metrics.ActiveWorkerSlots.Dec()
 	case domain.MusicGenerationStatusCompleted:
+		// Переиспользование демо: если сохранённые полные демо-клипы вместе с только
+		// что сгенерированными укладываются в продуктовые 4 версии, демо становится
+		// версиями 1–2, а новые — последующими. Решение принимается по числу клипов,
+		// поэтому остаётся корректным даже в гонке «демо доготовилось после старта
+		// платной генерации»: если платный поток выдал полные 4 версии, демо просто
+		// игнорируется (его S3-объекты остаются осиротевшими — это безвредно).
+		demoClips := order.DemoClips()
+		reuseDemo := len(demoClips) > 0 && len(result.Tracks) > 0 &&
+			len(result.Tracks) <= domain.DefaultTrackCount-len(demoClips)
+		indexOffset := 0
+		if reuseDemo {
+			indexOffset = len(demoClips)
+		}
+
 		var domainTracks []domain.Track
 		totalTracks := len(result.Tracks)
 		for i, pt := range result.Tracks {
@@ -599,25 +627,41 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 			// она отдаст 403), а возвращаем ошибку — Asynq повторит задачу с
 			// backoff. Заказ остаётся в processing, слот аккаунта не освобождается.
 			// Повторная загрузка идемпотентна: тот же S3-ключ перезаписывается.
-			s3Key := fmt.Sprintf("tracks/%s/%d.mp3", order.ID(), i+1)
+			trackIndex := indexOffset + i + 1
+			s3Key := fmt.Sprintf("tracks/%s/%d.mp3", order.ID(), trackIndex)
 			permanentURL, uploadErr := uc.storage.UploadFromURL(ctx, pt.SourceURL, s3Key, "audio/mpeg")
 			if uploadErr != nil {
 				uc.log.Error("ошибка загрузки трека в S3, задача будет повторена",
-					"order_id", order.ID(), "track_index", i+1, "err", uploadErr)
-				return fmt.Errorf("загрузка трека %d в постоянное хранилище: %w", i+1, uploadErr)
+					"order_id", order.ID(), "track_index", trackIndex, "err", uploadErr)
+				return fmt.Errorf("загрузка трека %d в постоянное хранилище: %w", trackIndex, uploadErr)
 			}
 			domainTracks = append(domainTracks, domain.Track{
 				ID:          uuid.New(),
-				Index:       i + 1,
+				Index:       trackIndex,
 				AudioURL:    permanentURL,
 				DurationSec: pt.DurationSec,
 				SunoTrackID: pt.ExternalID,
 			})
 			uploadPct := 85 + ((i+1)*14)/max(totalTracks, 1)
-			order.UpdateGenerationProgress(domain.GenerationPhaseUploading, uploadPct, i+1)
+			order.UpdateGenerationProgress(domain.GenerationPhaseUploading, uploadPct, indexOffset+i+1)
 			if err := uc.orderRepo.Update(ctx, order); err != nil {
 				uc.log.Warn("не удалось сохранить прогресс загрузки", "order_id", order.ID(), "err", err)
 			}
+		}
+
+		// Демо-клипы (уже в постоянном S3) идут версиями 1–2 — клиент получает ровно ту
+		// песню, что слушал, плюс догенерированные версии.
+		if reuseDemo {
+			domainTracks = append(append([]domain.Track{}, demoClips...), domainTracks...)
+		}
+
+		// Недопоставка: провайдер отдал меньше продуктовых версий (одна из задач Suno
+		// окончательно упала). Доставляем что есть (лучше, чем провал), но громко
+		// логируем — это сигнал к ручному разбору и возможному частичному возврату.
+		if len(domainTracks) < domain.DefaultTrackCount {
+			uc.log.Warn("заказ завершается с неполным числом версий — требуется разбор/частичный возврат",
+				"order_id", order.ID(), "got_tracks", len(domainTracks), "expected", domain.DefaultTrackCount,
+				"reuse_demo", reuseDemo, "demo_clips", len(demoClips))
 		}
 
 		if err := order.Complete(domainTracks); err != nil {
@@ -669,6 +713,47 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 
 	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)
 	return nil
+}
+
+// pollMaxLifetime — предельный возраст оплаченного заказа в processing, в течение
+// которого имеет смысл продолжать опрашивать Suno. Окно ретраев одной poll-задачи
+// (~20 мин) меньше, чем иногда длится генерация, поэтому исчерпание ретраев — НЕ
+// повод проваливать заказ. Перезапускаем опрос, пока заказ не старше этого порога;
+// дальше считаем генерацию реально зависшей. Должен быть меньше stuckOrderThreshold,
+// чтобы провалить заказ раньше, чем recovery-крон попытается его перегенерировать.
+const pollMaxLifetime = 28 * time.Minute
+
+// RetryStalePoll вызывается терминальным обработчиком, когда задача опроса статуса
+// исчерпала ретраи, но Suno всё ещё «не готов» (ErrGenerationNotReady). Возвращает
+// requeued=true, если опрос перезапущен (генерация ещё в окне ожидания) или заказ
+// уже терминален; requeued=false — заказ пора провалить (вызывающий сделает
+// FailGeneration). Так долгая, но живая генерация не падает в ложный failed.
+func (uc *OrderUseCase) RetryStalePoll(ctx context.Context, orderID uuid.UUID, sunoJobID string) (bool, error) {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return false, fmt.Errorf("заказ не найден: %w", err)
+	}
+	// Уже завершён/провален параллельно — проваливать нечего.
+	if order.GenerationStatus() != domain.GenerationStatusProcessing {
+		return true, nil
+	}
+	if sunoJobID == "" {
+		return false, nil // нечем опрашивать — пусть вызывающий провалит
+	}
+	// Якорь возраста — момент оплаты (старт оплаченного цикла); запасной — создание.
+	anchor := order.CreatedAt()
+	if paidAt := order.PaidAt(); paidAt != nil {
+		anchor = *paidAt
+	}
+	if time.Since(anchor) > pollMaxLifetime {
+		return false, nil // ждём слишком долго — генерация зависла, проваливаем
+	}
+	if err := uc.queue.EnqueueStatusCheckTask(ctx, orderID, sunoJobID); err != nil {
+		return false, fmt.Errorf("перезапуск опроса статуса: %w", err)
+	}
+	uc.log.Warn("опрос статуса исчерпал ретраи, но генерация ещё в окне ожидания — перезапускаем опрос",
+		"order_id", orderID, "suno_job", sunoJobID, "age", time.Since(anchor).Round(time.Minute))
+	return true, nil
 }
 
 // FailGeneration переводит заказ в окончательный отказ и освобождает захваченный
@@ -852,9 +937,13 @@ func (uc *OrderUseCase) SendAccessLinkEmail(ctx context.Context, orderID uuid.UU
 // ==========================================
 
 // stuckOrderThreshold — время, после которого заказ в статусе processing считается
-// застрявшим. 15 минут покрывают максимальный таймаут одной задачи (90с generate +
-// 3мин status check) с запасом на медленный S3 и LLM.
-const stuckOrderThreshold = 15 * time.Minute
+// застрявшим. Должен превышать максимальное окно polling'а (MaxRetry(80) с
+// экспоненциальным backoff даёт ~15–20 мин и более), иначе recovery-крон счёл бы
+// активно генерирующийся заказ застрявшим и запустил вторую генерацию. Опрос
+// статуса обновляет updated_at на каждом тике (heartbeat в UpdateGenerationProgress),
+// поэтому живой заказ сюда не попадёт; 30 минут — запас для случая, когда сам
+// polling-воркер умер и обновления прекратились.
+const stuckOrderThreshold = 30 * time.Minute
 
 // stuckQueuedThreshold — время, после которого ОПЛАЧЕННЫЙ заказ в статусе queued
 // считается «осиротевшим»: задача генерации потеряна или исчерпала ретраи. Берём
@@ -1032,6 +1121,11 @@ func (uc *OrderUseCase) RecoverFreePendingOrders(ctx context.Context) error {
 // (демо-задача потеряна). Больше максимального окна опроса демо (40×15с = 10 мин).
 const stuckDemoThreshold = 12 * time.Minute
 
+// clipsPerDemoTask — сколько клипов запрашиваем у демо-задачи. Одна Suno-задача
+// отдаёт пару клипов (см. clipsPerTask адаптера), поэтому 2 версии = 1 задача:
+// стоимость демо не меняется, но оба клипа сохраняются для переиспользования.
+const clipsPerDemoTask = 2
+
 // TriggerDemo ставит фоновую задачу генерации демо. Best-effort: вызывается при
 // создании заказа, ошибка постановки не влияет на сам заказ и оплату. clientIP
 // проверяется по суточному лимиту демо на IP — чтобы один источник не выжег общий
@@ -1114,11 +1208,14 @@ func (uc *OrderUseCase) GenerateDemo(ctx context.Context, orderID uuid.UUID) err
 	}
 
 	styleTags := resolveSunoStyleTags(order.SunoPrompt(), order.Brief())
+	// Одна Suno-задача всё равно отдаёт пару клипов — запрашиваем оба (TrackCount=2,
+	// по-прежнему 1 задача). Раньше второй клип выбрасывался; теперь сохраняем оба,
+	// чтобы после оплаты переиспользовать их как версии 1–2 (см. CheckDemoStatus).
 	req := domain.MusicGenerationRequest{
 		Briefs:       []string{demoBrief(order)},
 		Style:        styleTags,
 		Instrumental: suno.IsInstrumentalFromTags(styleTags),
-		TrackCount:   1,
+		TrackCount:   clipsPerDemoTask,
 	}
 	sunoJobID, err := uc.provider.SubmitGeneration(ctx, req)
 	if err != nil {
@@ -1160,22 +1257,31 @@ func (uc *OrderUseCase) CheckDemoStatus(ctx context.Context, orderID uuid.UUID, 
 	// Успех с клипами: оформляем демо-фрагмент и заливаем в S3. При ошибке S3 —
 	// оставляем processing и ретраим (слот держим), как в платном потоке.
 	if result.Status == domain.MusicGenerationStatusCompleted && len(result.Tracks) > 0 {
-		s3Key := fmt.Sprintf("demos/%s.mp3", order.ID())
-		sourceURL := result.Tracks[0].SourceURL
+		// 1. Сохраняем ПОЛНЫЕ клипы на будущее: после оплаты они станут версиями 1–2
+		// заказа (демо = ровно та песня, что слушал клиент). Ключи содержат случайный
+		// сегмент — до завершения заказа эти URL нигде не отдаются, а угадать их по
+		// одному order_id нельзя (иначе полную песню можно было бы забрать бесплатно).
+		demoClips, clipsErr := uc.uploadDemoFullClips(ctx, order.ID(), result.Tracks)
+		if clipsErr != nil {
+			uc.log.Warn("демо: ошибка загрузки полных клипов, задача будет повторена", "order_id", order.ID(), "err", clipsErr)
+			return fmt.Errorf("демо: загрузка полных клипов в S3: %w", clipsErr)
+		}
 
-		demoURL, uploadErr := uc.uploadDemoClip(ctx, order.ID(), sourceURL, s3Key)
+		// 2. Витринный фрагмент с водяным знаком (то, что слышит клиент до оплаты).
+		s3Key := fmt.Sprintf("demos/%s.mp3", order.ID())
+		demoURL, uploadErr := uc.uploadDemoClip(ctx, order.ID(), result.Tracks[0].SourceURL, s3Key)
 		if uploadErr != nil {
 			uc.log.Warn("демо: ошибка загрузки в S3, задача будет повторена", "order_id", order.ID(), "err", uploadErr)
 			return fmt.Errorf("демо: загрузка клипа в S3: %w", uploadErr)
 		}
 		uc.releaseDemoAccount(ctx, accountID, true)
-		if err := order.CompleteDemo(demoURL); err != nil {
+		if err := order.CompleteDemo(demoURL, demoClips); err != nil {
 			return fmt.Errorf("демо: завершение в домене: %w", err)
 		}
 		if err := uc.orderRepo.UpdateDemo(ctx, order); err != nil {
 			return fmt.Errorf("демо: сохранение результата: %w", err)
 		}
-		uc.log.Info("демо готово", "order_id", order.ID())
+		uc.log.Info("демо готово", "order_id", order.ID(), "clips", len(demoClips))
 		return nil
 	}
 
@@ -1226,6 +1332,30 @@ func (uc *OrderUseCase) uploadDemoClip(ctx context.Context, orderID uuid.UUID, s
 	}
 	// Фаза 1 / фоллбэк: полный клип напрямую из источника.
 	return uc.storage.UploadFromURL(ctx, sourceURL, s3Key, "audio/mpeg")
+}
+
+// uploadDemoFullClips заливает ПОЛНЫЕ (без водяного знака) клипы демо-задачи в
+// постоянное хранилище и возвращает доменные Track для переиспользования после
+// оплаты. Ключи содержат случайный UUID-сегмент: до завершения заказа эти URL
+// нигде не публикуются, а угадать их по order_id невозможно — иначе полную песню
+// можно было бы скачать в обход оплаты. При ошибке S3 возвращаем ошибку (ретрай).
+func (uc *OrderUseCase) uploadDemoFullClips(ctx context.Context, orderID uuid.UUID, tracks []domain.ProviderTrack) ([]domain.Track, error) {
+	clips := make([]domain.Track, 0, len(tracks))
+	for i, pt := range tracks {
+		s3Key := fmt.Sprintf("tracks/%s/demo-%s.mp3", orderID, uuid.NewString())
+		permanentURL, err := uc.storage.UploadFromURL(ctx, pt.SourceURL, s3Key, "audio/mpeg")
+		if err != nil {
+			return nil, fmt.Errorf("загрузка демо-клипа %d: %w", i+1, err)
+		}
+		clips = append(clips, domain.Track{
+			ID:          uuid.New(),
+			Index:       i + 1,
+			AudioURL:    permanentURL,
+			DurationSec: pt.DurationSec,
+			SunoTrackID: pt.ExternalID,
+		})
+	}
+	return clips, nil
 }
 
 // releaseDemoSlot освобождает слот аккаунта (без расхода токена) — для откатов,

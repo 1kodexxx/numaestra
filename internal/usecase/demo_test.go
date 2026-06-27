@@ -33,9 +33,10 @@ func TestGenerateDemo_Success(t *testing.T) {
 		t.Fatalf("GenerateDemo: %v", err)
 	}
 
-	// Демо ровно одна задача Suno (1 клип), не 4.
-	if gotReq.TrackCount != 1 {
-		t.Errorf("ожидали TrackCount=1 для демо, получили %d", gotReq.TrackCount)
+	// Демо ровно одна задача Suno (пара клипов), не 4. TrackCount=2 = 1 задача
+	// (clipsPerTask=2): оба клипа сохраняются для переиспользования после оплаты.
+	if gotReq.TrackCount != 2 {
+		t.Errorf("ожидали TrackCount=2 для демо (1 задача = пара клипов), получили %d", gotReq.TrackCount)
 	}
 
 	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
@@ -305,14 +306,19 @@ func TestCheckDemoStatus_WithProcessor_UsesProcessedBytes(t *testing.T) {
 	}
 
 	if string(uploadedBytes) != string(processed) {
-		t.Errorf("в S3 должны попасть обработанные байты, получили %q", string(uploadedBytes))
+		t.Errorf("витринный фрагмент должен быть водяным (обработанные байты), получили %q", string(uploadedBytes))
 	}
-	if uploadFromURLCalled {
-		t.Error("при успешной обработке UploadFromURL (полный клип) вызываться не должен")
+	// Полные клипы для переиспользования заливаются через UploadFromURL (без водяного
+	// знака) — теперь это ожидаемо: после оплаты они станут версиями заказа.
+	if !uploadFromURLCalled {
+		t.Error("полные демо-клипы должны заливаться через UploadFromURL для переиспользования")
 	}
 	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
 	if got.DemoStatus() != domain.DemoStatusReady {
 		t.Errorf("ожидали demo ready, получили %q", got.DemoStatus())
+	}
+	if len(got.DemoClips()) != 1 {
+		t.Errorf("ожидали 1 сохранённый демо-клип, получили %d", len(got.DemoClips()))
 	}
 }
 
@@ -348,6 +354,92 @@ func TestCheckDemoStatus_ProcessorError_FallsBackToFullClip(t *testing.T) {
 	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
 	if got.DemoStatus() != domain.DemoStatusReady {
 		t.Errorf("ожидали demo ready (фоллбэк), получили %q", got.DemoStatus())
+	}
+}
+
+// Сквозной сценарий переиспользования демо: демо сохраняет 2 полных клипа, после
+// оплаты платный поток догенерирует только вариант 2 (1 задача, 2 трека), а финал
+// получает 4 версии, где версии 1–2 = ровно те демо-клипы, что слушал клиент.
+func TestDemoReuse_DemoClipsBecomeFinalVersions(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(t, 10)
+	order := demoOrder(t, f)
+
+	f.provider.submitFn = func(_ context.Context, _ domain.MusicGenerationRequest) (string, error) {
+		return "demo-job", nil
+	}
+	if err := f.uc.GenerateDemo(context.Background(), order.ID()); err != nil {
+		t.Fatalf("GenerateDemo: %v", err)
+	}
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{
+				{SourceURL: "http://suno/demo1", DurationSec: 180, ExternalID: "d1"},
+				{SourceURL: "http://suno/demo2", DurationSec: 181, ExternalID: "d2"},
+			},
+		}, nil
+	}
+	if err := f.uc.CheckDemoStatus(context.Background(), order.ID(), "demo-job", acc.ID()); err != nil {
+		t.Fatalf("CheckDemoStatus: %v", err)
+	}
+	afterDemo, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if len(afterDemo.DemoClips()) != 2 {
+		t.Fatalf("ожидали 2 сохранённых демо-клипа, получили %d", len(afterDemo.DemoClips()))
+	}
+	demoURLs := []string{afterDemo.DemoClips()[0].AudioURL, afterDemo.DemoClips()[1].AudioURL}
+
+	// Оплата → постановка платной генерации.
+	if err := f.uc.HandlePaymentSuccess(context.Background(), afterDemo.InvoiceID(), 150000); err != nil {
+		t.Fatalf("HandlePaymentSuccess: %v", err)
+	}
+
+	var genReq domain.MusicGenerationRequest
+	f.provider.submitFn = func(_ context.Context, req domain.MusicGenerationRequest) (string, error) {
+		genReq = req
+		return "paid-job", nil
+	}
+	if err := f.uc.ProcessGenerationTask(context.Background(), order.ID()); err != nil {
+		t.Fatalf("ProcessGenerationTask: %v", err)
+	}
+	// Догенерируем только недостающие версии — 1 задача (2 трека), один бриф (вариант 2).
+	if genReq.TrackCount != 2 {
+		t.Errorf("ожидали TrackCount=2 (догенерация недостающего), получили %d", genReq.TrackCount)
+	}
+	if len(genReq.Briefs) != 1 {
+		t.Errorf("ожидали 1 бриф (вариант 2), получили %d", len(genReq.Briefs))
+	}
+
+	// Платная генерация вернула 2 новых клипа.
+	f.provider.fetchFn = func(_ context.Context, _ string) (domain.MusicGenerationResult, error) {
+		return domain.MusicGenerationResult{
+			Status: domain.MusicGenerationStatusCompleted,
+			Tracks: []domain.ProviderTrack{
+				{SourceURL: "http://suno/paid3", DurationSec: 182, ExternalID: "p3"},
+				{SourceURL: "http://suno/paid4", DurationSec: 183, ExternalID: "p4"},
+			},
+		}, nil
+	}
+	if err := f.uc.CheckGenerationStatus(context.Background(), order.ID(), "paid-job"); err != nil {
+		t.Fatalf("CheckGenerationStatus: %v", err)
+	}
+
+	done, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if done.GenerationStatus() != domain.GenerationStatusCompleted {
+		t.Fatalf("ожидали completed, получили %q", done.GenerationStatus())
+	}
+	tracks := done.Tracks()
+	if len(tracks) != domain.DefaultTrackCount {
+		t.Fatalf("ожидали %d финальных версий, получили %d", domain.DefaultTrackCount, len(tracks))
+	}
+	// Версии 1–2 = демо-клипы (ровно те, что слушал клиент), версии 3–4 = новые.
+	if tracks[0].AudioURL != demoURLs[0] || tracks[1].AudioURL != demoURLs[1] {
+		t.Errorf("версии 1–2 должны быть демо-клипами %v, получили [%s %s]", demoURLs, tracks[0].AudioURL, tracks[1].AudioURL)
+	}
+	for i, tr := range tracks {
+		if tr.Index != i+1 {
+			t.Errorf("трек %d имеет Index=%d, ожидали %d", i, tr.Index, i+1)
+		}
 	}
 }
 

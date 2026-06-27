@@ -26,7 +26,7 @@ var orderCols = []string{
 	"consent_given_at", "consent_doc_version", "share_revoked_at",
 	"promo_code_id", "original_amount_kopecks", "discount_kopecks", "referral_code",
 	"created_at", "updated_at", "paid_at", "completed_at",
-	"demo_status", "demo_url", "demo_account_id",
+	"demo_status", "demo_url", "demo_account_id", "demo_clips",
 }
 
 // orderRowValues — одна строка заказа для pgxmock (без треков, без nullable-времён).
@@ -40,7 +40,7 @@ func orderRowValues(id uuid.UUID, invoice int64) []any {
 		"", "tok", "", (*time.Time)(nil), (*time.Time)(nil), "", (*time.Time)(nil),
 		(*uuid.UUID)(nil), int64(0), int64(0), "",
 		now, now, (*time.Time)(nil), (*time.Time)(nil),
-		domain.DemoStatusNone, "", (*uuid.UUID)(nil),
+		domain.DemoStatusNone, "", (*uuid.UUID)(nil), []byte("[]"),
 	}
 }
 

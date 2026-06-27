@@ -34,6 +34,8 @@ const COOK_STAGES = [
 export function DemoPlayer({ status, url }: { status?: string; url?: string }) {
   if (status === 'processing') return <DemoCooking />
   if (status === 'ready' && url) return <DemoReady url={url} />
+  if (status === 'failed') return <DemoFailed />
+  if (status === 'none') return <DemoPending />
   return null
 }
 
@@ -79,6 +81,41 @@ function DemoBadge({ label, pulse }: { label: string; pulse?: boolean }) {
     >
       {label}
     </span>
+  )
+}
+
+/* ═══════════════ состояние: демо ещё не началось (none) ═══════════════ */
+// Заказ только что создан, демо-задача вот-вот стартует. Лёгкое сообщение без
+// тяжёлой анимации: если демо так и не запустится (лимиты/ёмкость), это не выглядит
+// как «генерируем вечно».
+function DemoPending() {
+  return (
+    <Shell>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+        <DemoBadge label="Демо" />
+        <span style={{ fontSize: '13px', fontWeight: 600, color: TEXT2 }}>
+          Готовим бесплатное демо — оно скоро появится здесь…
+        </span>
+      </div>
+    </Shell>
+  )
+}
+
+/* ═══════════════ состояние: демо не удалось (failed) ═══════════════ */
+// Не пугаем клиента: демо — бонус, а не сам продукт. Подчёркиваем, что полная
+// песня всё равно будет после оплаты.
+function DemoFailed() {
+  return (
+    <Shell>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '6px' }}>
+        <DemoBadge label="Демо" />
+        <span style={{ fontSize: '13px', fontWeight: 700 }}>Демо недоступно</span>
+      </div>
+      <div style={{ fontSize: '12px', color: TEXT2, lineHeight: 1.5 }}>
+        Не удалось подготовить превью, но это не влияет на заказ — после оплаты вы получите{' '}
+        <b style={{ color: ACCENT }}>4 полные версии</b> песни.
+      </div>
+    </Shell>
   )
 }
 

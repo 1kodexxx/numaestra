@@ -267,6 +267,21 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
   const [paying, setPaying] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
 
+  // Демо как часть заказа: пока демо генерируется (processing), придерживаем оплату —
+  // тогда клиент получит ровно ту песню, что слушал, а backend переиспользует
+  // демо-клипы (экономия Suno-задачи). Не блокируем 'none' (демо могло не стартовать
+  // из-за лимитов/ёмкости — иначе оплату не открыть никогда) и 'ready'/'failed'.
+  // Страховка: через DEMO_WAIT_MS показываем «оплатить сейчас», чтобы залипшее демо
+  // не держало платёж дольше пары минут.
+  const demoInFlight = order.demo_status === 'processing'
+  const [forcePay, setForcePay] = useState(false)
+  useEffect(() => {
+    if (!demoInFlight) { setForcePay(false); return }
+    const t = setTimeout(() => setForcePay(true), 90_000)
+    return () => clearTimeout(t)
+  }, [demoInFlight])
+  const payBlockedForDemo = demoInFlight && !forcePay
+
   async function handlePay() {
     setPayError(null); setPaying(true)
     try {
@@ -370,11 +385,33 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
         {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
         {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
           <div style={{ marginTop: '28px' }}>
-            <Button size="lg" fullWidth loading={paying} onClick={handlePay}>Перейти к оплате →</Button>
+            <Button size="lg" fullWidth loading={paying} disabled={payBlockedForDemo} onClick={handlePay}>
+              {payBlockedForDemo ? 'Готовим демо…' : 'Перейти к оплате →'}
+            </Button>
             {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
-            <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
-              Первая попытка не прошла? Нажмите ещё раз — заказ сохранён.
+            {payBlockedForDemo ? (
+              <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+                🎧 Бесплатное демо почти готово — послушайте, и если понравится, оплатите. Вы получите именно эту песню.
+              </div>
+            ) : (
+              <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+                Первая попытка не прошла? Нажмите ещё раз — заказ сохранён.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pending без прав управления (открыли публичную ссылку без токена): кнопки
+            оплаты нет — даём восстановить доступ по email, чтобы получить ссылку на оплату. */}
+        {ps === 'pending' && !canManage && !awaitingPaymentConfirm && (
+          <div style={{ marginTop: '28px', textAlign: 'left' }}>
+            <div style={{
+              background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+              borderRadius: '14px', padding: '14px 18px', marginBottom: '14px', fontSize: '13px', color: '#fbbf24',
+            }}>
+              Чтобы оплатить этот заказ, нужен доступ. Укажите email, на который оформляли заказ — пришлём ссылку для оплаты и управления.
             </div>
+            <AccessRecoveryForm orderId={order.id} />
           </div>
         )}
 
@@ -483,8 +520,9 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
         </div>
       )}
 
-      {/* Actions */}
-      {!canManage && (
+      {/* Actions — восстановление доступа для НЕ-pending заказов (для pending показано
+          выше, в блоке оплаты, чтобы клиент мог получить ссылку и оплатить). */}
+      {!canManage && ps !== 'pending' && (
         <div style={{ marginBottom: '16px' }}>
           <AccessRecoveryForm orderId={order.id} />
         </div>

@@ -16,4 +16,5 @@ const orderSelectColumns = `
 	COALESCE(referral_code, '') AS referral_code,
 	created_at, updated_at, paid_at, completed_at,
 	COALESCE(demo_status, 'none') AS demo_status, COALESCE(demo_url, '') AS demo_url,
-	demo_account_id`
+	demo_account_id,
+	COALESCE(demo_clips, '[]'::jsonb) AS demo_clips`

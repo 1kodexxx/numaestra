@@ -86,33 +86,51 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
       return !terminal
     }
 
+    // handleFetchError решает, останавливать ли опрос. Терминально только когда
+    // заказа точно нет (404); транзиентные ошибки (сеть, 5xx, 429) НЕ
+    // останавливают опрос — следующий тик повторит. Если заказ уже загружен —
+    // тихо игнорируем сбой; иначе показываем мягкую ошибку, но продолжаем попытки.
+    const handleFetchError = (err: unknown): boolean => {
+      const status = err instanceof ApiError ? err.status : undefined
+      if (status === 404) {
+        setState(s => ({ ...s, order: null, loading: false, error: 'Заказ не найден', canManage: false }))
+        stopPolling()
+        clearStaleTimer()
+        return false
+      }
+      if (!orderRef.current) {
+        const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
+        setState(s => ({ ...s, loading: false, error: message }))
+      }
+      return true // транзиентная ошибка — продолжаем опрос
+    }
+
+    // tryPublic — публичный статус без токена. Фоллбэк, когда токена нет либо он
+    // не подошёл (401/403) или приватный запрос временно упал.
+    const tryPublic = async (): Promise<boolean> => {
+      try {
+        const order = await orderApi.getPublicStatus(id)
+        return applyOrder(order, false)
+      } catch (err: unknown) {
+        return handleFetchError(err)
+      }
+    }
+
     if (token) {
       try {
         const order = await orderApi.getById(id, token)
         return applyOrder(order, true)
       } catch (err: unknown) {
-        if (err instanceof ApiError && err.status === 401) {
-          orderStorage.clear()
-        } else {
-          const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
-          setState(s => ({ ...s, order: null, loading: false, error: message, canManage: false }))
-          stopPolling()
-          clearStaleTimer()
-          return false
-        }
+        const status = err instanceof ApiError ? err.status : undefined
+        // 401 — токен невалиден: чистим его и продолжаем по публичному статусу.
+        if (status === 401) orderStorage.clear()
+        // 403 (токен не для этого заказа), 5xx, сеть — пробуем публичный статус,
+        // а не глушим опрос: заказ мог быть открыт по ссылке без прав управления.
+        return tryPublic()
       }
     }
 
-    try {
-      const order = await orderApi.getPublicStatus(id)
-      return applyOrder(order, false)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Ошибка загрузки заказа'
-      setState(s => ({ ...s, order: null, loading: false, error: message, canManage: false }))
-      stopPolling()
-      clearStaleTimer()
-      return false
-    }
+    return tryPublic()
   }, [stopPolling, startStaleTimer, clearStaleTimer])
 
   const startPolling = useCallback((id: string) => {

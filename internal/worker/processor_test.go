@@ -147,6 +147,38 @@ func TestHandleDeadTask_FailsOrderAndReleasesAccount(t *testing.T) {
 	}
 }
 
+// P1-5: опрос статуса исчерпал ретраи, но Suno «не готов» (ErrGenerationNotReady).
+// В окне ожидания заказ НЕ проваливается — опрос перезапускается с новым бюджетом.
+func TestHandleDeadTask_StalePoll_RequeuesInsteadOfFailing(t *testing.T) {
+	repo := newWOrderRepo()
+	acc := newWAccountRepo()
+	account, _ := domain.NewSunoAccount("a@b.c", "sess", 10)
+	_ = acc.Create(context.Background(), account)
+
+	order, _ := domain.NewOrder(1, "user@example.com", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
+	_ = order.MarkPaid() // paid_at = сейчас → в пределах pollMaxLifetime
+	_ = order.Enqueue()
+	_ = order.StartProcessing(account.ID())
+	repo.put(order)
+
+	q := &wQueue{}
+	uc := usecase.NewOrderUseCase(repo, acc, q, &wProvider{}, &wStorage{}, &wNotifier{}, &wLLM{}, usecase.NewNoopPromptUseCase(), 0, passthroughTx{}, discardLogger())
+	p := NewOrderProcessor(uc, discardLogger())
+
+	payload, _ := json.Marshal(queue.StatusCheckTaskPayload{OrderID: order.ID(), SunoJobID: "job-1"})
+	task := asynq.NewTask(queue.TaskTypeCheckStatus, payload)
+
+	p.HandleDeadTask(context.Background(), task, errors.Join(errors.New("истекли ретраи"), usecase.ErrGenerationNotReady))
+
+	got, _ := repo.GetByID(context.Background(), order.ID())
+	if got.GenerationStatus() != domain.GenerationStatusProcessing {
+		t.Errorf("живой заказ не должен падать в failed при ErrGenerationNotReady, получили %q", got.GenerationStatus())
+	}
+	if len(q.statusJobs) != 1 || q.statusJobs[0] != "job-1" {
+		t.Errorf("ожидали перезапуск опроса с job-1, получили %v", q.statusJobs)
+	}
+}
+
 func TestOrderIDFromTask_InvalidJSONStatusCheck(t *testing.T) {
 	task := asynq.NewTask(queue.TaskTypeCheckStatus, []byte("{invalid json"))
 	id, ok := orderIDFromTask(task)

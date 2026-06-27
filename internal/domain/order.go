@@ -158,6 +158,11 @@ type Order struct {
 	// demoAccountID — аккаунт, чей слот захвачен под текущее демо (processing).
 	// Отдельно от assignedAccountID платного потока. nil вне processing.
 	demoAccountID *uuid.UUID
+	// demoClips — ПОЛНЫЕ клипы демо-задачи (обычно 2), сохранённые для
+	// переиспользования: после оплаты они становятся версиями 1–2 заказа, а
+	// платный поток догенерирует только недостающие. Лежат отдельно от tracks,
+	// поэтому до завершения заказа в выдачу API не попадают.
+	demoClips []Track
 }
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
@@ -252,6 +257,7 @@ type OrderSnapshot struct {
 	DemoStatus            DemoStatus
 	DemoURL               string
 	DemoAccountID         *uuid.UUID
+	DemoClips             []Track
 }
 
 // RestoreOrder восстанавливает агрегат из снапшота хранилища.
@@ -276,6 +282,7 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		referralCode:          s.ReferralCode,
 		createdAt:             s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 		demoStatus: normalizeDemoStatus(s.DemoStatus), demoURL: s.DemoURL, demoAccountID: s.DemoAccountID,
+		demoClips: s.DemoClips,
 	}
 }
 
@@ -324,6 +331,7 @@ func (o *Order) PaidAt() *time.Time                 { return o.paidAt }
 func (o *Order) DemoStatus() DemoStatus             { return o.demoStatus }
 func (o *Order) DemoURL() string                    { return o.demoURL }
 func (o *Order) DemoAccountID() *uuid.UUID          { return o.demoAccountID }
+func (o *Order) DemoClips() []Track                 { return o.demoClips }
 
 // SameCustomer сообщает, что два заказа принадлежат одному клиенту (один email
 // или один телефон). Используется для доступа к «соседним» заказам по любому
@@ -459,6 +467,11 @@ func (o *Order) UpdateGenerationProgress(phase GenerationPhase, progress, tracks
 	if tracksReady > DefaultTrackCount {
 		tracksReady = DefaultTrackCount
 	}
+	// Heartbeat: каждый опрос статуса — признак живой генерации. Обновляем updated_at,
+	// чтобы recovery-крон (ListStuckProcessing по updated_at) не счёл активно
+	// опрашиваемый заказ «застрявшим» и не запустил вторую генерацию. Делаем это до
+	// early-return ниже: даже устаревший (меньший) прогресс означает, что воркер жив.
+	o.touch()
 	if progress < o.generationProgress && phase == o.generationPhase {
 		return
 	}
@@ -485,7 +498,15 @@ func (o *Order) StartProcessing(accountID uuid.UUID) error {
 	return nil
 }
 
-// Complete фиксирует успешное получение всех треков от Suno.
+// Complete фиксирует получение треков от Suno и завершает заказ.
+//
+// Допускается частичная поставка (1..DefaultTrackCount треков), а не строго 4.
+// Причина: провайдер возвращает статус Completed только когда ВСЕ его задачи
+// терминальны (см. адаптер), поэтому «меньше 4» означает, что одна из задач
+// окончательно упала — догенерации уже не будет, повторный опрос провально
+// бесполезен. Отдать клиенту 2–3 реальные песни лучше, чем провалить заказ и
+// потерять успешно оплаченные клипы; недопоставка логируется (WARN) на стороне
+// use-case для ручного разбора/частичного возврата. Пустой список запрещён.
 func (o *Order) Complete(tracks []Track) error {
 	if o.generationStatus != GenerationStatusProcessing {
 		return ErrInvalidGenerationTransition
@@ -628,6 +649,7 @@ func (o *Order) Snapshot() OrderSnapshot {
 		DemoStatus:            o.demoStatus,
 		DemoURL:               o.demoURL,
 		DemoAccountID:         o.demoAccountID,
+		DemoClips:             o.demoClips,
 	}
 }
 
@@ -650,12 +672,16 @@ func (o *Order) StartDemo(accountID uuid.UUID) error {
 }
 
 // CompleteDemo фиксирует готовое демо и снимает привязку к аккаунту (слот освобождён).
-func (o *Order) CompleteDemo(url string) error {
+// clips — полные клипы демо-задачи: сохраняются, чтобы после оплаты стать версиями
+// 1–2 заказа (демо = ровно та песня, что слушал клиент). Может быть пустым, если
+// сохранить полные клипы не удалось — тогда платный поток сгенерирует все версии.
+func (o *Order) CompleteDemo(url string, clips []Track) error {
 	if url == "" {
 		return errors.New("demo url не может быть пустым")
 	}
 	o.demoStatus = DemoStatusReady
 	o.demoURL = url
+	o.demoClips = clips
 	o.demoAccountID = nil
 	o.touch()
 	return nil

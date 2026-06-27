@@ -251,11 +251,14 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			respondError(w, r, http.StatusInternalServerError, "не удалось активировать заказ")
 			return
 		}
+		// HandlePaymentSuccess работает с собственной копией заказа, поэтому локальный
+		// агрегат `order` хранит устаревший generation_status. Бесплатный заказ после
+		// активации переходит в queued — возвращаем актуальное значение, а не stale.
 		respondJSON(w, http.StatusCreated, OrderResponse{
 			ID:               order.ID().String(),
 			InvoiceID:        order.InvoiceID(),
 			PaymentStatus:    string(domain.PaymentStatusPaid),
-			GenerationStatus: string(order.GenerationStatus()),
+			GenerationStatus: string(domain.GenerationStatusQueued),
 			AmountKopecks:    0,
 			PaymentURL:       "",
 			AccessToken:      order.AccessToken(),
@@ -274,6 +277,16 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		PaymentURL:       paymentURL,
 		AccessToken:      order.AccessToken(),
 	})
+}
+
+// markWebhookSeen помечает InvId как обработанный (быстрый replay-намёк). Источник
+// истины всё равно payment_status в БД, поэтому потеря нонса при сбросе Redis
+// безопасна. No-op без Redis.
+func (h *OrderHandler) markWebhookSeen(ctx context.Context, invIdStr string) {
+	if h.rdb == nil {
+		return
+	}
+	h.rdb.Set(ctx, fmt.Sprintf("webhook:seen:%s", invIdStr), 1, 73*time.Hour) //nolint:errcheck
 }
 
 func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Request) {
@@ -303,35 +316,34 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Защита от replay-атак: подпись валидна, но запрос уже обработан.
-	// Первый барьер — Redis-нонс (быстро). Проверяем ПОСЛЕ подписи, чтобы
-	// не давать timing-оракул для перебора. Второй барьер — DB-статус заказа:
-	// если Redis был перезапущен и нонс исчез, payment_status=paid в БД
-	// гарантирует идемпотентность без лишней обработки.
-	if h.rdb != nil {
-		nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
-		exists, _ := h.rdb.Exists(r.Context(), nonceKey).Result()
-		if exists > 0 {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
-			return
-		}
+	// Защита от replay-атак: подпись валидна, но запрос мог быть уже обработан.
+	// Источник истины — payment_status в БД, а не один лишь Redis-нонс: нонс мог
+	// проставиться по сбою/коллизии, а заказ остаться pending — слепое «OK» по
+	// нонсу тогда потеряло бы оплату. Поэтому грузим заказ и решаем по факту.
+	order, dbErr := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID)
+	switch {
+	case dbErr == nil && order.PaymentStatus() == domain.PaymentStatusPaid:
+		// Уже оплачен — фиксируем нонс и отвечаем OK без повторной обработки.
+		h.markWebhookSeen(r.Context(), invIdStr)
+		h.log.Info("вебхук: заказ уже оплачен (replay)", "invoice_id", invoiceID)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
+		return
+	case errors.Is(dbErr, domain.ErrOrderNotFound):
+		// Подпись валидна, но заказа нет — обрабатывать нечего. Отвечаем OK, чтобы
+		// Robokassa не уходила в бесконечные ретраи на заведомо неактивируемый InvId.
+		h.log.Warn("вебхук: заказ по InvId не найден", "invoice_id", invIdStr)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
+		return
+	case dbErr != nil:
+		// Транзиентная ошибка БД: НЕ отвечаем OK (иначе потеряем платёж — Robokassa
+		// перестанет ретраить). Возвращаем 500, доставка повторится.
+		h.log.Error("вебхук: ошибка загрузки заказа по InvId", "invoice_id", invIdStr, "err", dbErr)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
 	}
-	// Второй барьер: если Redis пуст (перезапуск, первый запрос), проверяем
-	// оплату по БД — это безопаснее, чем доверять только нонсу.
-	if order, dbErr := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID); dbErr == nil {
-		if order.PaymentStatus() == domain.PaymentStatusPaid {
-			// Уже оплачен — ответ OK, не дублируем обработку.
-			if h.rdb != nil {
-				nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
-				h.rdb.Set(r.Context(), nonceKey, 1, 73*time.Hour) //nolint:errcheck
-			}
-			h.log.Info("вебхук: заказ уже оплачен (replay после Redis-сброса)", "invoice_id", invoiceID)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
-			return
-		}
-	}
+	// Заказ найден и ещё pending — активируем (HandlePaymentSuccess идемпотентен).
 
 	paidKopecks, err := robokassa.ParseAmountKopecks(outSum)
 	if err != nil {
@@ -356,11 +368,9 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Фиксируем нонс: повторный вебхук с тем же InvId будет отклонён быстро.
-	if h.rdb != nil {
-		nonceKey := fmt.Sprintf("webhook:seen:%s", invIdStr)
-		h.rdb.Set(r.Context(), nonceKey, 1, 73*time.Hour) //nolint:errcheck
-	}
+	// Фиксируем нонс: повторный вебхук с тем же InvId обработается через быстрый
+	// paid-барьер выше.
+	h.markWebhookSeen(r.Context(), invIdStr)
 
 	// Robokassa требует строгий формат ответа при успехе.
 	h.log.Info("вебхук robokassa обработан", "invoice_id", invoiceID, "out_sum", outSum)

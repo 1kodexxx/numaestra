@@ -96,17 +96,49 @@ describe('usePollOrderStatus', () => {
     expect(orderApi.getById).toHaveBeenCalledTimes(1)
   })
 
-  it('сохраняет ошибку и прекращает поллинг при сбое запроса', async () => {
+  it('при транзиентной ошибке НЕ прекращает поллинг и пробует публичный статус', async () => {
     orderStorage.saveOrder('order-1', 'tok-abc')
-    vi.mocked(orderApi.getById).mockRejectedValue(new Error('заказ не найден'))
+    vi.mocked(orderApi.getById).mockRejectedValue(new Error('network'))
+    vi.mocked(orderApi.getPublicStatus).mockRejectedValue(new Error('network'))
 
     const { result } = renderHook(() => usePollOrderStatus('order-1'))
 
-    await vi.waitFor(() => expect(result.current.error).toBe('заказ не найден'))
+    await vi.waitFor(() => expect(result.current.error).toBeTruthy())
+    expect(result.current.order).toBeNull()
+    // транзиентный сбой приватного запроса → фоллбэк на публичный статус
+    expect(orderApi.getPublicStatus).toHaveBeenCalledWith('order-1')
+
+    // опрос продолжается (не остановлен) — следующий тик снова дёргает API
+    const before = vi.mocked(orderApi.getById).mock.calls.length
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(vi.mocked(orderApi.getById).mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('останавливает поллинг и показывает «заказ не найден» при 404', async () => {
+    orderStorage.saveOrder('order-1', 'tok-abc')
+    vi.mocked(orderApi.getById).mockRejectedValue(new ApiError(404, 'not found'))
+    vi.mocked(orderApi.getPublicStatus).mockRejectedValue(new ApiError(404, 'not found'))
+
+    const { result } = renderHook(() => usePollOrderStatus('order-1'))
+
+    await vi.waitFor(() => expect(result.current.error).toBe('Заказ не найден'))
     expect(result.current.order).toBeNull()
 
     await vi.advanceTimersByTimeAsync(30_000)
+    // 404 терминальна — повторных приватных запросов нет
     expect(orderApi.getById).toHaveBeenCalledTimes(1)
+  })
+
+  it('при 403 на приватном запросе грузит публичный статус (без прав управления)', async () => {
+    orderStorage.saveOrder('order-1', 'tok-abc')
+    vi.mocked(orderApi.getById).mockRejectedValue(new ApiError(403, 'forbidden'))
+    vi.mocked(orderApi.getPublicStatus).mockResolvedValue(order('processing'))
+
+    const { result } = renderHook(() => usePollOrderStatus('order-1'))
+
+    await vi.waitFor(() => expect(result.current.order?.generation_status).toBe('processing'))
+    expect(result.current.canManage).toBe(false)
+    expect(orderApi.getPublicStatus).toHaveBeenCalledWith('order-1')
   })
 
   it('без токена запрашивает публичный статус по ID', async () => {

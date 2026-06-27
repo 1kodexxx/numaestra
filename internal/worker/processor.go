@@ -109,6 +109,23 @@ func (p *OrderProcessor) HandleDeadTask(ctx context.Context, t *asynq.Task, task
 		return
 	}
 
+	// Опрос статуса исчерпал ретраи, но Suno всё ещё «не готов» — это НЕ поломка:
+	// генерация может идти дольше окна ретраев (~20 мин). Перезапускаем опрос, пока
+	// заказ не перешагнул pollMaxLifetime, иначе проваливаем как обычно. Без этого
+	// долгая, но живая генерация уходила бы в ложный failed.
+	if t.Type() == queue.TaskTypeCheckStatus && errors.Is(taskErr, usecase.ErrGenerationNotReady) {
+		var pl queue.StatusCheckTaskPayload
+		_ = json.Unmarshal(t.Payload(), &pl)
+		requeued, err := p.uc.RetryStalePoll(ctx, orderID, pl.SunoJobID)
+		if err != nil {
+			log.Error("не удалось перезапустить застрявший опрос статуса", "err", err)
+		}
+		if requeued {
+			return
+		}
+		log.Warn("опрос статуса исчерпал окно ожидания — переводим заказ в failed", "order_id", orderID)
+	}
+
 	reason := fmt.Sprintf("исчерпаны ретраи задачи %s: %v", t.Type(), taskErr)
 	log.Error("задача исчерпала ретраи, переводим заказ в failed", "task_err", taskErr)
 
