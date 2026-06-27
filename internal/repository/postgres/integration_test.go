@@ -366,6 +366,54 @@ func TestIntegration_FetchAndLock_RespectsConcurrencySlots(t *testing.T) {
 	}
 }
 
+// Конкурентное освобождение слотов одной строки не должно терять декременты.
+// Это прямой тест фикса гонки read-modify-write на concurrent_tasks: захватываем
+// 5 слотов, затем параллельно освобождаем их классическим GetByID→ReleaseSlot→
+// Update. При абсолютной записи снапшота два релиза затирали бы друг друга и
+// счётчик «застревал» бы выше нуля; атомарная дельта (col = col - 1) обязана
+// привести его ровно в 0.
+func TestIntegration_ConcurrentSlotRelease_NoCounterDrift(t *testing.T) {
+	pool := setup(t)
+	repo := NewAccountRepository(pool, testCipher)
+	ctx := context.Background()
+
+	const slots = 5
+	acc := mustAccount(t, pool, 100, slots)
+
+	for i := 0; i < slots; i++ {
+		if _, err := repo.FetchAndLockAvailable(ctx); err != nil {
+			t.Fatalf("захват слота %d: %v", i+1, err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, slots)
+	for i := 0; i < slots; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			a, err := repo.GetByID(ctx, acc.ID())
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			a.ReleaseSlot()
+			errs[idx] = repo.Update(ctx, a)
+		}(i)
+	}
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("параллельное освобождение %d: %v", i, e)
+		}
+	}
+
+	got, _ := repo.GetByID(ctx, acc.ID())
+	if got.ConcurrentTasks() != 0 {
+		t.Errorf("после %d параллельных освобождений ожидали concurrent_tasks=0, получили %d (дрейф счётчика)", slots, got.ConcurrentTasks())
+	}
+}
+
 // --- Unit of Work: атомарное сохранение заказа и аккаунта ---
 
 func TestIntegration_TxManager_CommitsBothAggregates(t *testing.T) {

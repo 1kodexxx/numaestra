@@ -67,6 +67,17 @@ type SunoAccount struct {
 	lastUsedAt    *time.Time
 	createdAt     time.Time
 	updatedAt     time.Time
+
+	// baseTokenBalance/baseFailureCount/baseConcurrentTasks — значения аддитивных
+	// счётчиков на момент загрузки/последнего сохранения. Репозиторий сохраняет эти
+	// колонки атомарной дельтой (col = col + (current - base)), а не абсолютной
+	// записью снапшота — иначе при max_concurrent_tasks ≥ 2 два потока,
+	// освобождающие слот одной строки одновременно, теряли бы один декремент
+	// (lost update) и счётчик дрейфовал бы. После каждого успешного сохранения
+	// репозиторий вызывает Rebaseline, чтобы база отражала уже записанное состояние.
+	baseTokenBalance    int
+	baseFailureCount    int
+	baseConcurrentTasks int
 }
 
 // NewSunoAccount создаёт новый аккаунт в пуле со статусом Active.
@@ -91,6 +102,11 @@ func NewSunoAccount(email, encryptedSession string, tokenBalance int) (*SunoAcco
 		maxConcurrentTasks: DefaultMaxConcurrentTasks,
 		createdAt:          now,
 		updatedAt:          now,
+		// База аддитивных счётчиков = их стартовые значения: дельта свежего
+		// аккаунта нулевая, пока его не мутируют (Create пишет абсолютные значения).
+		baseTokenBalance:    tokenBalance,
+		baseFailureCount:    0,
+		baseConcurrentTasks: 0,
 	}, nil
 }
 
@@ -119,6 +135,14 @@ type SunoAccountSnapshot struct {
 	LastUsedAt         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+
+	// Дельты аддитивных счётчиков относительно последней зафиксированной базы
+	// (current - base). Репозиторий применяет их атомарно (col = col + delta),
+	// чтобы конкурентные изменения одной строки не терялись. Для абсолютных
+	// записей (Create/захват слота) используются поля выше.
+	TokenBalanceDelta    int
+	FailureCountDelta    int
+	ConcurrentTasksDelta int
 }
 
 // RestoreSunoAccount восстанавливает агрегат из снапшота хранилища.
@@ -141,7 +165,21 @@ func RestoreSunoAccount(s SunoAccountSnapshot) *SunoAccount {
 		lastUsedAt:         s.LastUsedAt,
 		createdAt:          s.CreatedAt,
 		updatedAt:          s.UpdatedAt,
+		// База = загруженные значения: последующие мутации формируют дельту от них.
+		baseTokenBalance:    s.TokenBalance,
+		baseFailureCount:    s.FailureCount,
+		baseConcurrentTasks: s.ConcurrentTasks,
 	}
+}
+
+// Rebaseline переустанавливает базу аддитивных счётчиков в текущее состояние.
+// Вызывается репозиторием после успешного сохранения (Create/Update/захват слота),
+// чтобы следующая запись считала дельту от уже зафиксированного значения, а не
+// удваивала/теряла её. Доменной логикой не используется.
+func (a *SunoAccount) Rebaseline() {
+	a.baseTokenBalance = a.tokenBalance
+	a.baseFailureCount = a.failureCount
+	a.baseConcurrentTasks = a.concurrentTasks
 }
 
 // --- Геттеры ---
@@ -311,5 +349,9 @@ func (a *SunoAccount) Snapshot() SunoAccountSnapshot {
 		LastUsedAt:         a.lastUsedAt,
 		CreatedAt:          a.createdAt,
 		UpdatedAt:          a.updatedAt,
+
+		TokenBalanceDelta:    a.tokenBalance - a.baseTokenBalance,
+		FailureCountDelta:    a.failureCount - a.baseFailureCount,
+		ConcurrentTasksDelta: a.concurrentTasks - a.baseConcurrentTasks,
 	}
 }

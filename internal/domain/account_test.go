@@ -280,6 +280,77 @@ func TestRestoreSunoAccount_ZeroMaxConcurrent_DefaultsToOne(t *testing.T) {
 	}
 }
 
+// --- Атомарные дельты счётчиков (фикс гонки concurrent_tasks/token_balance) ---
+
+// Снапшот должен отдавать ИЗМЕНЕНИЕ счётчиков относительно загруженного состояния
+// (дельту), а не абсолют — репозиторий применит её атомарно (col = col + delta),
+// чтобы конкурентные релизы одной строки не теряли декремент.
+func TestSnapshot_CounterDeltas_RelativeToLoadedState(t *testing.T) {
+	snap := domain_sunoAccountSnap(3)
+	snap.TokenBalance = 5
+	snap.ConcurrentTasks = 2
+	snap.FailureCount = 1
+	a := RestoreSunoAccount(snap)
+
+	a.ReleaseSlot()        // 2 -> 1
+	_ = a.ConsumeTokens(1) // 5 -> 4
+	a.RegisterFailure(10)  // 1 -> 2
+
+	out := a.Snapshot()
+	if out.ConcurrentTasksDelta != -1 {
+		t.Errorf("ConcurrentTasksDelta: ожидали -1, получили %d", out.ConcurrentTasksDelta)
+	}
+	if out.TokenBalanceDelta != -1 {
+		t.Errorf("TokenBalanceDelta: ожидали -1, получили %d", out.TokenBalanceDelta)
+	}
+	if out.FailureCountDelta != 1 {
+		t.Errorf("FailureCountDelta: ожидали +1, получили %d", out.FailureCountDelta)
+	}
+	// Абсолюты тоже на месте (для Create/захвата слота).
+	if out.ConcurrentTasks != 1 || out.TokenBalance != 4 {
+		t.Errorf("абсолютные значения: ct=%d tb=%d", out.ConcurrentTasks, out.TokenBalance)
+	}
+}
+
+// Rebaseline переустанавливает базу: после неё дельты нулевые, а следующая мутация
+// формирует дельту заново — без удвоения уже зафиксированного изменения.
+func TestRebaseline_ResetsDeltas(t *testing.T) {
+	snap := domain_sunoAccountSnap(3)
+	snap.ConcurrentTasks = 2
+	a := RestoreSunoAccount(snap)
+
+	a.ReleaseSlot() // delta -1
+	a.Rebaseline()  // фиксируем -> база = текущее (1)
+	if d := a.Snapshot().ConcurrentTasksDelta; d != 0 {
+		t.Fatalf("после Rebaseline дельта должна обнулиться, получили %d", d)
+	}
+
+	a.ReleaseSlot() // 1 -> 0, новая дельта -1
+	if d := a.Snapshot().ConcurrentTasksDelta; d != -1 {
+		t.Errorf("после повторного релиза ожидали дельту -1, получили %d", d)
+	}
+}
+
+// Сценарий захвата-затем-освобождения (как FetchAndLockAvailable → Update): после
+// фиксации захвата (Rebaseline) последующее освобождение даёт дельту -1, корректно
+// отменяя +1. Без Rebaseline release дал бы дельту 0 и слот «утёк» бы навсегда.
+func TestAcquireRebaselineRelease_NetsToCorrectDelta(t *testing.T) {
+	snap := domain_sunoAccountSnap(3)
+	snap.ConcurrentTasks = 0
+	a := RestoreSunoAccount(snap)
+
+	_ = a.AcquireSlot(time.Now().UTC()) // 0 -> 1
+	if d := a.Snapshot().ConcurrentTasksDelta; d != 1 {
+		t.Fatalf("после захвата ожидали дельту +1, получили %d", d)
+	}
+	a.Rebaseline() // FetchAndLockAvailable зафиксировал захват абсолютно
+
+	a.ReleaseSlot() // 1 -> 0
+	if d := a.Snapshot().ConcurrentTasksDelta; d != -1 {
+		t.Errorf("освобождение после захвата должно дать дельту -1, получили %d", d)
+	}
+}
+
 func TestSunoAccount_CooldownUntil_Getter(t *testing.T) {
 	a := newTestAccount(t)
 	if a.CooldownUntil() != nil {

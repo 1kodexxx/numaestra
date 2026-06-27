@@ -113,6 +113,7 @@ func (r *AccountRepository) FetchAndLockAvailable(ctx context.Context) (*domain.
 		return nil, fmt.Errorf("domain acquire slot: %w", err)
 	}
 
+	// Захват слота пишем абсолютным значением — безопасно, т.к. строка под FOR UPDATE.
 	snapUpdate := account.Snapshot()
 	updateQuery := `UPDATE suno_accounts SET concurrent_tasks = $1, last_used_at = $2, updated_at = $3 WHERE id = $4`
 	_, err = tx.Exec(ctx, updateQuery, snapUpdate.ConcurrentTasks, snapUpdate.LastUsedAt, snapUpdate.UpdatedAt, snapUpdate.ID)
@@ -124,6 +125,10 @@ func (r *AccountRepository) FetchAndLockAvailable(ctx context.Context) (*domain.
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
+	// Захваченный слот уже зафиксирован в БД — переустанавливаем базу, чтобы
+	// последующее освобождение слота через Update посчитало дельту -1 от этого
+	// состояния (иначе release дал бы дельту 0 и слот «утёк» бы навсегда).
+	account.Rebaseline()
 	return account, nil
 }
 
@@ -166,23 +171,43 @@ func (r *AccountRepository) Create(ctx context.Context, account *domain.SunoAcco
 	if err != nil {
 		return fmt.Errorf("create suno account: %w", err)
 	}
+	// Абсолютные значения зафиксированы — база счётчиков совпадает с текущим
+	// состоянием (для корректной дельты при последующем Update этого же объекта).
+	account.Rebaseline()
 	return nil
 }
 
+// Update сохраняет изменения аккаунта. Аддитивные счётчики (token_balance,
+// failure_count, concurrent_tasks) пишутся АТОМАРНОЙ ДЕЛЬТОЙ (col = col + delta),
+// а не абсолютным значением снапшота: иначе при max_concurrent_tasks ≥ 2 два потока,
+// освобождающие слот одной строки одновременно, теряли бы один декремент (read-
+// modify-write lost update) и счётчик дрейфовал бы, отъедая ёмкость аккаунта.
+// GREATEST(...,0) страхует от ухода в минус. Остальные поля (status, cooldown,
+// max_concurrent_tasks) — абсолютные: для них last-writer-wins безопасен, а реальную
+// защиту от переиспользования исчерпанного аккаунта даёт фильтр token_balance > 0
+// в FetchAndLockAvailable. После успешной записи переустанавливаем базу счётчиков.
 func (r *AccountRepository) Update(ctx context.Context, account *domain.SunoAccount) error {
 	snap := account.Snapshot()
 	query := `
 		UPDATE suno_accounts
-		SET status = $1, token_balance = $2, failure_count = $3, max_concurrent_tasks = $4, concurrent_tasks = $5, cooldown_until = $6, last_used_at = $7, updated_at = $8
+		SET status = $1,
+		    token_balance = GREATEST(token_balance + $2, 0),
+		    failure_count = GREATEST(failure_count + $3, 0),
+		    max_concurrent_tasks = $4,
+		    concurrent_tasks = GREATEST(concurrent_tasks + $5, 0),
+		    cooldown_until = $6, last_used_at = $7, updated_at = $8
 		WHERE id = $9
 	`
-	cmd, err := r.conn(ctx).Exec(ctx, query, snap.Status, snap.TokenBalance, snap.FailureCount, snap.MaxConcurrentTasks, snap.ConcurrentTasks, snap.CooldownUntil, snap.LastUsedAt, snap.UpdatedAt, snap.ID)
+	cmd, err := r.conn(ctx).Exec(ctx, query, snap.Status, snap.TokenBalanceDelta, snap.FailureCountDelta, snap.MaxConcurrentTasks, snap.ConcurrentTasksDelta, snap.CooldownUntil, snap.LastUsedAt, snap.UpdatedAt, snap.ID)
 	if err != nil {
 		return fmt.Errorf("update suno account: %w", err)
 	}
 	if cmd.RowsAffected() == 0 {
 		return domain.ErrAccountNotFound
 	}
+	// База счётчиков теперь отражает записанное состояние — следующая запись этого же
+	// объекта посчитает дельту заново, а не удвоит уже применённую.
+	account.Rebaseline()
 	return nil
 }
 
