@@ -56,7 +56,7 @@ jobs:
           # VITE_YM_COUNTER_ID вшивается на сборке (frontend/.env в CI недоступен).
           # Берём из GitHub-переменной (Settings → Variables), иначе — дефолт.
           build-args: |
-            VITE_YM_COUNTER_ID=${{ vars.VITE_YM_COUNTER_ID || '110093108' }}
+            VITE_YM_COUNTER_ID=${{ vars.VITE_YM_COUNTER_ID || '110231053' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.short }}

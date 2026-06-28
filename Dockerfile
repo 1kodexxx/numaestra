@@ -15,7 +15,7 @@ COPY web/ ./web/
 # счётчика прокидываем build-аргументом. Дефолт = публичный ID (он и так виден в
 # JS сайта). Переопределить: build-arg VITE_YM_COUNTER_ID=... (cd.yml тянет из
 # GitHub-переменной VITE_YM_COUNTER_ID, если задана).
-ARG VITE_YM_COUNTER_ID=110093108
+ARG VITE_YM_COUNTER_ID=110231053
 ENV VITE_YM_COUNTER_ID=$VITE_YM_COUNTER_ID
 
 RUN cd frontend && npm run build

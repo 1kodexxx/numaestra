@@ -69,14 +69,21 @@ export function loadMetrika(): void {
 
   const s = document.createElement('script')
   s.async = true
-  s.src = 'https://mc.yandex.ru/metrika/tag.js'
+  s.src = 'https://mc.yandex.ru/metrika/tag.js?id=' + id
   document.head.appendChild(s)
 
+  // Опции из официального сниппета счётчика. ssr — HTML отдаётся серверным
+  // SEO-инжектором; ecommerce — хук на window.dataLayer для будущих e-commerce
+  // событий; webvisor/clickmap — запись сессий и карта кликов.
   w.ym(id, 'init', {
-    clickmap: true,
-    trackLinks: true,
-    accurateTrackBounce: true,
+    ssr: true,
     webvisor: true,
+    clickmap: true,
+    ecommerce: 'dataLayer',
+    referrer: document.referrer,
+    url: location.href,
+    accurateTrackBounce: true,
+    trackLinks: true,
   })
 }
 
