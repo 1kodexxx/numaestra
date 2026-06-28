@@ -31,7 +31,7 @@ func (h *SeoHandler) WithExamples(e exampleProvider) *SeoHandler {
 // legalSitemapSlugs — публичные юридические страницы /legal/{slug}, индексируемые
 // поисковиками. Должны соответствовать слагам в legalDocs (seo_inject.go) и
 // frontend/src/pages/legal/legalContent.ts.
-var legalSitemapSlugs = []string{"offer", "refund", "copyright", "privacy", "consent", "contacts"}
+var legalSitemapSlugs = []string{"offer", "refund", "copyright", "privacy", "consent", "contacts", "reviews"}
 
 func (h *SeoHandler) baseURL(r *http.Request) string {
 	scheme := "http"

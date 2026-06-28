@@ -145,6 +145,7 @@ export function Footer() {
               <FootLink to="/legal/consent">Согласие на обработку ПДн</FootLink>
               <FootLink to="/legal/refund">Политика возврата</FootLink>
               <FootLink to="/legal/copyright">Права на треки</FootLink>
+              <FootLink to="/legal/reviews">Правила отзывов</FootLink>
             </div>
             <div>
               <ColTitle>Контакты</ColTitle>
