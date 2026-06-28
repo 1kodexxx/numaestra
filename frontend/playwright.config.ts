@@ -13,6 +13,17 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
+    // Считаем согласие на cookie уже данным (как реальный юзер, нажавший «Принять»):
+    // иначе cookie-баннер у нижнего края перехватывал бы клики по нижнему UI в тестах.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: 'http://127.0.0.1:4173',
+          localStorage: [{ name: 'numaestra_analytics_consent', value: 'granted' }],
+        },
+      ],
+    },
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },

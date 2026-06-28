@@ -29,7 +29,9 @@ export function CookieConsent() {
         left: '12px',
         right: '12px',
         bottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
-        zIndex: 60,
+        // Ниже навбара (50) и оверлея/листа мобильного меню (48/49), чтобы не
+        // перекрывать навигацию: открытое меню оказывается поверх баннера.
+        zIndex: 47,
         maxWidth: '680px',
         margin: '0 auto',
         display: 'flex',
