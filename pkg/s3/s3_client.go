@@ -37,6 +37,11 @@ type Client struct {
 	bucket    string
 	accessKey string
 	secretKey string
+	// publicBase — префикс публичных ссылок на объекты (без ключа). По умолчанию
+	// "{endpoint}/{bucket}", но может быть переопределён на CDN-домен через
+	// WithPublicBaseURL. Загрузка/удаление при этом по-прежнему идут на endpoint
+	// (реальный S3-API) — CDN обслуживает только чтение.
+	publicBase string
 	// httpClient — для запросов к самому S3 (PUT). Сюда SSRF-фильтр НЕ применяется:
 	// S3-эндпоинт может быть приватным (например MinIO во внутренней сети).
 	httpClient *http.Client
@@ -47,15 +52,32 @@ type Client struct {
 
 // New создаёт S3-клиент. endpoint — базовый URL хранилища без имени бакета.
 func New(endpoint, region, bucket, accessKey, secretKey string) *Client {
+	endpoint = strings.TrimRight(endpoint, "/")
 	return &Client{
-		endpoint:       strings.TrimRight(endpoint, "/"),
+		endpoint:       endpoint,
 		region:         region,
 		bucket:         bucket,
 		accessKey:      accessKey,
 		secretKey:      secretKey,
+		publicBase:     endpoint + "/" + bucket,
 		httpClient:     &http.Client{Timeout: 120 * time.Second},
 		downloadClient: newGuardedHTTPClient(120 * time.Second),
 	}
+}
+
+// WithPublicBaseURL переопределяет базу публичных ссылок на CDN-домен. Пустая
+// строка оставляет базу по умолчанию ({endpoint}/{bucket}). Возвращает тот же
+// клиент для чейнинга. Чтения пойдут через CDN, загрузка/удаление — на S3-API.
+func (c *Client) WithPublicBaseURL(base string) *Client {
+	if b := strings.TrimRight(strings.TrimSpace(base), "/"); b != "" {
+		c.publicBase = b
+	}
+	return c
+}
+
+// objectURL строит публичную ссылку на объект по его ключу.
+func (c *Client) objectURL(key string) string {
+	return c.publicBase + "/" + key
 }
 
 // unsignedPayload — специальное значение x-amz-content-sha256, разрешённое S3
@@ -89,9 +111,8 @@ func (c *Client) UploadFromURL(ctx context.Context, sourceURL, key, contentType 
 		return "", fmt.Errorf("загрузка в S3 (key=%s): %w", key, err)
 	}
 
-	// 3. Формируем постоянную ссылку.
-	publicURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)
-	return publicURL, nil
+	// 3. Формируем постоянную ссылку (через CDN-базу, если задана).
+	return c.objectURL(key), nil
 }
 
 // Upload загружает уже готовые байты под ключом key и возвращает постоянную
@@ -101,7 +122,7 @@ func (c *Client) Upload(ctx context.Context, key, contentType string, data []byt
 	if err := c.put(ctx, key, contentType, "", bytes.NewReader(data), int64(len(data))); err != nil {
 		return "", fmt.Errorf("загрузка в S3 (key=%s): %w", key, err)
 	}
-	return fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key), nil
+	return c.objectURL(key), nil
 }
 
 // DeleteOrderTracks удаляет все MP3-объекты заказа (tracks/{id}/1..N.mp3).
@@ -127,14 +148,28 @@ func (c *Client) DeleteByURL(ctx context.Context, publicURL string) error {
 	return c.delete(ctx, key)
 }
 
-// keyFromURL извлекает ключ объекта из публичной ссылки вида
-// "{endpoint}/{bucket}/{key}". Возвращает ошибку, если URL не из нашего бакета.
+// keyFromURL извлекает ключ объекта из публичной ссылки. Понимает как текущую
+// базу публичных ссылок (CDN-домен), так и прямой S3-origin "{endpoint}/{bucket}" —
+// поэтому корректно работает и для старых ссылок (до подключения CDN), и для новых.
+// Возвращает ошибку, если URL не принадлежит ни одной из известных баз.
 func (c *Client) keyFromURL(publicURL string) (string, error) {
-	prefix := fmt.Sprintf("%s/%s/", c.endpoint, c.bucket)
-	if !strings.HasPrefix(publicURL, prefix) {
-		return "", fmt.Errorf("URL %q не принадлежит бакету %s", publicURL, c.bucket)
+	for _, base := range c.knownBases() {
+		prefix := base + "/"
+		if strings.HasPrefix(publicURL, prefix) {
+			return strings.TrimPrefix(publicURL, prefix), nil
+		}
 	}
-	return strings.TrimPrefix(publicURL, prefix), nil
+	return "", fmt.Errorf("URL %q не принадлежит ни одной известной базе хранилища", publicURL)
+}
+
+// knownBases возвращает базы, по которым мог быть построен публичный URL: текущая
+// (CDN или дефолтная) и прямой S3-origin. Дедуплицирует совпадающие.
+func (c *Client) knownBases() []string {
+	origin := c.endpoint + "/" + c.bucket
+	if c.publicBase == origin {
+		return []string{origin}
+	}
+	return []string{c.publicBase, origin}
 }
 
 // delete выполняет DELETE-запрос к S3 с AWS Signature V4 (пустое тело).

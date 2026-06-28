@@ -157,7 +157,8 @@ func run(ctx context.Context) error {
 	// llmClient := openai.NewClientWithBreaker(cfg.OpenAI.BaseURL, cfg.OpenAI.APIKey)
 	llmClient := openai.NewNoopClient()
 
-	s3Client := s3.NewResilientClient(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey)
+	s3Client := s3.NewResilientClient(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey).
+		WithPublicBaseURL(cfg.S3.PublicBaseURL)
 
 	// Notifier: SMTP если SMTP_HOST задан, иначе заглушка-логгер.
 	var notifier notify.Notifier

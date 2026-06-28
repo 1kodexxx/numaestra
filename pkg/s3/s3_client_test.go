@@ -222,3 +222,69 @@ func TestDeleteByURL_ForeignURLRejected(t *testing.T) {
 		t.Fatal("ожидали отказ для URL не из нашего бакета")
 	}
 }
+
+func TestUploadFromURL_PublicBaseURL_UsesCDNForLinkButS3ForPut(t *testing.T) {
+	var gotPut bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte("audio"))
+		case http.MethodPut:
+			gotPut = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret").
+		WithPublicBaseURL("https://cdn.example.com")
+	allowLoopbackDownloads(c)
+
+	publicURL, err := c.UploadFromURL(context.Background(), srv.URL+"/src.mp3", "tracks/o/1.mp3", "audio/mpeg")
+	if err != nil {
+		t.Fatalf("UploadFromURL: %v", err)
+	}
+	if publicURL != "https://cdn.example.com/tracks/o/1.mp3" {
+		t.Errorf("публичная ссылка должна вести на CDN, получили %q", publicURL)
+	}
+	if !gotPut {
+		t.Error("загрузка должна идти на S3-endpoint, а не на CDN")
+	}
+}
+
+func TestDeleteByURL_HandlesCDNAndS3Origin(t *testing.T) {
+	var deleted []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleted = append(deleted, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret").
+		WithPublicBaseURL("https://cdn.example.com")
+
+	// Новая ссылка (CDN-домен).
+	if err := c.DeleteByURL(context.Background(), "https://cdn.example.com/demos/o.mp3"); err != nil {
+		t.Fatalf("удаление по CDN-ссылке: %v", err)
+	}
+	// Старая ссылка (прямой S3-origin) — до подключения CDN.
+	if err := c.DeleteByURL(context.Background(), srv.URL+"/test-bucket/tracks/o/demo-x.mp3"); err != nil {
+		t.Fatalf("удаление по старой S3-ссылке: %v", err)
+	}
+
+	if len(deleted) != 2 {
+		t.Fatalf("ожидали 2 DELETE на S3-endpoint, получили %d: %v", len(deleted), deleted)
+	}
+	if deleted[0] != "/test-bucket/demos/o.mp3" {
+		t.Errorf("ключ из CDN-ссылки извлечён неверно: %s", deleted[0])
+	}
+	if deleted[1] != "/test-bucket/tracks/o/demo-x.mp3" {
+		t.Errorf("ключ из S3-ссылки извлечён неверно: %s", deleted[1])
+	}
+}

@@ -30,6 +30,13 @@ func NewResilientClient(endpoint, region, bucket, accessKey, secretKey string) *
 	}
 }
 
+// WithPublicBaseURL переопределяет базу публичных ссылок на CDN-домен (см.
+// Client.WithPublicBaseURL). Пустая строка оставляет дефолт. Чейнинг.
+func (r *ResilientClient) WithPublicBaseURL(base string) *ResilientClient {
+	r.inner.WithPublicBaseURL(base)
+	return r
+}
+
 const maxRetries = 3
 
 func (r *ResilientClient) UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (string, error) {

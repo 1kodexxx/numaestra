@@ -99,6 +99,12 @@ type S3Config struct {
 	Bucket    string
 	AccessKey string
 	SecretKey string
+	// PublicBaseURL — база публичных ссылок на объекты (CDN-домен). Загрузка/удаление
+	// всё равно идут на Endpoint (реальный S3-API; CDN не принимает PUT/DELETE).
+	// Пусто → ссылки строятся как {Endpoint}/{Bucket}/{key} (без CDN).
+	// Формат подбирается под маппинг CDN: если origin = бакет, то "https://cdn.example.com";
+	// если origin path-style, то "https://cdn.example.com/{bucket}".
+	PublicBaseURL string
 }
 
 type OpenAIConfig struct {
@@ -197,11 +203,12 @@ func Load() (*Config, error) {
 			Model:  getEnv("SUNO_MODEL", "chirp-v5-5"),
 		},
 		S3: S3Config{
-			Endpoint:  getEnv("S3_ENDPOINT", "https://s3.amazonaws.com"),
-			Region:    getEnv("S3_REGION", "us-east-1"),
-			Bucket:    getEnv("S3_BUCKET", "numaestra-tracks"),
-			AccessKey: getEnv("S3_ACCESS_KEY", ""),
-			SecretKey: getEnv("S3_SECRET_KEY", ""),
+			Endpoint:      getEnv("S3_ENDPOINT", "https://s3.amazonaws.com"),
+			Region:        getEnv("S3_REGION", "us-east-1"),
+			Bucket:        getEnv("S3_BUCKET", "numaestra-tracks"),
+			AccessKey:     getEnv("S3_ACCESS_KEY", ""),
+			SecretKey:     getEnv("S3_SECRET_KEY", ""),
+			PublicBaseURL: strings.TrimRight(getEnv("S3_PUBLIC_BASE_URL", ""), "/"),
 		},
 		OpenAI: OpenAIConfig{
 			BaseURL: getEnv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),
