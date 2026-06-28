@@ -211,7 +211,9 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	"font-src 'self' data: https://fonts.gstatic.com; " +
 	"img-src 'self' data: https:; " +
 	"media-src 'self' blob: https:; " +
-	"connect-src 'self' https:; " +
+	// https: покрывает хиты Метрики; wss-домены — для Вебвизора (запись сессий
+	// идёт по WebSocket на mc.yandex.com/ru, а https: схему wss: не покрывает).
+	"connect-src 'self' https: wss://mc.yandex.ru wss://mc.yandex.com; " +
 	"object-src 'none'; " +
 	"base-uri 'self'; " +
 	"form-action 'self'; " +
