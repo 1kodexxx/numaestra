@@ -27,6 +27,17 @@ const COOK_STAGES = [
   { icon: '✨', label: 'Ищем самый яркий момент' },
 ]
 
+/* Демо обычно готово за ~1.5 минуты. У демо нет серверного прогресса, поэтому
+ * процент — оценка по времени: экспоненциальный подход к потолку, который НИКОГДА
+ * не замирает (см. крип ниже). Это снимает ощущение «зависшей автоматики». */
+const DEMO_ESTIMATE_SEC = 90
+const DEMO_PCT_CAP = 96
+
+function estimateDemoPct(elapsedSec: number): number {
+  const tau = DEMO_ESTIMATE_SEC / 2.5
+  return Math.min(92, (1 - Math.exp(-elapsedSec / tau)) * 100)
+}
+
 /**
  * Премиальный демо-плеер в фирменном стиле. Показывает эффектный «процесс
  * приготовления» во время генерации и кастомный плеер-фрагмент, когда готово.
@@ -122,22 +133,59 @@ function DemoFailed() {
 /* ═══════════════ состояние: готовим демо ═══════════════ */
 function DemoCooking() {
   const [stage, setStage] = useState(0)
+  // Живой таймер: главное «успокаивающее» — пользователь видит, что секунды идут,
+  // страница жива и процесс не завис. Частая жалоба «походу завис» — именно из-за
+  // тишины без обратной связи во время ожидания Suno.
+  const [elapsed, setElapsed] = useState(0)
+  // Процент-«крип»: всегда ползёт вперёд (max из time-оценки и +0.4%/сек), никогда
+  // не уменьшается и не замирает — это второй независимый сигнал «процесс идёт».
+  const [pct, setPct] = useState(5)
+  const startRef = useRef(Date.now())
+
   useEffect(() => {
-    const t = setInterval(() => setStage((s) => (s + 1) % COOK_STAGES.length), 2200)
-    return () => clearInterval(t)
+    const stageTimer = setInterval(() => setStage((s) => (s + 1) % COOK_STAGES.length), 2600)
+    const tick = setInterval(() => {
+      const sec = Math.floor((Date.now() - startRef.current) / 1000)
+      setElapsed(sec)
+      setPct((prev) => Math.min(DEMO_PCT_CAP, Math.max(prev + 0.4, estimateDemoPct(sec))))
+    }, 1000)
+    return () => {
+      clearInterval(stageTimer)
+      clearInterval(tick)
+    }
   }, [])
 
   const cur = COOK_STAGES[stage]
+
+  // Эскалация ободрения: чем дольше ждём, тем сильнее подчёркиваем, что всё идёт
+  // штатно и страница обновится сама. Неизменное «пара минут» спустя 3–4 минуты
+  // только усиливает страх зависания — поэтому текст меняется со временем.
+  const reassure =
+    elapsed < 60
+      ? 'Обычно занимает пару минут'
+      : elapsed < 150
+        ? 'Уже скоро — нейросеть дорабатывает звук…'
+        : 'Иногда нужно несколько минут. Мы не зависли — демо появится здесь само, как только будет готово. Обновлять страницу не нужно 🙌'
 
   return (
     <Shell active>
       <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '18px' }}>
         <DemoBadge label="Готовим демо" pulse />
         <span style={{ fontSize: '13px', fontWeight: 700 }}>Колдуем над вашим фрагментом</span>
+        <span
+          aria-label="Идёт генерация"
+          style={{
+            marginLeft: 'auto', flexShrink: 0,
+            fontSize: '12px', fontWeight: 700, color: ACCENT,
+            fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {fmt(elapsed)}
+        </span>
       </div>
 
       {/* «живой» эквалайзер */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '5px', height: '64px', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: '5px', height: '64px', marginBottom: '18px' }}>
         {Array.from({ length: 13 }, (_, i) => (
           <span
             key={i}
@@ -156,22 +204,34 @@ function DemoCooking() {
         ))}
       </div>
 
-      {/* текущий этап */}
+      {/* текущий этап (слева) + процент (справа) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+        <span
+          key={stage}
+          className="fade-in"
+          style={{ fontSize: '13.5px', fontWeight: 600, color: '#fff', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          <span style={{ marginRight: '6px' }}>{cur.icon}</span>{cur.label}…
+        </span>
+        <span style={{ flexShrink: 0, fontSize: '18px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+          {Math.round(pct)}%
+        </span>
+      </div>
+
+      {/* детерминированный бар — всегда ползёт вперёд, никогда не замирает */}
+      <div style={{ height: '6px', borderRadius: 999, overflow: 'hidden', background: 'rgba(255,255,255,0.07)' }}>
+        <div
+          className="bar-flow"
+          style={{ height: '100%', width: `${pct}%`, borderRadius: 999, transition: 'width 0.9s cubic-bezier(0.22,1,0.36,1)' }}
+        />
+      </div>
+
       <div
-        key={stage}
+        key={reassure}
         className="fade-in"
-        style={{ textAlign: 'center', fontSize: '14px', fontWeight: 600, color: '#fff', marginBottom: '14px' }}
+        style={{ textAlign: 'center', fontSize: '12px', color: TEXT3, marginTop: '12px', minHeight: '34px', lineHeight: 1.5 }}
       >
-        <span style={{ marginRight: '7px' }}>{cur.icon}</span>{cur.label}…
-      </div>
-
-      {/* индетерминированная «текущая» полоса */}
-      <div style={{ height: '4px', borderRadius: '4px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)' }}>
-        <div className="bar-flow" style={{ height: '100%', width: '100%', borderRadius: '4px' }} />
-      </div>
-
-      <div style={{ textAlign: 'center', fontSize: '12px', color: TEXT3, marginTop: '12px' }}>
-        Выбираем самый яркий момент песни — обычно пара минут
+        {reassure}
       </div>
     </Shell>
   )
