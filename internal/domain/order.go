@@ -43,6 +43,7 @@ const (
 	DemoStatusProcessing DemoStatus = "processing" // демо генерируется
 	DemoStatusReady      DemoStatus = "ready"      // демо готово (demoURL заполнен)
 	DemoStatusFailed     DemoStatus = "failed"     // демо не удалось (можно повторить)
+	DemoStatusLimited    DemoStatus = "limited"    // демо не выдано из-за лимита (email/дневной/IP)
 )
 
 // GenerationPhase — детальная стадия пайплайна (для прогресс-бара на странице статуса).
@@ -691,6 +692,18 @@ func (o *Order) CompleteDemo(url string, clips []Track) error {
 // FailDemo помечает демо как неуспешное (можно повторить) и снимает привязку к аккаунту.
 func (o *Order) FailDemo() {
 	o.demoStatus = DemoStatusFailed
+	o.demoAccountID = nil
+	o.touch()
+}
+
+// MarkDemoLimited помечает, что бесплатное демо не выдано из-за лимита (на email,
+// дневного или на IP). Терминальный статус — фронт показывает понятное сообщение
+// вместо вечного «готовим демо». Не трогает уже идущее/готовое демо.
+func (o *Order) MarkDemoLimited() {
+	if o.demoStatus == DemoStatusProcessing || o.demoStatus == DemoStatusReady {
+		return
+	}
+	o.demoStatus = DemoStatusLimited
 	o.demoAccountID = nil
 	o.touch()
 }

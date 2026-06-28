@@ -45,8 +45,39 @@ export function DemoPlayer({ status, url, startedAt }: { status?: string; url?: 
   if (status === 'processing') return <DemoCooking startedAt={startedAt} />
   if (status === 'ready' && url) return <DemoReady url={url} />
   if (status === 'failed') return <DemoFailed />
+  if (status === 'limited') return <DemoLimited />
   if (status === 'none') return <DemoPending />
   return null
+}
+
+/* ═══════════════ состояние: лимит демо (limited) ═══════════════ */
+// Бесплатное демо не выдано из-за лимита (на email/дневного/IP). Раньше такой
+// заказ висел в «готовим демо» бесконечно — теперь показываем это явно, красным.
+function DemoLimited() {
+  return (
+    <div
+      className="fade-in"
+      role="status"
+      style={{
+        marginTop: '24px',
+        borderRadius: '20px',
+        padding: '18px 22px',
+        background: 'rgba(239,68,68,0.06)',
+        border: '1px solid rgba(239,68,68,0.28)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '6px' }}>
+        <span aria-hidden style={{ fontSize: '16px' }}>⚠️</span>
+        <span style={{ fontSize: '14px', fontWeight: 800, color: theme.error }}>
+          Бесплатное демо недоступно
+        </span>
+      </div>
+      <div style={{ fontSize: '13px', color: TEXT2, lineHeight: 1.55 }}>
+        Достигнут лимит бесплатных демо. Это не влияет на заказ — после оплаты вы получите{' '}
+        <b style={{ color: ACCENT }}>4 полные версии</b> песни без водяного знака.
+      </div>
+    </div>
+  )
 }
 
 /* ═══════════════ оболочка-панель в фирменном стиле ═══════════════ */

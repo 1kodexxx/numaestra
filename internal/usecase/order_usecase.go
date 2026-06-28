@@ -1170,6 +1170,13 @@ func (uc *OrderUseCase) TriggerDemo(ctx context.Context, orderID uuid.UUID, clie
 			uc.log.Warn("демо: ошибка проверки IP-лимита — пропускаем проверку", "order_id", orderID, "err", err)
 		} else if !allowed {
 			uc.log.Info("демо не запущено: превышен суточный лимит демо на IP", "order_id", orderID)
+			// Помечаем заказ limited, чтобы фронт показал сообщение, а не вечное «готовим».
+			if order, err := uc.orderRepo.GetByID(ctx, orderID); err == nil {
+				order.MarkDemoLimited()
+				if uerr := uc.orderRepo.UpdateDemo(ctx, order); uerr != nil {
+					uc.log.Warn("демо: не удалось пометить limited (IP)", "order_id", orderID, "err", uerr)
+				}
+			}
 			return nil
 		}
 	}
@@ -1224,6 +1231,12 @@ func (uc *OrderUseCase) GenerateDemo(ctx context.Context, orderID uuid.UUID) err
 		}
 		if !allowed {
 			uc.releaseDemoSlot(ctx, account)
+			// Помечаем заказ как limited — фронт покажет понятное сообщение вместо
+			// вечного «готовим демо».
+			order.MarkDemoLimited()
+			if uerr := uc.orderRepo.UpdateDemo(ctx, order); uerr != nil {
+				uc.log.Error("демо: не удалось пометить limited", "order_id", orderID, "err", uerr)
+			}
 			uc.log.Info("демо пропущено: достигнут лимит (дневной или на email)", "order_id", orderID)
 			return nil
 		}

@@ -21,7 +21,7 @@ export interface CreateOrderResponse {
   access_token: string
 }
 
-export type DemoStatus = 'none' | 'processing' | 'ready' | 'failed'
+export type DemoStatus = 'none' | 'processing' | 'ready' | 'failed' | 'limited'
 
 // Ответ GET /api/v1/orders/:id (детали)
 export interface OrderDetail {

@@ -248,6 +248,11 @@ func TestGenerateDemo_LimiterDenied_SkipsAndReleasesSlot(t *testing.T) {
 	if accNow.ConcurrentTasks() != 0 {
 		t.Errorf("слот должен быть освобождён, concurrent=%d", accNow.ConcurrentTasks())
 	}
+	// Заказ помечен limited — фронт покажет сообщение вместо вечного «готовим».
+	got, _ := f.orderRepo.GetByID(context.Background(), order.ID())
+	if got.DemoStatus() != domain.DemoStatusLimited {
+		t.Errorf("ожидали demo_status=limited, получили %q", got.DemoStatus())
+	}
 }
 
 // Лимитер разрешает → демо стартует как обычно.

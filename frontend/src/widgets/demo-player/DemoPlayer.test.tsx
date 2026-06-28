@@ -40,4 +40,12 @@ describe('DemoPlayer — состояние «готовим демо»', () => 
     expect(screen.queryByText('3%')).not.toBeInTheDocument()
     expect(screen.queryByText('0:00')).not.toBeInTheDocument()
   })
+
+  it('limited: показывает сообщение о лимите вместо вечного «готовим»', () => {
+    render(<DemoPlayer status="limited" />)
+    expect(screen.getByText('Бесплатное демо недоступно')).toBeInTheDocument()
+    expect(screen.getByText(/Достигнут лимит/)).toBeInTheDocument()
+    // Не показываем состояние «готовим».
+    expect(screen.queryByText(/Готовим бесплатное демо/)).not.toBeInTheDocument()
+  })
 })
