@@ -27,23 +27,22 @@ const COOK_STAGES = [
   { icon: '✨', label: 'Ищем самый яркий момент' },
 ]
 
-/* Демо обычно готово за ~1.5 минуты. У демо нет серверного прогресса, поэтому
- * процент — оценка по времени: экспоненциальный подход к потолку, который НИКОГДА
- * не замирает (см. крип ниже). Это снимает ощущение «зависшей автоматики». */
-const DEMO_ESTIMATE_SEC = 90
-const DEMO_PCT_CAP = 96
-
-function estimateDemoPct(elapsedSec: number): number {
-  const tau = DEMO_ESTIMATE_SEC / 2.5
-  return Math.min(92, (1 - Math.exp(-elapsedSec / tau)) * 100)
+/* Прогресс демо — ЧИСТАЯ функция прошедшего времени (от серверного старта демо):
+ * монотонно растёт, никогда не замирает и переживает перезагрузку страницы.
+ * Быстрый подъём к ~85% за ~2 мин, дальше медленный непрерывный добор к 99 —
+ * бар движется, даже если Suno тянет дольше, и не показывает 100% до готовности. */
+function demoPct(elapsedSec: number): number {
+  const fast = (1 - Math.exp(-elapsedSec / 50)) * 85
+  const slow = (1 - Math.exp(-elapsedSec / 600)) * 14
+  return Math.min(99, Math.max(3, fast + slow))
 }
 
 /**
  * Премиальный демо-плеер в фирменном стиле. Показывает эффектный «процесс
  * приготовления» во время генерации и кастомный плеер-фрагмент, когда готово.
  */
-export function DemoPlayer({ status, url }: { status?: string; url?: string }) {
-  if (status === 'processing') return <DemoCooking />
+export function DemoPlayer({ status, url, startedAt }: { status?: string; url?: string; startedAt?: string }) {
+  if (status === 'processing') return <DemoCooking startedAt={startedAt} />
   if (status === 'ready' && url) return <DemoReady url={url} />
   if (status === 'failed') return <DemoFailed />
   if (status === 'none') return <DemoPending />
@@ -131,30 +130,31 @@ function DemoFailed() {
 }
 
 /* ═══════════════ состояние: готовим демо ═══════════════ */
-function DemoCooking() {
+function DemoCooking({ startedAt }: { startedAt?: string }) {
   const [stage, setStage] = useState(0)
-  // Живой таймер: главное «успокаивающее» — пользователь видит, что секунды идут,
-  // страница жива и процесс не завис. Частая жалоба «походу завис» — именно из-за
-  // тишины без обратной связи во время ожидания Suno.
-  const [elapsed, setElapsed] = useState(0)
-  // Процент-«крип»: всегда ползёт вперёд (max из time-оценки и +0.4%/сек), никогда
-  // не уменьшается и не замирает — это второй независимый сигнал «процесс идёт».
-  const [pct, setPct] = useState(5)
-  const startRef = useRef(Date.now())
+  // Якорь старта — серверный момент (updated_at, пока заказ pending + демо processing
+  // = старт демо). Прогресс и таймер считаются ОТ него, поэтому переживают
+  // перезагрузку и верны, даже если страницу открыли уже в процессе. Фоллбэк на
+  // момент монтирования, если время не пришло.
+  const startRef = useRef<number>(startedAt ? new Date(startedAt).getTime() : Date.now())
+  const [elapsed, setElapsed] = useState(() =>
+    Math.max(0, Math.floor((Date.now() - startRef.current) / 1000)),
+  )
 
   useEffect(() => {
     const stageTimer = setInterval(() => setStage((s) => (s + 1) % COOK_STAGES.length), 2600)
-    const tick = setInterval(() => {
-      const sec = Math.floor((Date.now() - startRef.current) / 1000)
-      setElapsed(sec)
-      setPct((prev) => Math.min(DEMO_PCT_CAP, Math.max(prev + 0.4, estimateDemoPct(sec))))
-    }, 1000)
+    const tick = setInterval(
+      () => setElapsed(Math.max(0, Math.floor((Date.now() - startRef.current) / 1000))),
+      1000,
+    )
     return () => {
       clearInterval(stageTimer)
       clearInterval(tick)
     }
   }, [])
 
+  // Чистая функция времени: всегда растёт, не замирает, переживает reload.
+  const pct = demoPct(elapsed)
   const cur = COOK_STAGES[stage]
 
   // Эскалация ободрения: чем дольше ждём, тем сильнее подчёркиваем, что всё идёт

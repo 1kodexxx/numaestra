@@ -380,7 +380,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
         </div>
 
         {/* Бесплатное демо до оплаты: премиальный плеер + «приготовление». */}
-        {ps === 'pending' && <DemoPlayer status={order.demo_status} url={order.demo_url} />}
+        {ps === 'pending' && <DemoPlayer status={order.demo_status} url={order.demo_url} startedAt={order.updated_at} />}
 
         {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
         {ps === 'pending' && canManage && !awaitingPaymentConfirm && (

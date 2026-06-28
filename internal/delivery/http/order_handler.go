@@ -401,6 +401,10 @@ type OrderDetailResponse struct {
 	// DemoURL заполнен только при ready; фронт отдаёт его как стрим без скачивания.
 	DemoStatus string `json:"demo_status"`
 	DemoURL    string `json:"demo_url,omitempty"`
+	// UpdatedAt — RFC3339 момент последнего изменения заказа. Пока заказ pending и
+	// демо в processing, это момент старта демо — серверный якорь прогресса демо на
+	// фронте (переживает перезагрузку, в отличие от привязки к монтированию).
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
@@ -454,6 +458,7 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		ShareRevoked:       order.ShareRevoked(),
 		DemoStatus:         string(order.DemoStatus()),
 		DemoURL:            order.DemoURL(),
+		UpdatedAt:          order.UpdatedAt().Format(time.RFC3339),
 	})
 }
 
@@ -584,6 +589,8 @@ type PublicStatusResponse struct {
 	Tracks             []TrackResponse `json:"tracks,omitempty"`
 	DemoStatus         string          `json:"demo_status"`
 	DemoURL            string          `json:"demo_url,omitempty"`
+	// UpdatedAt — момент старта демо (пока pending+processing), якорь прогресса демо.
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 // GetPublicShare отдаёт минимальный публичный вид завершённого заказа — только
@@ -675,6 +682,7 @@ func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 		Tracks:             tracks,
 		DemoStatus:         string(order.DemoStatus()),
 		DemoURL:            order.DemoURL(),
+		UpdatedAt:          order.UpdatedAt().Format(time.RFC3339),
 	})
 }
 

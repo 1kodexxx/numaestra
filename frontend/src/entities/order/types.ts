@@ -39,6 +39,9 @@ export interface OrderDetail {
   // Демо-фрагмент (бесплатный, до оплаты). demo_url заполнен только при ready.
   demo_status?: DemoStatus
   demo_url?: string
+  // Момент последнего изменения (RFC3339). Пока pending+demo processing — это старт
+  // демо: серверный якорь прогресса демо, переживающий перезагрузку страницы.
+  updated_at?: string
 }
 
 // Элемент ответа GET /api/v1/orders/ (список заказов владельца по токену)
