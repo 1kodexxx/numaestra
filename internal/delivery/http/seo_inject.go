@@ -496,11 +496,11 @@ func breadcrumbJSONLD(items []crumb) string {
 // audioObjectJSONLD описывает аудио-пример (готовую песню) для поисковика.
 func audioObjectJSONLD(name, desc, contentURL, thumbnail string) string {
 	a := map[string]any{
-		"@context":    "https://schema.org",
-		"@type":       "AudioObject",
-		"name":        name,
-		"description": desc,
-		"contentUrl":  contentURL,
+		"@context":       "https://schema.org",
+		"@type":          "AudioObject",
+		"name":           name,
+		"description":    desc,
+		"contentUrl":     contentURL,
 		"encodingFormat": "audio/mpeg",
 	}
 	if thumbnail != "" {
