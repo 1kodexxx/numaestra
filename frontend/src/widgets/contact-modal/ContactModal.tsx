@@ -26,8 +26,16 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
   const [agree, setAgree] = useState(false)
   const [err, setErr] = useState('')
 
+  // Фокус на контейнер диалога — ТОЛЬКО при открытии (a11y/скринридер). Раньше
+  // это жило в эффекте с [loading, onClose], который перезапускался на каждый
+  // ре-рендер родителя (onClose — инлайн-функция). На мобиле повторный focus крал
+  // фокус у тапнутого инпута, и экранная клавиатура мгновенно закрывалась.
   useEffect(() => {
     trapRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape' && !loading) onClose()
     }
