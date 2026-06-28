@@ -1510,9 +1510,19 @@ func (uc *OrderUseCase) buildGenerationBriefs(_ context.Context, order *domain.O
 }
 
 func sunoInspirationBriefs(raw string) []string {
+	enc, ok := suno.DecodePrompt(raw)
+
+	// Клиент прислал готовый текст (Custom Mode): все версии поют ИМЕННО его, меняется
+	// только музыкальная интерпретация. Поэтому НЕ просим Suno писать другой текст —
+	// отправляем одни и те же слова дважды (2 задачи × 2 клипа = 4 версии одной песни).
+	if ok && enc.Lyrics != "" {
+		b := suno.EncodePromptWithLyrics(enc.Tags, "", enc.Lyrics)
+		return []string{b, b}
+	}
+
 	desc := raw
 	tags := ""
-	if enc, ok := suno.DecodePrompt(raw); ok {
+	if ok {
 		tags = enc.Tags
 		desc = enc.Description
 	}

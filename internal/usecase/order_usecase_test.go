@@ -193,6 +193,26 @@ func TestHandlePaymentSuccess_NotifiesAdmin(t *testing.T) {
 	}
 }
 
+func TestSunoInspirationBriefs_CustomLyrics_SameWordsNoVariantSuffix(t *testing.T) {
+	raw := suno.EncodePromptWithLyrics("rap, male vocals", "идея", "[Verse]\nмой текст\n[Chorus]\nприпев")
+	briefs := sunoInspirationBriefs(raw)
+	if len(briefs) != 2 {
+		t.Fatalf("ожидали 2 брифа (2 задачи × 2 клипа = 4 версии), получили %d", len(briefs))
+	}
+	if briefs[0] != briefs[1] {
+		t.Error("для готового текста все версии должны петь одни и те же слова")
+	}
+	for i, b := range briefs {
+		if strings.Contains(b, "VERSION 2") || strings.Contains(b, "different") {
+			t.Errorf("бриф %d не должен содержать суффикс «напиши другой текст»: %q", i, b)
+		}
+		in := suno.ResolveMusicInput(b, "", false)
+		if in.Lyrics == "" || in.Description != "" {
+			t.Errorf("бриф %d должен быть Custom Mode, получили Lyrics=%q Desc=%q", i, in.Lyrics, in.Description)
+		}
+	}
+}
+
 func TestHandlePaymentSuccess_AmountMismatch(t *testing.T) {
 	f := newFixture(t)
 	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)

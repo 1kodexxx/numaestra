@@ -134,6 +134,39 @@ func TestPromptUseCase_BuildFinalPrompt_DropsUnfilledOptionalPlaceholder(t *test
 	}
 }
 
+func TestPromptUseCase_BuildFinalPrompt_CustomLyricsGoToLyricsChannel(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("bday", "День рождения", "праздник", "", nil, "Song for [NAME]")
+	_ = repo.Create(context.Background(), cat)
+	uc := NewPromptUseCase(repo)
+
+	lyrics := "[Verse]\nМой текст\n[Chorus]\nПрипев"
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
+		"NAME":          "Иван",
+		"CUSTOM_LYRICS": lyrics,
+		"VOCAL":         "male vocals",
+	})
+	if err != nil {
+		t.Fatalf("BuildFinalPrompt: %v", err)
+	}
+	// Текст клиента должен уйти в отдельный канал, а не в описание Inspiration Mode.
+	enc, ok := suno.DecodePrompt(prompt)
+	if !ok {
+		t.Fatal("ожидали закодированный промпт")
+	}
+	if !strings.Contains(enc.Lyrics, "Мой текст") {
+		t.Errorf("CUSTOM_LYRICS должен попасть в Lyrics, получили: %q", enc.Lyrics)
+	}
+	if strings.Contains(enc.Description, "Мой текст") {
+		t.Error("текст клиента не должен дублироваться в описании")
+	}
+	// И итог должен резолвиться в Custom Mode.
+	in := suno.ResolveMusicInput(prompt, "", false)
+	if in.Lyrics == "" || in.Description != "" {
+		t.Errorf("ожидали Custom Mode, получили Lyrics=%q Description=%q", in.Lyrics, in.Description)
+	}
+}
+
 func TestPromptUseCase_BuildFinalPrompt_NoDuplicateCustomLyrics(t *testing.T) {
 	repo := newInMemCategoryRepo()
 	cat, _ := domain.NewCategory("bday", "День рождения", "праздник", "", nil,

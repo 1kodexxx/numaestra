@@ -8,6 +8,8 @@ import {
   extractCustomGenresFromAnswers,
   formatQuizDescription,
   stripUnfilledPlaceholders,
+  encodeSunoPrompt,
+  SUNO_LYRICS_MARKER,
   type GenreOption,
 } from "./sunoPrompt";
 
@@ -28,6 +30,37 @@ describe("sunoPrompt", () => {
   it("stripUnfilledPlaceholders не трогает полностью заполненный текст", () => {
     const filled = "Celebrating 5 years together. How they met: at university.";
     expect(stripUnfilledPlaceholders(filled)).toBe(filled);
+  });
+
+  it("encodeSunoPrompt кладёт готовый текст в отдельный канал #SUNO_LYRICS#", () => {
+    const out = encodeSunoPrompt(
+      "rap, male vocals",
+      "идея про город",
+      "[Verse]\nмой текст\n[Chorus]\nприпев",
+    );
+    expect(out).toContain(SUNO_LYRICS_MARKER);
+    expect(out).toContain("мой текст");
+    // Текст не должен дублироваться внутри описания старой строкой «Must-use lyrics».
+    expect(out).not.toContain("Must-use lyrics");
+  });
+
+  it("composeCatalogBrief отправляет customText как lyrics, не в описание", () => {
+    const brief = composeCatalogBrief(
+      {
+        occasion: "просто трек",
+        moods: [],
+        genres: ["modern pop"],
+        customGenres: [],
+        tempo: "Средний",
+        vocal: "Мужской",
+        details: "",
+        customText: "[Verse]\nГде-то под утро висим",
+      },
+      GENRES,
+    );
+    expect(brief).toContain(SUNO_LYRICS_MARKER);
+    expect(brief).toContain("Где-то под утро висим");
+    expect(brief).not.toContain("Must-use lyrics");
   });
 
   it("composeCatalogBrief кодирует tags и описание", () => {

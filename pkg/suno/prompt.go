@@ -7,26 +7,42 @@ import (
 )
 
 // Маркеры кодированного промпта (хранятся в suno_prompt и в brief конструктора).
+// Порядок секций фиксирован: TAGS → DESC → LYRICS.
 const (
-	TagsMarker = "#SUNO_TAGS#"
-	DescMarker = "#SUNO_DESC#"
+	TagsMarker   = "#SUNO_TAGS#"
+	DescMarker   = "#SUNO_DESC#"
+	LyricsMarker = "#SUNO_LYRICS#"
 )
 
 // Стандартные ключи квиза, значения которых уходят в Suno tags (англ.).
 // VOCAL первым — Suno сильнее учитывает начало tags.
 var styleAnswerKeys = []string{"VOCAL", "GENRE", "MOOD", "TEMPO"}
 
-// EncodedPrompt — разделение style tags и описания для Inspiration Mode Suno.
+// EncodedPrompt — разбор закодированного промпта на каналы Suno:
+//   - Tags — стиль/жанр (поле tags в обоих режимах);
+//   - Description — описание идеи для Inspiration Mode (Suno сам пишет текст);
+//   - Lyrics — готовый текст клиента для Custom Mode (Suno поёт его дословно).
+//
+// Lyrics и Description взаимоисключающи по смыслу: если клиент прислал свои слова,
+// генерация уходит в Custom Mode и описание не используется.
 type EncodedPrompt struct {
 	Tags        string
 	Description string
+	Lyrics      string
 }
 
-// EncodePrompt сериализует tags и description в одну строку для хранения в БД.
+// EncodePrompt сериализует tags и description (Inspiration Mode) для хранения в БД.
 func EncodePrompt(tags, description string) string {
+	return EncodePromptWithLyrics(tags, description, "")
+}
+
+// EncodePromptWithLyrics сериализует tags, описание и (опционально) готовый текст
+// клиента. Непустой lyrics добавляет секцию #SUNO_LYRICS# — сигнал Custom Mode.
+func EncodePromptWithLyrics(tags, description, lyrics string) string {
 	tags = strings.TrimSpace(tags)
 	description = strings.TrimSpace(description)
-	if tags == "" && description == "" {
+	lyrics = strings.TrimSpace(lyrics)
+	if tags == "" && description == "" && lyrics == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -36,9 +52,23 @@ func EncodePrompt(tags, description string) string {
 		b.WriteString(tags)
 		b.WriteString("\n")
 	}
-	b.WriteString(DescMarker)
+	// DescMarker пишем всегда, когда нет текста, — сохраняем формат старых промптов
+	// (даже с пустым описанием), чтобы DecodePrompt их распознавал как закодированные.
+	if lyrics == "" {
+		b.WriteString(DescMarker)
+		b.WriteString("\n")
+		b.WriteString(description)
+		return b.String()
+	}
+	if description != "" {
+		b.WriteString(DescMarker)
+		b.WriteString("\n")
+		b.WriteString(description)
+		b.WriteString("\n")
+	}
+	b.WriteString(LyricsMarker)
 	b.WriteString("\n")
-	b.WriteString(description)
+	b.WriteString(lyrics)
 	return b.String()
 }
 
@@ -48,27 +78,36 @@ func DecodePrompt(s string) (EncodedPrompt, bool) {
 	if s == "" {
 		return EncodedPrompt{}, false
 	}
-	if !strings.Contains(s, TagsMarker) && !strings.Contains(s, DescMarker) {
+	if !strings.Contains(s, TagsMarker) && !strings.Contains(s, DescMarker) && !strings.Contains(s, LyricsMarker) {
 		return EncodedPrompt{}, false
 	}
 
-	out := EncodedPrompt{}
-	rest := s
-	if i := strings.Index(rest, TagsMarker); i >= 0 {
-		rest = rest[i+len(TagsMarker):]
-		if j := strings.Index(rest, DescMarker); j >= 0 {
-			out.Tags = strings.TrimSpace(rest[:j])
-			out.Description = strings.TrimSpace(rest[j+len(DescMarker):])
-		} else {
-			out.Tags = strings.TrimSpace(rest)
-		}
-	} else if j := strings.Index(rest, DescMarker); j >= 0 {
-		out.Description = strings.TrimSpace(rest[j+len(DescMarker):])
+	out := EncodedPrompt{
+		Tags:        sectionBetween(s, TagsMarker, DescMarker, LyricsMarker),
+		Description: sectionBetween(s, DescMarker, LyricsMarker),
+		Lyrics:      sectionBetween(s, LyricsMarker),
 	}
-	if out.Description == "" && out.Tags == "" {
+	if out.Tags == "" && out.Description == "" && out.Lyrics == "" {
 		return EncodedPrompt{}, false
 	}
 	return out, true
+}
+
+// sectionBetween возвращает содержимое после маркера start до ближайшего из ends
+// (или до конца строки). Пустую строку — если start отсутствует.
+func sectionBetween(s, start string, ends ...string) string {
+	i := strings.Index(s, start)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(start):]
+	cut := len(rest)
+	for _, e := range ends {
+		if j := strings.Index(rest, e); j >= 0 && j < cut {
+			cut = j
+		}
+	}
+	return strings.TrimSpace(rest[:cut])
 }
 
 // ExtractTagsFromBrief возвращает tags из brief конструктора (#SUNO_TAGS#) или пустую строку.
@@ -282,9 +321,14 @@ func cleanSubstitutedTemplate(s string) string {
 }
 
 // ResolveMusicInput разбирает brief/промпт и возвращает поля для Suno API.
+//
+// Если клиент прислал готовый текст (#SUNO_LYRICS#) — уходим в Custom Mode: Suno
+// поёт ровно эти слова (поле prompt), стиль берётся из tags. Иначе Inspiration
+// Mode: описание идёт в gpt_description_prompt, и Suno сам пишет текст.
 func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInput {
 	tags := strings.TrimSpace(fallbackStyle)
 	text := brief
+	lyrics := ""
 	encoded := false
 
 	if enc, ok := DecodePrompt(brief); ok {
@@ -293,6 +337,7 @@ func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInpu
 			tags = enc.Tags
 		}
 		text = enc.Description
+		lyrics = enc.Lyrics
 	}
 
 	if !instrumental && IsInstrumentalFromTags(tags) {
@@ -300,10 +345,15 @@ func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInpu
 	}
 
 	in := MusicInput{Tags: tags, Instrumental: instrumental}
-	// Encoded промпт всегда Inspiration Mode — [Verse] в Must-use lyrics не переключает Custom Mode.
-	if encoded || !IsStructuredLyricsText(text) {
+	switch {
+	case lyrics != "":
+		// Custom Mode: точные слова клиента.
+		in.Lyrics = lyrics
+	case encoded || !IsStructuredLyricsText(text):
+		// Inspiration Mode: описание идеи, текст пишет Suno.
 		in.Description = text
-	} else {
+	default:
+		// Legacy: свободный текст со структурой [Verse]/[Chorus] без маркеров.
 		in.Lyrics = text
 	}
 	return in

@@ -119,8 +119,12 @@ func (uc *PromptUseCase) BuildFinalPrompt(ctx context.Context, categoryID string
 	if vocal := strings.TrimSpace(userAnswers["VOCAL"]); vocal != "" && !instrumental {
 		description += suno.VocalRequirementLine(vocal)
 	}
-	if lyrics := strings.TrimSpace(userAnswers["CUSTOM_LYRICS"]); lyrics != "" {
-		description += "\n\nMust-use lyrics (include verbatim where possible):\n" + lyrics
+	// Готовый текст клиента (CUSTOM_LYRICS) уходит в ОТДЕЛЬНЫЙ канал #SUNO_LYRICS#:
+	// тогда генерация переключится в Custom Mode и Suno споёт ровно эти слова, а не
+	// напишет свои по описанию. Без вокала (instrumental) текст игнорируем.
+	lyrics := strings.TrimSpace(userAnswers["CUSTOM_LYRICS"])
+	if instrumental {
+		lyrics = ""
 	}
-	return suno.EncodePrompt(tags, description), nil
+	return suno.EncodePromptWithLyrics(tags, description, lyrics), nil
 }

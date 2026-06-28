@@ -41,6 +41,52 @@ func TestStripUnfilledPlaceholders(t *testing.T) {
 	}
 }
 
+func TestEncodePromptWithLyrics_RoundTrip(t *testing.T) {
+	raw := EncodePromptWithLyrics("rap, male vocals", "Андеграунд про город", "[Verse]\nГде-то под утро висим\n[Chorus]\nСтарается моя Россия")
+	enc, ok := DecodePrompt(raw)
+	if !ok {
+		t.Fatal("ожидали декодирование")
+	}
+	if enc.Tags != "rap, male vocals" {
+		t.Errorf("tags: %q", enc.Tags)
+	}
+	if enc.Description != "Андеграунд про город" {
+		t.Errorf("description: %q", enc.Description)
+	}
+	if !strings.Contains(enc.Lyrics, "Старается моя Россия") || !strings.Contains(enc.Lyrics, "[Verse]") {
+		t.Errorf("lyrics не извлечены целиком: %q", enc.Lyrics)
+	}
+}
+
+func TestResolveMusicInput_CustomModeOnLyrics(t *testing.T) {
+	raw := EncodePromptWithLyrics("rap, russian lyrics", "описание", "[Verse]\nмой текст\n[Chorus]\nприпев")
+	in := ResolveMusicInput(raw, "", false)
+	if in.Lyrics == "" {
+		t.Fatal("ожидали Custom Mode: текст клиента в Lyrics")
+	}
+	if in.Description != "" {
+		t.Errorf("в Custom Mode описание не должно отправляться, получили: %q", in.Description)
+	}
+	if in.Tags != "rap, russian lyrics" {
+		t.Errorf("tags должны сохраниться как стиль: %q", in.Tags)
+	}
+	if !strings.Contains(in.Lyrics, "мой текст") {
+		t.Errorf("в Lyrics должен быть текст клиента дословно: %q", in.Lyrics)
+	}
+}
+
+func TestResolveMusicInput_InspirationWhenNoLyrics(t *testing.T) {
+	// Обратная совместимость: закодированный промпт без #SUNO_LYRICS# → Inspiration Mode.
+	raw := EncodePrompt("pop", "Write a song about spring")
+	in := ResolveMusicInput(raw, "", false)
+	if in.Lyrics != "" {
+		t.Errorf("без текста клиента Lyrics должен быть пустым, получили: %q", in.Lyrics)
+	}
+	if in.Description == "" {
+		t.Error("ожидали Inspiration Mode: описание в Description")
+	}
+}
+
 func TestEncodeDecodePrompt_RoundTrip(t *testing.T) {
 	raw := EncodePrompt("modern pop, male vocals", "Write a Russian love song about Ivan and Maria.")
 	got, ok := DecodePrompt(raw)

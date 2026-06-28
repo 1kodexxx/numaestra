@@ -2,6 +2,7 @@
 
 export const SUNO_TAGS_MARKER = "#SUNO_TAGS#";
 export const SUNO_DESC_MARKER = "#SUNO_DESC#";
+export const SUNO_LYRICS_MARKER = "#SUNO_LYRICS#";
 
 export interface GenreOption {
   label: string;
@@ -138,13 +139,8 @@ export function buildCatalogDescription(form: CatalogPromptForm): string {
   for (const g of form.customGenres) {
     lines.push(`- Preferred genre style: ${g}`);
   }
-  if (form.customText.trim()) {
-    lines.push(
-      "",
-      "Must-use lyrics (include verbatim where possible):",
-      form.customText.trim(),
-    );
-  }
+  // form.customText (готовый текст клиента) больше НЕ вшивается в описание —
+  // он уходит в отдельный канал #SUNO_LYRICS# (Custom Mode), см. composeCatalogBrief.
   if (form.vocal && !instrumental) {
     lines.push(vocalRequirementLine(VOCAL_SUNO[form.vocal] ?? form.vocal));
   }
@@ -158,13 +154,25 @@ export function buildCatalogDescription(form: CatalogPromptForm): string {
   return lines.join("\n");
 }
 
-export function encodeSunoPrompt(tags: string, description: string): string {
+export function encodeSunoPrompt(
+  tags: string,
+  description: string,
+  lyrics = "",
+): string {
   const t = tags.trim();
   const d = description.trim();
-  if (!t && !d) return "";
+  const l = lyrics.trim();
+  if (!t && !d && !l) return "";
   let out = "";
   if (t) out += `${SUNO_TAGS_MARKER} ${t}\n`;
-  out += `${SUNO_DESC_MARKER}\n${d}`;
+  // Готовый текст клиента → Custom Mode (Suno поёт его дословно). Иначе — описание
+  // в Inspiration Mode (Suno пишет текст сам). Поведение зеркалит бэкенд (prompt.go).
+  if (l) {
+    if (d) out += `${SUNO_DESC_MARKER}\n${d}\n`;
+    out += `${SUNO_LYRICS_MARKER}\n${l}`;
+  } else {
+    out += `${SUNO_DESC_MARKER}\n${d}`;
+  }
   return out;
 }
 
@@ -172,9 +180,13 @@ export function composeCatalogBrief(
   form: CatalogPromptForm,
   genreOptions: GenreOption[],
 ): string {
+  // Без вокала текст игнорируем (instrumental).
+  const instrumental = isInstrumentalVocal(form.vocal);
+  const lyrics = instrumental ? "" : form.customText.trim();
   return encodeSunoPrompt(
     buildCatalogStyleTags(form, genreOptions),
     buildCatalogDescription(form),
+    lyrics,
   );
 }
 
@@ -318,12 +330,6 @@ export function formatQuizDescription(
   return lines.join("\n");
 }
 
-function appendCustomLyrics(description: string, customText: string): string {
-  const lyrics = customText.trim();
-  if (!lyrics) return description;
-  return `${description}\n\nMust-use lyrics (include verbatim where possible):\n${lyrics}`;
-}
-
 /** Итоговый промпт категории — тот же формат, что BuildFinalPrompt на бэкенде. */
 export function composeCategoryBrief(
   categoryTitle: string,
@@ -352,6 +358,7 @@ export function composeCategoryBrief(
   if (answers.VOCAL?.trim() && !instrumental) {
     description += vocalRequirementLine(answers.VOCAL);
   }
-  description = appendCustomLyrics(description, customText);
-  return encodeSunoPrompt(tags, description);
+  // Готовый текст клиента → отдельный канал #SUNO_LYRICS# (Custom Mode), не в описание.
+  const lyrics = instrumental ? "" : customText.trim();
+  return encodeSunoPrompt(tags, description, lyrics);
 }
