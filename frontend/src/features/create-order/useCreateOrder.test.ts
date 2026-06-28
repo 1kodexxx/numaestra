@@ -18,7 +18,7 @@ const payload = {
   brief: 'Песня жене на юбилей',
   category_id: '',
   answers: {},
-  consent_doc_version: '2026-06-28',
+  consent_doc_version: '2026-06-29',
 }
 
 const response: CreateOrderResponse = {

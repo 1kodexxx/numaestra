@@ -6,7 +6,7 @@ const FALLBACK: PublicConfig = {
   price_label: '2 000 ₽',
   // Держите в синхроне с domain.CurrentConsentDocVersion: при сбое /public/config
   // фронт отправит эту версию, и она должна совпасть с серверной валидацией.
-  consent_doc_version: '2026-06-28',
+  consent_doc_version: '2026-06-29',
 }
 
 let cached: PublicConfig | null = null
