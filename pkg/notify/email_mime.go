@@ -31,22 +31,33 @@ func buildMIMEMessage(from, fromName, to, replyTo, subject, textBody, htmlBody s
 	writeHeader(&sb, "Content-Type", fmt.Sprintf(`multipart/alternative; boundary="%s"`, boundary))
 	sb.WriteString("\r\n")
 
-	sb.WriteString("--" + boundary + "\r\n")
+	writeBoundary(&sb, boundary, false)
 	sb.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
 	sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 	sb.WriteString("\r\n")
 	sb.WriteString(encodeQuotedPrintable(textBody))
 	sb.WriteString("\r\n")
 
-	sb.WriteString("--" + boundary + "\r\n")
+	writeBoundary(&sb, boundary, false)
 	sb.WriteString("Content-Type: text/html; charset=utf-8\r\n")
 	sb.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
 	sb.WriteString("\r\n")
 	sb.WriteString(encodeQuotedPrintable(htmlBody))
 	sb.WriteString("\r\n")
 
-	sb.WriteString("--" + boundary + "--\r\n")
+	writeBoundary(&sb, boundary, true)
 	return sb.String()
+}
+
+// writeBoundary пишет MIME-разделитель: открывающий (--boundary) или закрывающий
+// (--boundary--). Отдельными WriteString без конкатенации временной строки.
+func writeBoundary(sb *strings.Builder, boundary string, closing bool) {
+	sb.WriteString("--")
+	sb.WriteString(boundary)
+	if closing {
+		sb.WriteString("--")
+	}
+	sb.WriteString("\r\n")
 }
 
 func writeHeader(sb *strings.Builder, name, value string) {

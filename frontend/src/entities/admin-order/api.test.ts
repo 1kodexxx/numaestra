@@ -46,4 +46,12 @@ describe('adminOrderApi', () => {
     expect(url).toBe('/api/v1/admin/orders/order-uuid/refund')
     expect(init.method).toBe('POST')
   })
+
+  it('deleteDemo отправляет DELETE на /admin/orders/{id}/demo', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await adminOrderApi.deleteDemo('order-uuid')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/admin/orders/order-uuid/demo', expect.objectContaining({ method: 'DELETE' }))
+  })
 })

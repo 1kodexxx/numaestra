@@ -64,6 +64,13 @@ func (r *ResilientClient) DeleteOrderTracks(ctx context.Context, orderID uuid.UU
 	})
 }
 
+// DeleteByURL удаляет объект хранилища по его публичной ссылке.
+func (r *ResilientClient) DeleteByURL(ctx context.Context, publicURL string) error {
+	return r.breaker.Do(func() error {
+		return r.inner.DeleteByURL(ctx, publicURL)
+	})
+}
+
 // Upload загружает готовые байты под фиксированным ключом (идемпотентно),
 // поэтому retry безопасен — те же слои устойчивости, что и у UploadFromURL.
 func (r *ResilientClient) Upload(ctx context.Context, key, contentType string, data []byte) (string, error) {

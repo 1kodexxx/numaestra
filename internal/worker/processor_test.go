@@ -555,6 +555,7 @@ func (s *wStorage) Upload(_ context.Context, key, _ string, _ []byte) (string, e
 	return "https://s3/" + key, nil
 }
 func (s *wStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID) error { return nil }
+func (s *wStorage) DeleteByURL(_ context.Context, _ string) error          { return nil }
 
 var _ domain.TrackStorage = (*wStorage)(nil)
 
@@ -573,6 +574,10 @@ func (n *wNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailedNot
 }
 
 func (n *wNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
+	return nil
+}
+
+func (n *wNotifier) NotifyAdmin(_ context.Context, _ notify.AdminEventNotification) error {
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/numaestra/numaestra/internal/domain"
+	"github.com/numaestra/numaestra/pkg/notify"
 	"github.com/numaestra/numaestra/pkg/suno"
 )
 
@@ -168,6 +169,27 @@ func TestHandlePaymentSuccess_Success(t *testing.T) {
 	}
 	if len(f.queue.genCalls) != 1 {
 		t.Errorf("ожидали 1 постановку задачи генерации, получили %d", len(f.queue.genCalls))
+	}
+}
+
+func TestHandlePaymentSuccess_NotifiesAdmin(t *testing.T) {
+	f := newFixture(t)
+	f.notifier.adminCh = make(chan notify.AdminEventNotification, 8)
+	order, _ := f.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+
+	if err := f.uc.HandlePaymentSuccess(context.Background(), order.InvoiceID(), 150000); err != nil {
+		t.Fatalf("HandlePaymentSuccess упал: %v", err)
+	}
+
+	got := f.notifier.waitAdmin(t)
+	if got.Kind != notify.AdminEventPaidOrder {
+		t.Errorf("ожидали событие paid_order, получили %q", got.Kind)
+	}
+	if got.InvoiceID != order.InvoiceID() {
+		t.Errorf("invoice_id в письме=%d, ожидали %d", got.InvoiceID, order.InvoiceID())
+	}
+	if got.AmountKopecks != 150000 {
+		t.Errorf("сумма в письме=%d, ожидали 150000", got.AmountKopecks)
 	}
 }
 

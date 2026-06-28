@@ -89,6 +89,7 @@ func (h *AdminHandler) Routes() chi.Router {
 		r.Post("/{id}/confirm-payment", h.ConfirmOrderPayment)
 		r.Post("/{id}/feedback", h.SendOrderFeedback)
 		r.Post("/{id}/regenerate", h.RegenerateOrder)
+		r.Delete("/{id}/demo", h.DeleteOrderDemo)
 		r.Delete("/{id}", h.DeleteOrder)
 	})
 
@@ -200,6 +201,12 @@ type adminOrderResponse struct {
 	ConsentGivenAt    string          `json:"consent_given_at,omitempty"`
 	ConsentDocVersion string          `json:"consent_doc_version,omitempty"`
 	CreatedAt         string          `json:"created_at"`
+	// Демо-ассеты заказа для просмотра/скачивания/удаления из админки.
+	// DemoURL — витринное превью с водяным знаком; DemoClips — полные клипы
+	// (после оплаты переиспользуются как треки 1–2).
+	DemoStatus string          `json:"demo_status,omitempty"`
+	DemoURL    string          `json:"demo_url,omitempty"`
+	DemoClips  []adminTrackDTO `json:"demo_clips,omitempty"`
 }
 
 type adminTrackDTO struct {
@@ -212,6 +219,10 @@ func orderToAdminResponse(o *domain.Order) adminOrderResponse {
 	tracks := make([]adminTrackDTO, 0, len(snap.Tracks))
 	for _, t := range snap.Tracks {
 		tracks = append(tracks, adminTrackDTO{Index: t.Index, AudioURL: t.AudioURL})
+	}
+	demoClips := make([]adminTrackDTO, 0, len(snap.DemoClips))
+	for _, t := range snap.DemoClips {
+		demoClips = append(demoClips, adminTrackDTO{Index: t.Index, AudioURL: t.AudioURL})
 	}
 	resp := adminOrderResponse{
 		ID:                snap.ID.String(),
@@ -226,6 +237,9 @@ func orderToAdminResponse(o *domain.Order) adminOrderResponse {
 		AdminFeedback:     snap.AdminFeedback,
 		ConsentDocVersion: snap.ConsentDocVersion,
 		CreatedAt:         snap.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		DemoStatus:        string(snap.DemoStatus),
+		DemoURL:           snap.DemoURL,
+		DemoClips:         demoClips,
 	}
 	if snap.ConsentGivenAt != nil {
 		resp.ConsentGivenAt = snap.ConsentGivenAt.Format("2006-01-02T15:04:05Z")
@@ -447,6 +461,32 @@ func (h *AdminHandler) DeleteOrder(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Error("admin: ошибка удаления заказа", "order_id", id, "error", err)
 		respondError(w, r, http.StatusInternalServerError, "не удалось удалить заказ")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteOrderDemo удаляет демо-ассеты заказа (превью + полные клипы) из хранилища
+// и очищает демо-колонки. Запрещено для завершённых заказов (там клипы доставлены
+// клиенту как треки). DELETE /api/v1/admin/orders/{id}/demo
+func (h *AdminHandler) DeleteOrderDemo(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный UUID заказа")
+		return
+	}
+
+	if err := h.uc.DeleteOrderDemo(r.Context(), id); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrOrderNotFound):
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+		case errors.Is(err, domain.ErrDemoDeleteOnCompleted):
+			respondError(w, r, http.StatusConflict, err.Error())
+		default:
+			h.log.Error("admin: ошибка удаления демо", "order_id", id, "error", err)
+			respondError(w, r, http.StatusInternalServerError, "не удалось удалить демо")
+		}
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

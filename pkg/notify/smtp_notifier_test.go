@@ -37,7 +37,8 @@ func fakeSmtpServerWith(t *testing.T, overrides map[string]string) (addr string,
 				break
 			}
 		}
-		rw.WriteString(resp + "\r\n")
+		rw.WriteString(resp)
+		rw.WriteString("\r\n")
 		rw.Flush()
 	}
 
@@ -70,7 +71,8 @@ func fakeSmtpServerWith(t *testing.T, overrides map[string]string) (addr string,
 					received <- dataLines.String()
 					break
 				}
-				dataLines.WriteString(line + "\n")
+				dataLines.WriteString(line)
+				dataLines.WriteString("\n")
 				continue
 			}
 
@@ -358,6 +360,51 @@ func TestSmtpNotifier_NotifyAccessLink_EmptyEmail(t *testing.T) {
 	n := newTestNotifier()
 	if err := n.NotifyAccessLink(context.Background(), AccessLinkNotification{}); err != nil {
 		t.Fatalf("пустой email должен тихо пропускаться: %v", err)
+	}
+}
+
+func TestSmtpNotifier_NotifyAdmin_NoAdminEmail_NoSend(t *testing.T) {
+	n := newTestNotifier() // adminEmail не задан
+	if err := n.NotifyAdmin(context.Background(), AdminEventNotification{
+		Kind: AdminEventPaidOrder, InvoiceID: 42,
+	}); err != nil {
+		t.Fatalf("без ADMIN_NOTIFY_EMAIL отправка должна тихо пропускаться: %v", err)
+	}
+}
+
+func TestSmtpNotifier_BuildAdminEmail_PerKind(t *testing.T) {
+	n := newTestNotifier().WithAdminEmail("owner@test.com")
+	cases := []struct {
+		kind      AdminEventKind
+		wantInSub string
+	}{
+		{AdminEventPaidOrder, "оплата"},
+		{AdminEventDemoReady, "демо"},
+		{AdminEventGenerationFailed, "Ошибка"},
+	}
+	for _, tc := range cases {
+		subject, htmlBody, textBody := n.buildAdminEmail(AdminEventNotification{
+			Kind:          tc.kind,
+			OrderID:       "abc-123-def",
+			InvoiceID:     42,
+			CustomerEmail: "client@test.com",
+			AmountKopecks: 200000,
+			Brief:         "Песня для мамы",
+			FailureReason: "suno timeout",
+		})
+		if !strings.Contains(subject, tc.wantInSub) {
+			t.Errorf("kind %q: тема %q не содержит %q", tc.kind, subject, tc.wantInSub)
+		}
+		if htmlBody == "" || textBody == "" {
+			t.Errorf("kind %q: пустое тело письма", tc.kind)
+		}
+		if !strings.Contains(textBody, "client@test.com") {
+			t.Errorf("kind %q: в письме нет email клиента", tc.kind)
+		}
+		// Ссылка на админку должна вести на конкретный заказ.
+		if !strings.Contains(htmlBody, "/admin/orders/abc-123-def") {
+			t.Errorf("kind %q: нет ссылки на заказ в админке", tc.kind)
+		}
 	}
 }
 

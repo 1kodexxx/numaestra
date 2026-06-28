@@ -22,6 +22,7 @@ type SmtpNotifier struct {
 	fromName     string
 	replyTo      string
 	publicAppURL string // абсолютный URL сайта для ссылок в письмах
+	adminEmail   string // ADMIN_NOTIFY_EMAIL — куда слать админские события (пусто → не слать)
 	dialPlain    func(addr string) (*smtp.Client, error)
 }
 
@@ -43,6 +44,13 @@ func NewSmtpNotifier(host string, port int, user, password, from, fromName, repl
 		replyTo:      rt,
 		publicAppURL: strings.TrimRight(publicAppURL, "/"),
 	}
+}
+
+// WithAdminEmail включает админские уведомления (новая оплата, демо, провал
+// генерации) на указанный адрес. Пустая строка оставляет их выключенными.
+func (n *SmtpNotifier) WithAdminEmail(email string) *SmtpNotifier {
+	n.adminEmail = strings.TrimSpace(email)
+	return n
 }
 
 func (n *SmtpNotifier) NotifyOrderComplete(_ context.Context, notif OrderCompleteNotification) error {
@@ -86,6 +94,121 @@ func (n *SmtpNotifier) NotifyAccessLink(_ context.Context, notif AccessLinkNotif
 	htmlBody := n.buildAccessLinkBody(notif)
 	textBody := n.buildPlainAccessLinkBody(notif)
 	return n.send(notif.Email, subject, textBody, htmlBody)
+}
+
+// NotifyAdmin шлёт письмо администратору о событии заказа на ADMIN_NOTIFY_EMAIL.
+// Без настроенного адреса — молча выходит (не ошибка).
+func (n *SmtpNotifier) NotifyAdmin(_ context.Context, notif AdminEventNotification) error {
+	if n.adminEmail == "" {
+		return nil
+	}
+	subject, htmlBody, textBody := n.buildAdminEmail(notif)
+	return n.send(n.adminEmail, subject, textBody, htmlBody)
+}
+
+// buildAdminEmail подбирает тему и тело письма под тип события.
+func (n *SmtpNotifier) buildAdminEmail(notif AdminEventNotification) (subject, htmlBody, textBody string) {
+	short := shortOrderID(notif.OrderID)
+	adminURL := n.adminOrderURL(notif.OrderID)
+
+	var emoji, title, lead string
+	switch notif.Kind {
+	case AdminEventPaidOrder:
+		subject = fmt.Sprintf("💰 Новая оплата · заказ #%d — Numaestra", notif.InvoiceID)
+		emoji, title = "💰", "Новая оплата"
+		lead = fmt.Sprintf("Заказ #%d оплачен на %s. Генерация запущена.", notif.InvoiceID, formatRubles(notif.AmountKopecks))
+	case AdminEventDemoReady:
+		subject = fmt.Sprintf("🎧 Готово демо · заказ #%d — Numaestra", notif.InvoiceID)
+		emoji, title = "🎧", "Демо готово"
+		lead = fmt.Sprintf("По заказу #%d сгенерировано бесплатное демо.", notif.InvoiceID)
+	case AdminEventGenerationFailed:
+		subject = fmt.Sprintf("⚠️ Ошибка генерации · заказ #%d — Numaestra", notif.InvoiceID)
+		emoji, title = "⚠️", "Ошибка генерации"
+		lead = fmt.Sprintf("Генерация оплаченного заказа #%d сорвалась — нужно вмешаться вручную.", notif.InvoiceID)
+	default:
+		subject = fmt.Sprintf("Событие по заказу #%d — Numaestra", notif.InvoiceID)
+		emoji, title = "📦", "Событие по заказу"
+		lead = fmt.Sprintf("Заказ #%d.", notif.InvoiceID)
+	}
+
+	hero := emailHero(emoji, title, "Заказ #"+short)
+
+	var facts strings.Builder
+	facts.WriteString(emailParagraph(html.EscapeString(lead)))
+	facts.WriteString(adminFactLine("Email клиента", notif.CustomerEmail))
+	facts.WriteString(adminFactLine("Телефон", notif.CustomerPhone))
+	if notif.Kind == AdminEventGenerationFailed && notif.FailureReason != "" {
+		facts.WriteString(adminFactLine("Причина", notif.FailureReason))
+	}
+	if notif.Brief != "" {
+		facts.WriteString(adminFactLine("Бриф", briefSnippet(notif.Brief)))
+	}
+
+	body := emailContentRow("28px 32px 8px", facts.String())
+	if adminURL != "" {
+		body += emailContentRow("0 32px 8px", emailCTAButton(adminURL, "Открыть в админке")+emailCopyLink(adminURL))
+	}
+
+	htmlBody = n.emailDocument(subject, hero, body, "Служебное письмо · Numaestra admin")
+	textBody = n.buildAdminPlain(notif, lead, adminURL)
+	return subject, htmlBody, textBody
+}
+
+// adminFactLine — строка «Метка: значение» для тела админского письма (пустые пропускаются).
+func adminFactLine(label, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		`<p style="margin:0 0 6px;font-size:14px;line-height:1.6;color:rgba(255,255,255,0.7)"><strong style="color:rgba(255,255,255,0.92)">%s:</strong> %s</p>`,
+		html.EscapeString(label), html.EscapeString(value),
+	)
+}
+
+// briefSnippet укорачивает бриф для письма (брифы могут быть длинными).
+func briefSnippet(brief string) string {
+	brief = strings.TrimSpace(brief)
+	const max = 280
+	if len([]rune(brief)) > max {
+		return string([]rune(brief)[:max]) + "…"
+	}
+	return brief
+}
+
+// formatRubles форматирует копейки в рубли для письма.
+func formatRubles(kopecks int64) string {
+	return fmt.Sprintf("%d ₽", kopecks/100)
+}
+
+// adminOrderURL формирует ссылку на страницу заказа в админке.
+func (n *SmtpNotifier) adminOrderURL(orderID string) string {
+	if n.publicAppURL == "" || orderID == "" {
+		return ""
+	}
+	return n.publicAppURL + "/admin/orders/" + orderID
+}
+
+func (n *SmtpNotifier) buildAdminPlain(notif AdminEventNotification, lead, adminURL string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\n", lead)
+	if notif.CustomerEmail != "" {
+		fmt.Fprintf(&b, "Email клиента: %s\n", notif.CustomerEmail)
+	}
+	if notif.CustomerPhone != "" {
+		fmt.Fprintf(&b, "Телефон: %s\n", notif.CustomerPhone)
+	}
+	if notif.Kind == AdminEventGenerationFailed && notif.FailureReason != "" {
+		fmt.Fprintf(&b, "Причина: %s\n", notif.FailureReason)
+	}
+	if notif.Brief != "" {
+		fmt.Fprintf(&b, "Бриф: %s\n", briefSnippet(notif.Brief))
+	}
+	if adminURL != "" {
+		fmt.Fprintf(&b, "\nОткрыть в админке:\n%s\n", adminURL)
+	}
+	b.WriteString("\n—\nNumaestra admin\n")
+	return b.String()
 }
 
 func (n *SmtpNotifier) send(to, subject, textBody, htmlBody string) error {

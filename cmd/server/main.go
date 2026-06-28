@@ -171,8 +171,8 @@ func run(ctx context.Context) error {
 			cfg.Notify.FromName,
 			cfg.Notify.ReplyTo,
 			cfg.Notify.PublicAppURL,
-		)
-		log.Info("SMTP-нотификатор активен", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort, "public_url", cfg.Notify.PublicAppURL)
+		).WithAdminEmail(cfg.Notify.AdminEmail)
+		log.Info("SMTP-нотификатор активен", "host", cfg.Notify.SMTPHost, "port", cfg.Notify.SMTPPort, "public_url", cfg.Notify.PublicAppURL, "admin_email_set", cfg.Notify.AdminEmail != "")
 	} else {
 		notifier = notify.NewLogNotifier(log)
 		log.Warn("SMTP_HOST не задан — уведомления только в лог (заглушка)")

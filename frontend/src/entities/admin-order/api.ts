@@ -30,4 +30,10 @@ export const adminOrderApi = {
   remove(id: string) {
     return apiFetch<void>(`/admin/orders/${id}`, { method: 'DELETE' })
   },
+
+  // Удалить демо-ассеты заказа (превью + полные клипы) из хранилища.
+  // Недоступно для завершённых заказов — там клипы доставлены клиенту как треки.
+  deleteDemo(id: string) {
+    return apiFetch<void>(`/admin/orders/${id}/demo`, { method: 'DELETE' })
+  },
 }

@@ -876,3 +876,7 @@ func (s *deleteTrackingStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID
 	s.called = true
 	return nil
 }
+
+func (s *deleteTrackingStorage) DeleteByURL(_ context.Context, _ string) error {
+	return nil
+}

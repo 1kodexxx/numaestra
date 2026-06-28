@@ -115,6 +115,28 @@ func (c *Client) DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error
 	return nil
 }
 
+// DeleteByURL удаляет объект по его публичной ссылке (которую вернули Upload или
+// UploadFromURL). Применяется для демо-ассетов, чьи ключи содержат случайный
+// сегмент и не выводятся из orderID. URL, не принадлежащий нашему бакету,
+// отвергается — чтобы случайный/чужой адрес не привёл к удалению не того объекта.
+func (c *Client) DeleteByURL(ctx context.Context, publicURL string) error {
+	key, err := c.keyFromURL(publicURL)
+	if err != nil {
+		return err
+	}
+	return c.delete(ctx, key)
+}
+
+// keyFromURL извлекает ключ объекта из публичной ссылки вида
+// "{endpoint}/{bucket}/{key}". Возвращает ошибку, если URL не из нашего бакета.
+func (c *Client) keyFromURL(publicURL string) (string, error) {
+	prefix := fmt.Sprintf("%s/%s/", c.endpoint, c.bucket)
+	if !strings.HasPrefix(publicURL, prefix) {
+		return "", fmt.Errorf("URL %q не принадлежит бакету %s", publicURL, c.bucket)
+	}
+	return strings.TrimPrefix(publicURL, prefix), nil
+}
+
 // delete выполняет DELETE-запрос к S3 с AWS Signature V4 (пустое тело).
 func (c *Client) delete(ctx context.Context, key string) error {
 	objectURL := fmt.Sprintf("%s/%s/%s", c.endpoint, c.bucket, key)

@@ -396,6 +396,15 @@ func (uc *OrderUseCase) applyPaymentSuccess(ctx context.Context, order *domain.O
 	}
 
 	metrics.PaymentsReceived.Inc()
+	uc.notifyAdminAsync(notify.AdminEventNotification{
+		Kind:          notify.AdminEventPaidOrder,
+		OrderID:       order.ID().String(),
+		InvoiceID:     order.InvoiceID(),
+		CustomerEmail: order.CustomerEmail(),
+		CustomerPhone: order.CustomerPhone(),
+		AmountKopecks: order.AmountKopecks(),
+		Brief:         order.Brief(),
+	})
 	uc.log.Info("заказ успешно оплачен и поставлен в очередь",
 		"order_id", order.ID(), "invoice_id", invoiceID, "source", source)
 	return nil
@@ -701,14 +710,7 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 			uc.log.Error("ошибка отправки уведомления об успехе", "order_id", order.ID(), "err", notifyErr)
 		}
 	case domain.MusicGenerationStatusFailed:
-		if notifyErr := uc.notifier.NotifyOrderFailed(ctx, notify.OrderFailedNotification{
-			OrderID:     order.ID().String(),
-			AccessToken: order.AccessToken(),
-			Email:       order.CustomerEmail(),
-			Phone:       order.CustomerPhone(),
-		}); notifyErr != nil {
-			uc.log.Error("ошибка отправки уведомления о провале", "order_id", order.ID(), "err", notifyErr)
-		}
+		uc.notifyOrderFailed(ctx, order)
 	}
 
 	uc.log.Info("цикл генерации завершен", "order_id", order.ID(), "status", result.Status)
@@ -818,6 +820,36 @@ func (uc *OrderUseCase) notifyOrderFailed(ctx context.Context, order *domain.Ord
 	}); notifyErr != nil {
 		uc.log.Error("ошибка отправки уведомления о провале", "order_id", order.ID(), "err", notifyErr)
 	}
+	uc.notifyAdminAsync(notify.AdminEventNotification{
+		Kind:          notify.AdminEventGenerationFailed,
+		OrderID:       order.ID().String(),
+		InvoiceID:     order.InvoiceID(),
+		CustomerEmail: order.CustomerEmail(),
+		CustomerPhone: order.CustomerPhone(),
+		Brief:         order.Brief(),
+		FailureReason: order.FailureReason(),
+	})
+}
+
+// adminNotifyTimeout — предельное время на отправку одного админского письма.
+const adminNotifyTimeout = 30 * time.Second
+
+// notifyAdminAsync шлёт администратору письмо о событии заказа в фоне. Админские
+// уведомления некритичны и НЕ должны замедлять платёжный вебхук или воркер-задачи,
+// поэтому отправляем в отдельной горутине с собственным контекстом (контекст
+// вызывающего к моменту отправки уже может быть отменён вместе с запросом/задачей).
+func (uc *OrderUseCase) notifyAdminAsync(n notify.AdminEventNotification) {
+	if uc.notifier == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), adminNotifyTimeout)
+		defer cancel()
+		if err := uc.notifier.NotifyAdmin(ctx, n); err != nil {
+			uc.log.Error("ошибка админского уведомления о заказе",
+				"kind", n.Kind, "order_id", n.OrderID, "err", err)
+		}
+	}()
 }
 
 func (uc *OrderUseCase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
@@ -1282,6 +1314,14 @@ func (uc *OrderUseCase) CheckDemoStatus(ctx context.Context, orderID uuid.UUID, 
 			return fmt.Errorf("демо: сохранение результата: %w", err)
 		}
 		uc.log.Info("демо готово", "order_id", order.ID(), "clips", len(demoClips))
+		uc.notifyAdminAsync(notify.AdminEventNotification{
+			Kind:          notify.AdminEventDemoReady,
+			OrderID:       order.ID().String(),
+			InvoiceID:     order.InvoiceID(),
+			CustomerEmail: order.CustomerEmail(),
+			CustomerPhone: order.CustomerPhone(),
+			Brief:         order.Brief(),
+		})
 		return nil
 	}
 

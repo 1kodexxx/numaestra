@@ -31,6 +31,33 @@ type Notifier interface {
 	// NotifyAccessLink отправляет клиенту ссылку на управление заказом (оплата, share).
 	// Email должен быть непустым — вызывающий код проверяет совпадение с заказом.
 	NotifyAccessLink(ctx context.Context, n AccessLinkNotification) error
+
+	// NotifyAdmin отправляет администратору письмо о событии заказа (новая оплата,
+	// готовое демо, провал генерации) на его собственный адрес (ADMIN_NOTIFY_EMAIL).
+	// Получателя знает сама реализация, а не вызывающий код. Если админский адрес
+	// не настроен — реализация молча пропускает отправку.
+	NotifyAdmin(ctx context.Context, n AdminEventNotification) error
+}
+
+// AdminEventKind — тип админского события для NotifyAdmin.
+type AdminEventKind string
+
+const (
+	AdminEventPaidOrder        AdminEventKind = "paid_order"        // заказ оплачен (продажа)
+	AdminEventDemoReady        AdminEventKind = "demo_ready"        // готово бесплатное демо
+	AdminEventGenerationFailed AdminEventKind = "generation_failed" // генерация оплаченного заказа сорвалась
+)
+
+// AdminEventNotification — данные письма администратору о событии заказа.
+type AdminEventNotification struct {
+	Kind          AdminEventKind
+	OrderID       string
+	InvoiceID     int64
+	CustomerEmail string
+	CustomerPhone string
+	AmountKopecks int64
+	Brief         string
+	FailureReason string // только для AdminEventGenerationFailed
 }
 
 // OrderCompleteNotification содержит данные для уведомления о завершении заказа.
@@ -109,6 +136,15 @@ func (n *LogNotifier) NotifyAccessLink(_ context.Context, notification AccessLin
 		"order_id", notification.OrderID,
 		"email", notification.Email,
 		"access_token", notification.AccessToken,
+	)
+	return nil
+}
+
+func (n *LogNotifier) NotifyAdmin(_ context.Context, notification AdminEventNotification) error {
+	n.log.Info("админское уведомление о заказе (stub — реальная отправка не настроена)",
+		"kind", notification.Kind,
+		"order_id", notification.OrderID,
+		"invoice_id", notification.InvoiceID,
 	)
 	return nil
 }

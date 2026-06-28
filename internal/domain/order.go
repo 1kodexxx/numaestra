@@ -78,6 +78,7 @@ var (
 	ErrOrderUnauthorized           = errors.New("неверный или отсутствующий токен доступа")
 	ErrOrderAccessDenied           = errors.New("нет доступа к этому заказу")
 	ErrShareNotAvailable           = errors.New("публичная ссылка доступна только для завершённых заказов")
+	ErrDemoDeleteOnCompleted       = errors.New("нельзя удалить демо завершённого заказа: его полные клипы уже доставлены клиенту как треки")
 )
 
 // Track - один из сгенерированных вариантов песни (обычно 4 версии на заказ).
@@ -694,6 +695,18 @@ func (o *Order) FailDemo() {
 	o.touch()
 }
 
+// ClearDemo сбрасывает демо-полосу заказа: убирает превью и сохранённые полные
+// клипы, возвращая статус в none. Вызывается администратором для освобождения
+// места в хранилище. Сами объекты в S3 удаляет вызывающий слой (usecase) до
+// сохранения — домен лишь чистит ссылки.
+func (o *Order) ClearDemo() {
+	o.demoStatus = DemoStatusNone
+	o.demoURL = ""
+	o.demoClips = nil
+	o.demoAccountID = nil
+	o.touch()
+}
+
 // ApplyPromo применяет скидку промокода к заказу.
 func (o *Order) ApplyPromo(promoID uuid.UUID, discountKopecks int64) {
 	o.originalAmountKopecks = o.amountKopecks
@@ -791,4 +804,8 @@ type TrackStorage interface {
 	Upload(ctx context.Context, key, contentType string, data []byte) (publicURL string, err error)
 	// DeleteOrderTracks удаляет все MP3-объекты заказа по шаблону tracks/{id}/{n}.mp3.
 	DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) error
+	// DeleteByURL удаляет объект хранилища по публичной ссылке, ранее возвращённой
+	// Upload/UploadFromURL. Нужно для демо-ассетов, чьи ключи содержат случайный
+	// сегмент и потому не выводятся из orderID. Отсутствие объекта — не ошибка.
+	DeleteByURL(ctx context.Context, publicURL string) error
 }

@@ -30,6 +30,9 @@ export function AdminOrderDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [deletingDemo, setDeletingDemo] = useState(false)
+  const [demoError, setDemoError] = useState<string | null>(null)
+
   function load() {
     setLoading(true)
     adminOrderApi
@@ -90,6 +93,19 @@ export function AdminOrderDetailPage() {
       setRegenError(err instanceof ApiError ? err.message : 'Не удалось перегенерировать')
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  async function handleDeleteDemo() {
+    if (!confirm('Удалить демо этого заказа из хранилища? Превью и сохранённые полные клипы будут удалены безвозвратно.')) return
+    setDemoError(null); setDeletingDemo(true)
+    try {
+      await adminOrderApi.deleteDemo(id)
+      load()
+    } catch (err) {
+      setDemoError(err instanceof ApiError ? err.message : 'Не удалось удалить демо')
+    } finally {
+      setDeletingDemo(false)
     }
   }
 
@@ -158,6 +174,65 @@ export function AdminOrderDetailPage() {
               </a>
             ))}
           </div>
+        </Panel>
+      )}
+
+      {/* Демо: превью + полные клипы — просмотр, скачивание, удаление */}
+      {(order.demo_url || (order.demo_clips && order.demo_clips.length > 0)) && (
+        <Panel style={{ padding: '22px 24px', marginBottom: '16px' }}>
+          <SectionTitle>Демо заказа</SectionTitle>
+
+          {order.demo_url && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: A.txt3, marginBottom: '8px' }}>Превью (с водяным знаком)</div>
+              <audio controls src={order.demo_url} style={{ width: '100%', maxWidth: '420px', display: 'block', marginBottom: '8px' }} />
+              <a href={order.demo_url} target="_blank" rel="noreferrer" style={{ color: A.accent, fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}>
+                ⬇ Скачать превью
+              </a>
+            </div>
+          )}
+
+          {order.demo_clips && order.demo_clips.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', color: A.txt3, marginBottom: '8px' }}>Полные клипы ({order.demo_clips.length})</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                {order.demo_clips.map((c) => (
+                  <a
+                    key={c.index} href={c.audio_url} target="_blank" rel="noreferrer"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '8px',
+                      background: 'rgba(0,229,192,0.1)', border: '1px solid rgba(0,229,192,0.3)',
+                      borderRadius: '12px', padding: '9px 14px',
+                      color: A.accent, fontSize: '13px', fontWeight: 600, textDecoration: 'none',
+                    }}
+                  >
+                    ⬇ Клип {c.index}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {order.generation_status === 'completed' ? (
+            <div style={{ fontSize: '12px', color: A.txt3 }}>
+              Заказ завершён — полные клипы уже доставлены клиенту как треки, удалять демо нельзя. Используйте «Удалить заказ».
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: '13px', color: A.txt2, marginBottom: '12px' }}>
+                Освободить место в хранилище: удалить превью и сохранённые полные клипы этого заказа. Действие необратимо.
+              </div>
+              <Button
+                variant="outlined"
+                onClick={handleDeleteDemo}
+                loading={deletingDemo}
+                style={{ color: '#f87171', borderColor: 'rgba(239,68,68,0.4)' }}
+              >
+                Удалить демо
+              </Button>
+            </>
+          )}
+          {demoError && <div style={{ marginTop: '12px' }}><ErrorBanner>{demoError}</ErrorBanner></div>}
         </Panel>
       )}
 

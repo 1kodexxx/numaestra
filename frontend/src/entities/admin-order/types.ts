@@ -18,6 +18,10 @@ export interface AdminOrder {
   consent_given_at?: string
   consent_doc_version?: string
   created_at: string
+  // Демо-ассеты: превью с водяным знаком (demo_url) и полные клипы (demo_clips).
+  demo_status?: 'none' | 'processing' | 'ready' | 'failed'
+  demo_url?: string
+  demo_clips?: AdminTrack[]
 }
 
 export interface AdminOrderListResponse {

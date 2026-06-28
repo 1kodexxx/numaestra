@@ -331,6 +331,56 @@ func (uc *AdminUseCase) DeleteOrder(ctx context.Context, orderID uuid.UUID) erro
 	return nil
 }
 
+// DeleteOrderDemo удаляет демо-ассеты заказа (витринное превью + сохранённые
+// полные клипы) из хранилища и очищает демо-колонки. Нужно администратору, чтобы
+// освобождать место, когда демо накапливается у незавершённых/брошенных заказов.
+//
+// Запрещено для завершённых заказов: там полные демо-клипы уже переиспользованы
+// как доставленные клиенту треки 1–2 (один и тот же объект в S3), и их удаление
+// сломало бы выдачу. Для таких заказов используйте DeleteOrder целиком.
+//
+// Идемпотентно: если удалять нечего, возвращает nil. Ошибку доступа к хранилищу
+// пробрасывает и НЕ очищает ссылки в БД — чтобы не потерять указатели на реально
+// неудалённые файлы (иначе они осиротеют в S3 без возможности их найти).
+func (uc *AdminUseCase) DeleteOrderDemo(ctx context.Context, orderID uuid.UUID) error {
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("получение заказа для удаления демо: %w", err)
+	}
+
+	if order.GenerationStatus() == domain.GenerationStatusCompleted {
+		return domain.ErrDemoDeleteOnCompleted
+	}
+
+	if order.DemoStatus() == domain.DemoStatusNone && order.DemoURL() == "" && len(order.DemoClips()) == 0 {
+		return nil // нечего удалять
+	}
+
+	if uc.storage != nil {
+		if url := order.DemoURL(); url != "" {
+			if err := uc.storage.DeleteByURL(ctx, url); err != nil {
+				return fmt.Errorf("удаление превью демо из хранилища: %w", err)
+			}
+		}
+		for _, clip := range order.DemoClips() {
+			if clip.AudioURL == "" {
+				continue
+			}
+			if err := uc.storage.DeleteByURL(ctx, clip.AudioURL); err != nil {
+				return fmt.Errorf("удаление демо-клипа из хранилища: %w", err)
+			}
+		}
+	}
+
+	order.ClearDemo()
+	if err := uc.orderRepo.UpdateDemo(ctx, order); err != nil {
+		return fmt.Errorf("сохранение очистки демо: %w", err)
+	}
+
+	uc.log.Info("admin: демо-ассеты заказа удалены", "order_id", orderID)
+	return nil
+}
+
 // SendOrderFeedback фиксирует сообщение администратора по заказу и отправляет
 // его клиенту на email. Сохраняется в БД даже если письмо не дошло (например,
 // SMTP временно недоступен) — переписку всё равно нужно видеть в админке;

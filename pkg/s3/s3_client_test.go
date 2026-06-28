@@ -192,3 +192,33 @@ func TestDeleteOrderTracks_S3Error(t *testing.T) {
 		t.Fatal("ожидали ошибку при HTTP 500 от S3")
 	}
 }
+
+func TestDeleteByURL_Success(t *testing.T) {
+	var deletedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deletedPath = r.URL.Path
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "us-east-1", "test-bucket", "AKIA", "secret")
+	url := srv.URL + "/test-bucket/tracks/o/demo-abc.mp3"
+	if err := c.DeleteByURL(context.Background(), url); err != nil {
+		t.Fatalf("DeleteByURL: %v", err)
+	}
+	if deletedPath != "/test-bucket/tracks/o/demo-abc.mp3" {
+		t.Errorf("удалён неожиданный путь: %s", deletedPath)
+	}
+}
+
+func TestDeleteByURL_ForeignURLRejected(t *testing.T) {
+	c := New("https://storage.example.com", "us-east-1", "test-bucket", "AKIA", "secret")
+	// URL чужого бакета/хоста не должен приводить к удалению.
+	if err := c.DeleteByURL(context.Background(), "https://evil.example.com/other-bucket/x.mp3"); err == nil {
+		t.Fatal("ожидали отказ для URL не из нашего бакета")
+	}
+}

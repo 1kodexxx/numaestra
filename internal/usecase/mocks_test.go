@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -528,6 +529,7 @@ type mockStorage struct {
 	uploadFn      func(ctx context.Context, sourceURL, key, contentType string) (string, error)
 	uploadBytesFn func(ctx context.Context, key, contentType string, data []byte) (string, error)
 	deleteFn      func(ctx context.Context, orderID uuid.UUID) error
+	deleteURLFn   func(ctx context.Context, publicURL string) error
 }
 
 func (m *mockStorage) UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (string, error) {
@@ -551,6 +553,13 @@ func (m *mockStorage) DeleteOrderTracks(ctx context.Context, orderID uuid.UUID) 
 	return nil
 }
 
+func (m *mockStorage) DeleteByURL(ctx context.Context, publicURL string) error {
+	if m.deleteURLFn != nil {
+		return m.deleteURLFn(ctx, publicURL)
+	}
+	return nil
+}
+
 var _ domain.TrackStorage = (*mockStorage)(nil)
 
 // --- mock Notifier ---
@@ -561,6 +570,8 @@ type mockNotifier struct {
 	err           error
 	feedbackCalls []notify.AdminFeedbackNotification
 	feedbackErr   error
+	adminCalls    []notify.AdminEventNotification
+	adminCh       chan notify.AdminEventNotification // буфер, чтобы тест дождался async-отправки
 }
 
 func (m *mockNotifier) NotifyOrderComplete(_ context.Context, n notify.OrderCompleteNotification) error {
@@ -583,6 +594,33 @@ func (m *mockNotifier) NotifyOrderFailed(_ context.Context, _ notify.OrderFailed
 
 func (m *mockNotifier) NotifyAccessLink(_ context.Context, _ notify.AccessLinkNotification) error {
 	return m.err
+}
+
+func (m *mockNotifier) NotifyAdmin(_ context.Context, n notify.AdminEventNotification) error {
+	m.mu.Lock()
+	m.adminCalls = append(m.adminCalls, n)
+	ch := m.adminCh
+	m.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- n:
+		default:
+		}
+	}
+	return nil
+}
+
+// waitAdmin дожидается одного админского уведомления (шлётся в горутине) либо
+// падает по таймауту. Канал нужно создать до триггерящего вызова.
+func (m *mockNotifier) waitAdmin(t *testing.T) notify.AdminEventNotification {
+	t.Helper()
+	select {
+	case n := <-m.adminCh:
+		return n
+	case <-time.After(2 * time.Second):
+		t.Fatal("не дождались админского уведомления")
+		return notify.AdminEventNotification{}
+	}
 }
 
 var _ notify.Notifier = (*mockNotifier)(nil)

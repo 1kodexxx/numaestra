@@ -505,6 +505,111 @@ func TestAdminUseCase_DeleteOrder_StorageFailure_KeepsOrder(t *testing.T) {
 	}
 }
 
+// orderWithDemo строит незавершённый заказ с готовым демо (превью + 2 полных клипа).
+func orderWithDemo(t *testing.T) *domain.Order {
+	t.Helper()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
+	clips := []domain.Track{
+		{ID: uuid.New(), Index: 1, AudioURL: "https://s3.local/tracks/o/demo-a.mp3"},
+		{ID: uuid.New(), Index: 2, AudioURL: "https://s3.local/tracks/o/demo-b.mp3"},
+	}
+	if err := o.CompleteDemo("https://s3.local/demos/o.mp3", clips); err != nil {
+		t.Fatalf("CompleteDemo: %v", err)
+	}
+	return o
+}
+
+func TestAdminUseCase_DeleteOrderDemo_RemovesAssetsAndClears(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o := orderWithDemo(t)
+	orders.save(o)
+
+	var deleted []string
+	storage := &mockStorage{
+		deleteURLFn: func(_ context.Context, url string) error {
+			deleted = append(deleted, url)
+			return nil
+		},
+	}
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithStorage(storage)
+
+	if err := uc.DeleteOrderDemo(context.Background(), o.ID()); err != nil {
+		t.Fatalf("DeleteOrderDemo: %v", err)
+	}
+
+	want := map[string]bool{
+		"https://s3.local/demos/o.mp3":         true,
+		"https://s3.local/tracks/o/demo-a.mp3": true,
+		"https://s3.local/tracks/o/demo-b.mp3": true,
+	}
+	if len(deleted) != len(want) {
+		t.Fatalf("ожидали удаление %d объектов, удалили %d: %v", len(want), len(deleted), deleted)
+	}
+	for _, u := range deleted {
+		if !want[u] {
+			t.Errorf("удалён неожиданный объект: %s", u)
+		}
+	}
+
+	got, _ := orders.GetByID(context.Background(), o.ID())
+	if got.DemoStatus() != domain.DemoStatusNone || got.DemoURL() != "" || len(got.DemoClips()) != 0 {
+		t.Errorf("демо должно быть очищено, получили status=%s url=%q clips=%d",
+			got.DemoStatus(), got.DemoURL(), len(got.DemoClips()))
+	}
+}
+
+func TestAdminUseCase_DeleteOrderDemo_CompletedBlocked(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o := orderWithDemo(t)
+	_ = o.MarkPaid()
+	_ = o.Enqueue()
+	_ = o.StartProcessing(uuid.New())
+	_ = o.Complete([]domain.Track{{ID: uuid.New(), Index: 1, AudioURL: "https://s3.local/tracks/o/1.mp3"}})
+	orders.save(o)
+
+	var called bool
+	storage := &mockStorage{deleteURLFn: func(context.Context, string) error { called = true; return nil }}
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithStorage(storage)
+
+	err := uc.DeleteOrderDemo(context.Background(), o.ID())
+	if !errors.Is(err, domain.ErrDemoDeleteOnCompleted) {
+		t.Fatalf("ожидали ErrDemoDeleteOnCompleted, получили %v", err)
+	}
+	if called {
+		t.Error("для завершённого заказа хранилище трогать нельзя")
+	}
+}
+
+func TestAdminUseCase_DeleteOrderDemo_StorageFailure_KeepsDemo(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o := orderWithDemo(t)
+	orders.save(o)
+
+	storage := &mockStorage{
+		deleteURLFn: func(context.Context, string) error { return errors.New("s3 down") },
+	}
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger()).WithStorage(storage)
+
+	if err := uc.DeleteOrderDemo(context.Background(), o.ID()); err == nil {
+		t.Fatal("ожидали ошибку при сбое S3")
+	}
+	got, _ := orders.GetByID(context.Background(), o.ID())
+	if got.DemoStatus() != domain.DemoStatusReady || got.DemoURL() == "" {
+		t.Error("при ошибке хранилища демо-ссылки должны остаться в БД")
+	}
+}
+
+func TestAdminUseCase_DeleteOrderDemo_NothingToDelete(t *testing.T) {
+	orders := newInMemOrderRepo()
+	o, _ := domain.NewOrder(1, "u@e.c", "", "Бриф", "", "", domain.CurrentConsentDocVersion, 100)
+	orders.save(o)
+
+	uc := NewAdminUseCase(orders, newInMemAccountRepo(), nil, &mockRefunder{}, nil, nil, testLogger())
+	if err := uc.DeleteOrderDemo(context.Background(), o.ID()); err != nil {
+		t.Fatalf("ожидали nil для заказа без демо, получили %v", err)
+	}
+}
+
 func TestAdminUseCase_ResetAccount_Success(t *testing.T) {
 	uc, _, accounts := newAdminUC(t)
 	acc, _ := domain.NewSunoAccount("acc@test.com", "session", 3)

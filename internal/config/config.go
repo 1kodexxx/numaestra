@@ -120,6 +120,9 @@ type NotifyConfig struct {
 	// Обязателен при включённом SMTP: относительные /status?... ломаются на
 	// click-tracking Rusender и других ESP.
 	PublicAppURL string // PUBLIC_APP_URL, например https://numaestra.ru
+	// AdminEmail — адрес администратора для служебных уведомлений (новая оплата,
+	// готовое демо, провал генерации). Пусто → админские письма не отправляются.
+	AdminEmail string // ADMIN_NOTIFY_EMAIL, например owner@numaestra.ru
 }
 
 // PricingConfig задаёт серверную цену заказа. Цена НЕ принимается от клиента —
@@ -231,6 +234,7 @@ func Load() (*Config, error) {
 			FromName:     getEnv("SMTP_FROM_NAME", "Numaestra"),
 			ReplyTo:      getEnv("SMTP_REPLY_TO", ""),
 			PublicAppURL: strings.TrimRight(getEnv("PUBLIC_APP_URL", ""), "/"),
+			AdminEmail:   strings.TrimSpace(getEnv("ADMIN_NOTIFY_EMAIL", "")),
 		},
 		AdminToken:           getEnv("ADMIN_TOKEN", ""),
 		AdminLogin:           getEnv("ADMIN_LOGIN", ""),
