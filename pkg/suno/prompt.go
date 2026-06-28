@@ -93,6 +93,37 @@ var TemplateSkipKeys = map[string]bool{
 	"EXTRA": true, "CUSTOM_LYRICS": true,
 }
 
+// rePlaceholder — незаполненный плейсхолдер шаблона вида [MEET_STORY]: только
+// верхний регистр, чтобы не задеть случайные [скобки] в тексте клиента.
+var rePlaceholder = regexp.MustCompile(`\[[A-Z][A-Z0-9_]*\]`)
+
+// StripUnfilledPlaceholders убирает из подставленного шаблона предложения, в
+// которых остался неподставленный плейсхолдер [KEY]. Это происходит, когда вопрос
+// квиза необязателен и клиент его не заполнил: без очистки литерал «[MEET_STORY]»
+// ушёл бы в Suno и мог попасть прямо в текст песни. Предложение удаляется целиком
+// (а не только плейсхолдер), чтобы не оставлять обрубков вроде «Как познакомились: .».
+func StripUnfilledPlaceholders(s string) string {
+	if !rePlaceholder.MatchString(s) {
+		return s
+	}
+	parts := strings.Split(s, ". ")
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if rePlaceholder.MatchString(p) {
+			continue
+		}
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	res := strings.TrimSpace(strings.Join(kept, ". "))
+	if res != "" && !strings.HasSuffix(res, ".") && !strings.HasSuffix(res, "!") && !strings.HasSuffix(res, "?") {
+		res += "."
+	}
+	return res
+}
+
 // IsInstrumentalFromTags — true, если в tags есть instrumental как отдельный тег.
 func IsInstrumentalFromTags(tags string) bool {
 	for _, piece := range splitTagPieces(tags) {

@@ -100,6 +100,9 @@ func (uc *PromptUseCase) BuildFinalPrompt(ctx context.Context, categoryID string
 		placeholder := "[" + key + "]"
 		template = strings.ReplaceAll(template, placeholder, value)
 	}
+	// Необязательные вопросы, которые клиент пропустил, оставляют в шаблоне
+	// плейсхолдеры [KEY] — вырезаем их предложения, иначе литерал ушёл бы в Suno.
+	template = suno.StripUnfilledPlaceholders(template)
 
 	tags, customGenres := suno.BuildStyleTagsFromAnswersWithCustomGenres(userAnswers)
 	extra := strings.TrimSpace(userAnswers["EXTRA"])

@@ -5,6 +5,42 @@ import (
 	"testing"
 )
 
+func TestStripUnfilledPlaceholders(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "drops sentence with leftover placeholder",
+			in:   "Celebrating 5 years together. How they met: [MEET_STORY].",
+			want: "Celebrating 5 years together.",
+		},
+		{
+			name: "keeps fully filled text untouched",
+			in:   "Celebrating 5 years together. How they met: at university.",
+			want: "Celebrating 5 years together. How they met: at university.",
+		},
+		{
+			name: "removes multiple leftover sentences",
+			in:   "About [NAME1] and [NAME2]. Best moment: at sea. Memory: [MEMORY].",
+			want: "Best moment: at sea.",
+		},
+		{
+			name: "ignores lowercase brackets in user text",
+			in:   "Песня про [кота] и собаку.",
+			want: "Песня про [кота] и собаку.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StripUnfilledPlaceholders(tc.in); got != tc.want {
+				t.Errorf("StripUnfilledPlaceholders(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEncodeDecodePrompt_RoundTrip(t *testing.T) {
 	raw := EncodePrompt("modern pop, male vocals", "Write a Russian love song about Ivan and Maria.")
 	got, ok := DecodePrompt(raw)

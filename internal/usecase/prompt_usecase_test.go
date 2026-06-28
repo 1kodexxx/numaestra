@@ -110,6 +110,30 @@ func TestPromptUseCase_BuildFinalPrompt(t *testing.T) {
 	}
 }
 
+func TestPromptUseCase_BuildFinalPrompt_DropsUnfilledOptionalPlaceholder(t *testing.T) {
+	repo := newInMemCategoryRepo()
+	cat, _ := domain.NewCategory("anniv", "Годовщина", "праздник", "", nil,
+		"Create a [MOOD] song. The lyrics must be in Russian language. Celebrating [YEARS] years together. How they met: [MEET_STORY].")
+	_ = repo.Create(context.Background(), cat)
+	uc := NewPromptUseCase(repo)
+
+	// MEET_STORY — необязательный вопрос, клиент его пропустил (нет в answers).
+	prompt, err := uc.BuildFinalPrompt(context.Background(), "anniv", map[string]string{
+		"YEARS": "5",
+		"MOOD":  "romantic",
+		"VOCAL": "male vocals",
+	})
+	if err != nil {
+		t.Fatalf("BuildFinalPrompt: %v", err)
+	}
+	if strings.Contains(prompt, "[MEET_STORY]") {
+		t.Errorf("неподставленный плейсхолдер просочился в Suno-промпт:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "5") {
+		t.Errorf("заполненные ответы должны остаться, получили:\n%s", prompt)
+	}
+}
+
 func TestPromptUseCase_BuildFinalPrompt_NoDuplicateCustomLyrics(t *testing.T) {
 	repo := newInMemCategoryRepo()
 	cat, _ := domain.NewCategory("bday", "День рождения", "праздник", "", nil,

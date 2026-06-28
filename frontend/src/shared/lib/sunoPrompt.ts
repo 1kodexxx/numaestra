@@ -246,6 +246,23 @@ function cleanSubstitutedTemplate(s: string): string {
   return out.trim();
 }
 
+const PLACEHOLDER_RE = /\[[A-Z][A-Z0-9_]*\]/;
+
+/**
+ * Убирает предложения с неподставленными плейсхолдерами [KEY] — необязательные
+ * вопросы, которые клиент пропустил. Зеркало StripUnfilledPlaceholders на бэке,
+ * чтобы превью совпадало с тем, что реально уходит в Suno.
+ */
+export function stripUnfilledPlaceholders(s: string): string {
+  if (!PLACEHOLDER_RE.test(s)) return s;
+  const kept = s
+    .split(". ")
+    .filter((p) => !PLACEHOLDER_RE.test(p) && p.trim() !== "");
+  let res = kept.join(". ").trim();
+  if (res && !/[.!?]$/.test(res)) res += ".";
+  return res;
+}
+
 export function substituteCategoryTemplate(
   template: string,
   answers: Record<string, string>,
@@ -263,7 +280,7 @@ export function substituteCategoryTemplate(
     if (skipKeys.has(key)) continue;
     result = result.split(`[${key}]`).join(value);
   }
-  return result;
+  return stripUnfilledPlaceholders(result);
 }
 
 export function formatQuizDescription(

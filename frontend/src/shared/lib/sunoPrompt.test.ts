@@ -7,6 +7,7 @@ import {
   composeCategoryBrief,
   extractCustomGenresFromAnswers,
   formatQuizDescription,
+  stripUnfilledPlaceholders,
   type GenreOption,
 } from "./sunoPrompt";
 
@@ -16,6 +17,19 @@ const GENRES: GenreOption[] = [
 ];
 
 describe("sunoPrompt", () => {
+  it("stripUnfilledPlaceholders убирает предложение с пропущенным [KEY]", () => {
+    expect(
+      stripUnfilledPlaceholders(
+        "Celebrating 5 years together. How they met: [MEET_STORY].",
+      ),
+    ).toBe("Celebrating 5 years together.");
+  });
+
+  it("stripUnfilledPlaceholders не трогает полностью заполненный текст", () => {
+    const filled = "Celebrating 5 years together. How they met: at university.";
+    expect(stripUnfilledPlaceholders(filled)).toBe(filled);
+  });
+
   it("composeCatalogBrief кодирует tags и описание", () => {
     const brief = composeCatalogBrief(
       {
