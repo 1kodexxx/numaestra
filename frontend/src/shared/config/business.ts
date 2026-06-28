@@ -8,5 +8,5 @@ export const BUSINESS = {
   inn: "519099179833",
   email: "noreply@numaestra.ru",
   phone: "+79113192341",
-  updated: "23.06.2026",
+  updated: "28.06.2026",
 };
