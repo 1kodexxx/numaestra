@@ -204,7 +204,9 @@ func MaxBodyBytes(n int64) func(http.Handler) http.Handler {
 //   - connect https: — fetch треков для скачивания (download.ts) и API;
 //   - frame-ancestors/object-src/base-uri — антиclickjacking и защита от инъекций.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self'; " +
+	// mc.yandex.ru — tag.js Яндекс.Метрики; yastatic.net — ассеты Вебвизора.
+	// Отправка хитов и пиксели уже покрыты img-src/connect-src https: ниже.
+	"script-src 'self' https://mc.yandex.ru https://yastatic.net; " +
 	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
 	"font-src 'self' data: https://fonts.gstatic.com; " +
 	"img-src 'self' data: https:; " +
