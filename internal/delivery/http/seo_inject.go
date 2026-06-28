@@ -112,8 +112,9 @@ type seoData struct {
 	description string
 	canonical   string
 	noindex     bool
-	jsonLD      string // готовый JSON (без тега)
-	body        string // HTML-блок для вставки в #root
+	ogImage     string   // картинка превью (относительная/абсолютная); пусто → дефолтный og-image.png
+	jsonLD      []string // блоки JSON-LD (каждый — готовый JSON без тега <script>)
+	body        string   // HTML-блок для вставки в #root
 }
 
 // socialPreviewBots — подстроки User-Agent краулеров, которые строят карточки-превью
@@ -167,9 +168,14 @@ func (s *SEOInjector) RenderForUA(ctx context.Context, path, baseURL, userAgent 
 	}
 
 	// Telegram / VK / WhatsApp требуют абсолютный HTTPS URL и растр (PNG/JPEG), не SVG.
+	// Страницы категорий и примеров отдают собственную обложку (data.ogImage) —
+	// карточка-превью и картинка в выдаче релевантны конкретной странице, а не общая.
 	var ogImage string
 	if baseURL != "" {
 		ogImage = ogImageURL(baseURL)
+		if data.ogImage != "" {
+			ogImage = absoluteURL(baseURL, data.ogImage)
+		}
 		out = reOgImage.ReplaceAllLiteralString(out, `<meta property="og:image" content="`+attr(ogImage)+`" />`)
 		out = reTwImage.ReplaceAllLiteralString(out, `<meta name="twitter:image" content="`+attr(ogImage)+`" />`)
 	}
@@ -184,8 +190,10 @@ func (s *SEOInjector) RenderForUA(ctx context.Context, path, baseURL, userAgent 
 		fmt.Fprintf(&head, `<meta property="og:image:secure_url" content="%s" />`+"\n    ", attr(ogImage))
 		fmt.Fprintf(&head, `<link rel="image_src" href="%s" />`+"\n    ", attr(ogImage))
 	}
-	if data.jsonLD != "" {
-		fmt.Fprintf(&head, `<script type="application/ld+json">%s</script>`+"\n    ", data.jsonLD)
+	for _, block := range data.jsonLD {
+		if block != "" {
+			fmt.Fprintf(&head, `<script type="application/ld+json">%s</script>`+"\n    ", block)
+		}
 	}
 	if head.Len() > 0 {
 		out = strings.Replace(out, "</head>", head.String()+"</head>", 1)
@@ -241,7 +249,8 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 			title:       "Как это работает — демо бесплатно, песня за 10 минут | " + seoSiteName,
 			description: "Как Numaestra создаёт персональную песню: соберите запрос, послушайте бесплатное демо и платите, только если понравилось. 4 версии трека за ~10 минут, без регистрации, один платёж.",
 			canonical:   baseURL + "/how-it-works",
-			body:        `<main><h1>Как это работает</h1><p>Сначала послушайте, потом платите. Соберите запрос (категория или конструктор: жанр, настроение, темп, вокал), опишите повод и оставьте email. Через пару минут на странице заказа появится бесплатное демо — самый яркий фрагмент будущей песни. Понравилось — оплачиваете один раз, и нейросеть выдаёт 4 уникальные версии без водяного знака за ~10 минут. Слушайте, скачивайте и делитесь — ссылки остаются у вас навсегда.</p></main>`,
+			jsonLD:      []string{faqJSONLD(s.faqItems())},
+			body:        s.howItWorksBody(),
 		}
 	case strings.HasPrefix(path, "/s/"), strings.HasPrefix(path, "/status/"):
 		// Страницы шеринга песни (/s/{id}) и статуса заказа (/status/{id}).
@@ -271,7 +280,7 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 func (s *SEOInjector) homeData(ctx context.Context, baseURL string) seoData {
 	d := seoData{
 		canonical: baseURL + "/",
-		jsonLD:    s.organizationJSONLD(ctx, baseURL),
+		jsonLD:    []string{s.organizationJSONLD(ctx, baseURL), websiteJSONLD(baseURL)},
 	}
 
 	var b strings.Builder
@@ -303,6 +312,7 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 		desc = "Закажите персональную песню в категории «" + cat.Title() + "» — 4 версии трека за 10 минут от AI-студии Numaestra."
 	}
 	canonical := baseURL + "/category/" + id
+	coverAbs := absoluteURL(baseURL, cat.CoverImageURL())
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<main><h1>%s — песня на заказ нейросетью</h1>`, text(cat.Title()))
@@ -310,11 +320,17 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 	fmt.Fprintf(&b, `<p>Цена: %s ₽ · 4 уникальные версии · готово за 10 минут.</p>`, s.priceRubles)
 	b.WriteString(`</main>`)
 
+	breadcrumb := breadcrumbJSONLD([]crumb{
+		{name: "Главная", url: baseURL + "/"},
+		{name: cat.Title(), url: canonical},
+	})
+
 	return seoData{
 		title:       title,
 		description: desc,
 		canonical:   canonical,
-		jsonLD:      s.productJSONLD(cat.Title(), desc, canonical),
+		ogImage:     cat.CoverImageURL(),
+		jsonLD:      []string{s.productJSONLD(cat.Title(), desc, canonical, coverAbs), breadcrumb},
 		body:        b.String(),
 	}
 }
@@ -342,10 +358,24 @@ func (s *SEOInjector) exampleData(ctx context.Context, id, baseURL string) seoDa
 	var b strings.Builder
 	fmt.Fprintf(&b, `<main><h1>%s</h1><p>%s</p></main>`, text(ex.Title()), text(desc))
 
+	breadcrumb := breadcrumbJSONLD([]crumb{
+		{name: "Главная", url: baseURL + "/"},
+		{name: "Примеры", url: baseURL + "/examples"},
+		{name: ex.Title(), url: canonical},
+	})
+	jsonLD := []string{breadcrumb}
+	// AudioObject — пример это реальный аудиотрек; разметка помогает Google понять
+	// тип контента и может дать аудио-результат в выдаче.
+	if ex.AudioURL() != "" {
+		jsonLD = append(jsonLD, audioObjectJSONLD(ex.Title(), desc, ex.AudioURL(), absoluteURL(baseURL, ex.CoverURL())))
+	}
+
 	return seoData{
 		title:       title,
 		description: desc,
 		canonical:   canonical,
+		ogImage:     ex.CoverURL(),
+		jsonLD:      jsonLD,
 		body:        b.String(),
 	}
 }
@@ -403,8 +433,8 @@ func (s *SEOInjector) organizationJSONLD(ctx context.Context, baseURL string) st
 	return mustJSON(org)
 }
 
-func (s *SEOInjector) productJSONLD(title, desc, url string) string {
-	return mustJSON(map[string]any{
+func (s *SEOInjector) productJSONLD(title, desc, url, image string) string {
+	p := map[string]any{
 		"@context":    "https://schema.org",
 		"@type":       "Product",
 		"name":        "Песня на заказ: " + title,
@@ -417,7 +447,136 @@ func (s *SEOInjector) productJSONLD(title, desc, url string) string {
 			"availability":  "https://schema.org/InStock",
 			"url":           url,
 		},
+	}
+	// image обязателен для расширенного результата Product в Google. Добавляем только
+	// абсолютную ссылку (у категории это обложка); иначе разметка без картинки.
+	if image != "" {
+		p["image"] = image
+	}
+	return mustJSON(p)
+}
+
+// websiteJSONLD — сущность WebSite для главной: помогает поисковику связать домен
+// с брендом и языком (потенциально — sitelinks).
+func websiteJSONLD(baseURL string) string {
+	return mustJSON(map[string]any{
+		"@context":   "https://schema.org",
+		"@type":      "WebSite",
+		"name":       seoSiteName,
+		"url":        baseURL + "/",
+		"inLanguage": "ru-RU",
 	})
+}
+
+// crumb — звено навигационной цепочки для BreadcrumbList.
+type crumb struct {
+	name string
+	url  string
+}
+
+// breadcrumbJSONLD строит BreadcrumbList — «хлебные крошки» в выдаче Google
+// (Главная › Категория › …), повышающие кликабельность сниппета.
+func breadcrumbJSONLD(items []crumb) string {
+	list := make([]map[string]any, 0, len(items))
+	for i, it := range items {
+		list = append(list, map[string]any{
+			"@type":    "ListItem",
+			"position": i + 1,
+			"name":     it.name,
+			"item":     it.url,
+		})
+	}
+	return mustJSON(map[string]any{
+		"@context":        "https://schema.org",
+		"@type":           "BreadcrumbList",
+		"itemListElement": list,
+	})
+}
+
+// audioObjectJSONLD описывает аудио-пример (готовую песню) для поисковика.
+func audioObjectJSONLD(name, desc, contentURL, thumbnail string) string {
+	a := map[string]any{
+		"@context":    "https://schema.org",
+		"@type":       "AudioObject",
+		"name":        name,
+		"description": desc,
+		"contentUrl":  contentURL,
+		"encodingFormat": "audio/mpeg",
+	}
+	if thumbnail != "" {
+		a["thumbnailUrl"] = thumbnail
+	}
+	return mustJSON(a)
+}
+
+// qa — пара «вопрос-ответ» для FAQPage.
+type qa struct {
+	q string
+	a string
+}
+
+// faqJSONLD строит FAQPage — частые вопросы прямо в выдаче Google (большая площадь
+// сниппета). Контент тех же Q&A показан и пользователю на /how-it-works (требование
+// Google: ответы должны быть видимы на странице).
+func faqJSONLD(items []qa) string {
+	q := make([]map[string]any, 0, len(items))
+	for _, it := range items {
+		q = append(q, map[string]any{
+			"@type": "Question",
+			"name":  it.q,
+			"acceptedAnswer": map[string]any{
+				"@type": "Answer",
+				"text":  it.a,
+			},
+		})
+	}
+	return mustJSON(map[string]any{
+		"@context":   "https://schema.org",
+		"@type":      "FAQPage",
+		"mainEntity": q,
+	})
+}
+
+// faqItems — единый источник Q&A для FAQPage-разметки и серверного блока на
+// /how-it-works. Держите в синхроне с видимым FAQ на фронте (HowItWorksPage).
+func (s *SEOInjector) faqItems() []qa {
+	return []qa{
+		{"Сколько стоит песня на заказ?", "Один платёж " + s.priceRubles + " ₽ за 4 уникальные версии трека. Без подписок, доплат и скрытых платежей."},
+		{"Можно ли послушать песню до оплаты?", "Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось."},
+		{"Сколько времени занимает создание песни?", "Около 10 минут после оплаты. Нейросеть создаёт сразу 4 версии — вы выбираете лучшую."},
+		{"Нужна ли регистрация?", "Нет. Достаточно описать повод и оставить email — ссылка на готовый трек придёт на почту."},
+		{"В каком виде я получу песню?", "4 готовые версии в полном качестве, без водяного знака. Слушайте онлайн, скачивайте и делитесь — ссылки остаются у вас навсегда."},
+	}
+}
+
+// howItWorksBody — серверный HTML /how-it-works: описание процесса плюс видимый FAQ,
+// совпадающий с FAQPage-разметкой (Google требует, чтобы ответы были на странице).
+func (s *SEOInjector) howItWorksBody() string {
+	var b strings.Builder
+	b.WriteString(`<main><h1>Как это работает</h1>`)
+	b.WriteString(`<p>Сначала послушайте, потом платите. Соберите запрос (категория или конструктор: жанр, настроение, темп, вокал), опишите повод и оставьте email. Через пару минут на странице заказа появится бесплатное демо — самый яркий фрагмент будущей песни. Понравилось — оплачиваете один раз, и нейросеть выдаёт 4 уникальные версии без водяного знака за ~10 минут. Слушайте, скачивайте и делитесь — ссылки остаются у вас навсегда.</p>`)
+	b.WriteString(`<h2>Частые вопросы</h2>`)
+	for _, it := range s.faqItems() {
+		fmt.Fprintf(&b, `<h3>%s</h3><p>%s</p>`, text(it.q), text(it.a))
+	}
+	b.WriteString(`</main>`)
+	return b.String()
+}
+
+// absoluteURL приводит ссылку к абсолютной: внешние (http/https) возвращает как
+// есть, относительные дополняет базовым URL хоста запроса. Пустую строку — как есть.
+func absoluteURL(baseURL, u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" || strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+		return u
+	}
+	if baseURL == "" {
+		return u
+	}
+	if !strings.HasPrefix(u, "/") {
+		u = "/" + u
+	}
+	return baseURL + u
 }
 
 // attr экранирует строку для подстановки в HTML-атрибут (внутри двойных кавычек).

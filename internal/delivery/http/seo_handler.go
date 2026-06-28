@@ -61,9 +61,11 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
+	b.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">` + "\n")
 
-	add := func(loc, priority, freq string) {
+	// addImg добавляет URL с опциональной картинкой (расширение image-sitemap Google
+	// для индексации в Картинках). Пустой imageLoc → обычная запись без image-блока.
+	addImg := func(loc, priority, freq, imageLoc string) {
 		b.WriteString("  <url>\n")
 		b.WriteString("    <loc>")
 		b.WriteString(xmlEscape(loc))
@@ -74,7 +76,15 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 		b.WriteString("    <priority>")
 		b.WriteString(priority)
 		b.WriteString("</priority>\n")
+		if imageLoc != "" {
+			b.WriteString("    <image:image><image:loc>")
+			b.WriteString(xmlEscape(imageLoc))
+			b.WriteString("</image:loc></image:image>\n")
+		}
 		b.WriteString("  </url>\n")
+	}
+	add := func(loc, priority, freq string) {
+		addImg(loc, priority, freq, "")
 	}
 
 	add(base+"/", "1.0", "weekly")
@@ -86,7 +96,7 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("sitemap: не удалось загрузить категории", "err", err)
 	} else {
 		for _, c := range cats {
-			add(base+"/category/"+c.ID(), "0.8", "monthly")
+			addImg(base+"/category/"+c.ID(), "0.8", "monthly", absoluteURL(base, c.CoverImageURL()))
 		}
 	}
 
@@ -95,7 +105,7 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 			h.log.Error("sitemap: не удалось загрузить примеры", "err", err)
 		} else {
 			for _, e := range exs {
-				add(base+"/examples/"+e.ID(), "0.5", "monthly")
+				addImg(base+"/examples/"+e.ID(), "0.5", "monthly", absoluteURL(base, e.CoverURL()))
 			}
 		}
 	}

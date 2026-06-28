@@ -79,6 +79,27 @@ func TestSeoHandler_Sitemap_WithCategories(t *testing.T) {
 	}
 }
 
+func TestSeoHandler_Sitemap_CategoryImage(t *testing.T) {
+	cats := []*domain.Category{
+		domain.RestoreCategory(domain.CategorySnapshot{ID: "wedding", Title: "Свадьба", CoverImageURL: "/images/wedding.jpg"}),
+	}
+	h := newTestSeoHandler(&stubPromptBuilder{categories: cats})
+	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
+	req.Host = "numaestra.ru"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+
+	h.Sitemap(rec, req)
+
+	s := rec.Body.String()
+	if !strings.Contains(s, `xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"`) {
+		t.Error("sitemap должен объявлять image-namespace")
+	}
+	if !strings.Contains(s, "<image:loc>https://numaestra.ru/images/wedding.jpg</image:loc>") {
+		t.Errorf("обложка категории должна попасть в image-sitemap абсолютной ссылкой, got: %s", s)
+	}
+}
+
 func TestSeoHandler_Sitemap_AlwaysIncludesLegalPages(t *testing.T) {
 	h := newTestSeoHandler(&stubPromptBuilder{})
 	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)

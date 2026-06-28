@@ -101,6 +101,19 @@ export function HowItWorksPage() {
     [price_label],
   )
 
+  // FAQ — держите в синхроне с faqItems() на бэкенде (seo_inject.go): там те же
+  // вопросы уходят в FAQPage-разметку, а Google требует, чтобы ответы были видимы.
+  const faq = useMemo(
+    () => [
+      { q: 'Сколько стоит песня на заказ?', a: `Один платёж ${price_label} за 4 уникальные версии трека. Без подписок, доплат и скрытых платежей.` },
+      { q: 'Можно ли послушать песню до оплаты?', a: 'Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось.' },
+      { q: 'Сколько времени занимает создание песни?', a: 'Около 10 минут после оплаты. Нейросеть создаёт сразу 4 версии — вы выбираете лучшую.' },
+      { q: 'Нужна ли регистрация?', a: 'Нет. Достаточно описать повод и оставить email — ссылка на готовый трек придёт на почту.' },
+      { q: 'В каком виде я получу песню?', a: '4 готовые версии в полном качестве, без водяного знака. Слушайте онлайн, скачивайте и делитесь — ссылки остаются у вас навсегда.' },
+    ],
+    [price_label],
+  )
+
   useSeo({
     title: 'Как это работает — демо бесплатно, песня за 10 минут | Numaestra',
     description:
@@ -278,6 +291,26 @@ export function HowItWorksPage() {
             </div>
             <div style={{ fontSize: '12px', color: TEXT3, marginTop: '8px' }}>{m.label}</div>
           </div>
+        ))}
+      </div>
+
+      {/* ═══ FAQ ═══ */}
+      <SectionTitle kicker="Вопросы" title="Частые вопросы" />
+      <div data-reveal className="reveal reveal-up" style={{ display: 'grid', gap: '10px', marginBottom: '52px' }}>
+        {faq.map((item, i) => (
+          <details
+            key={i}
+            className="interactive-card"
+            style={{
+              background: 'linear-gradient(160deg, #101513 0%, #0c0c0c 60%)',
+              border: `1px solid ${BORDER}`, borderRadius: '14px', padding: '16px 18px',
+            }}
+          >
+            <summary style={{ fontSize: '15px', fontWeight: 700, cursor: 'pointer', listStyle: 'none', letterSpacing: '-0.01em' }}>
+              {item.q}
+            </summary>
+            <p style={{ fontSize: '13.5px', color: TEXT2, lineHeight: 1.6, marginTop: '10px' }}>{item.a}</p>
+          </details>
         ))}
       </div>
 

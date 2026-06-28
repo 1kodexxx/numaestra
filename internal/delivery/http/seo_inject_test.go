@@ -77,6 +77,7 @@ func TestSEOInjector_HomeNoRatingWhenEmpty(t *testing.T) {
 func TestSEOInjector_Category(t *testing.T) {
 	cat := domain.RestoreCategory(domain.CategorySnapshot{
 		ID: "wedding", Title: "Свадьба", Description: "Песня на вашу свадьбу",
+		CoverImageURL: "/images/wedding.jpg",
 	})
 	inj := newSEOInjector(&stubPromptBuilder{wizard: cat})
 	html := inj.Render(context.Background(), "/category/wedding", "https://numaestra.ru")
@@ -91,10 +92,73 @@ func TestSEOInjector_Category(t *testing.T) {
 		`schema.org/InStock`,
 		`<link rel="canonical" href="https://numaestra.ru/category/wedding" />`,
 		`<h1>Свадьба — песня на заказ нейросетью</h1>`,
+		// Обложка категории — в Product.image и в og:image (абсолютная ссылка).
+		`"image":"https://numaestra.ru/images/wedding.jpg"`,
+		`<meta property="og:image" content="https://numaestra.ru/images/wedding.jpg" />`,
+		// Хлебные крошки для сниппета Google.
+		`"@type":"BreadcrumbList"`,
+		`"name":"Свадьба"`,
 	}
 	for _, w := range wants {
 		if !strings.Contains(html, w) {
 			t.Errorf("категория: ожидали подстроку %q в HTML", w)
+		}
+	}
+}
+
+func TestSEOInjector_HomeWebSiteJSONLD(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	html := inj.Render(context.Background(), "/", "https://numaestra.ru")
+	for _, w := range []string{`"@type":"WebSite"`, `"inLanguage":"ru-RU"`} {
+		if !strings.Contains(html, w) {
+			t.Errorf("главная: ожидали %q в JSON-LD", w)
+		}
+	}
+}
+
+func TestSEOInjector_HowItWorksFAQ(t *testing.T) {
+	inj := newSEOInjector(&stubPromptBuilder{})
+	html := inj.Render(context.Background(), "/how-it-works", "https://numaestra.ru")
+	if !strings.Contains(html, `"@type":"FAQPage"`) {
+		t.Error("how-it-works должен иметь FAQPage-разметку")
+	}
+	// Ответ должен быть и в разметке, и в видимом серверном теле (требование Google).
+	if !strings.Contains(html, `"@type":"Question"`) {
+		t.Error("FAQPage должен содержать вопросы")
+	}
+	if !strings.Contains(html, "Частые вопросы") {
+		t.Error("видимый серверный FAQ должен присутствовать в теле страницы")
+	}
+}
+
+func TestSEOInjector_ExampleAudioObjectAndCover(t *testing.T) {
+	ex, _ := domain.NewExample("w1", "Свадьба Лены", "wedding", "Тёплая песня", "joy",
+		"https://s3/audio.mp3", "https://s3/cover.webp", 1, true)
+	inj := newSEOInjector(&stubPromptBuilder{}).WithExamples(stubExampleProvider{byID: ex})
+	html := inj.Render(context.Background(), "/examples/w1", "https://numaestra.ru")
+	for _, w := range []string{
+		`"@type":"AudioObject"`,
+		`"contentUrl":"https://s3/audio.mp3"`,
+		`<meta property="og:image" content="https://s3/cover.webp" />`,
+		`"@type":"BreadcrumbList"`,
+	} {
+		if !strings.Contains(html, w) {
+			t.Errorf("пример: ожидали %q в HTML", w)
+		}
+	}
+}
+
+func TestAbsoluteURL(t *testing.T) {
+	cases := []struct{ base, in, want string }{
+		{"https://numaestra.ru", "/images/x.jpg", "https://numaestra.ru/images/x.jpg"},
+		{"https://numaestra.ru", "images/x.jpg", "https://numaestra.ru/images/x.jpg"},
+		{"https://numaestra.ru", "https://s3/cover.webp", "https://s3/cover.webp"},
+		{"https://numaestra.ru", "", ""},
+		{"", "/x.jpg", "/x.jpg"},
+	}
+	for _, c := range cases {
+		if got := absoluteURL(c.base, c.in); got != c.want {
+			t.Errorf("absoluteURL(%q,%q)=%q, want %q", c.base, c.in, got, c.want)
 		}
 	}
 }
