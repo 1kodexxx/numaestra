@@ -44,3 +44,7 @@ frontend/playwright/.cache/
 
 # Артефакты веб-скрейпинга (firecrawl)
 .firecrawl/
+
+# Go coverage profiles (артефакты go test -coverprofile)
+cov
+coverage.out
