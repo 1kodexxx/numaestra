@@ -4,7 +4,9 @@ import { publicConfigApi, type PublicConfig } from '@entities/public-config/api'
 const FALLBACK: PublicConfig = {
   price_kopecks: 200_000,
   price_label: '2 000 ₽',
-  consent_doc_version: '2026-06-01',
+  // Держите в синхроне с domain.CurrentConsentDocVersion: при сбое /public/config
+  // фронт отправит эту версию, и она должна совпасть с серверной валидацией.
+  consent_doc_version: '2026-06-28',
 }
 
 let cached: PublicConfig | null = null
