@@ -23,6 +23,28 @@ declare global {
 
 let loaded = false
 
+// Ключ согласия на аналитические cookie. Метрика подключается ТОЛЬКО после него.
+const CONSENT_KEY = 'numaestra_analytics_consent'
+
+/** Дал ли пользователь согласие на аналитические cookie (cookie-баннер). */
+export function hasAnalyticsConsent(): boolean {
+  try {
+    return localStorage.getItem(CONSENT_KEY) === 'granted'
+  } catch {
+    return false
+  }
+}
+
+/** Сохраняет согласие и подключает Метрику. Вызывается из cookie-баннера. */
+export function grantAnalyticsConsent(): void {
+  try {
+    localStorage.setItem(CONSENT_KEY, 'granted')
+  } catch {
+    // localStorage недоступен (приватный режим) — подключим хотя бы на сессию.
+  }
+  loadMetrika()
+}
+
 function counterId(): number | null {
   const raw = import.meta.env.VITE_YM_COUNTER_ID
   if (!raw) return null

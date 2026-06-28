@@ -2,10 +2,11 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import { Navbar } from '@widgets/navbar'
 import { Footer } from '@widgets/footer'
+import { CookieConsent } from '@widgets/cookie-consent'
 import { AppRouter } from './router/AppRouter'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
-import { hitPage, loadMetrika } from '@shared/lib/analytics'
+import { hasAnalyticsConsent, hitPage, loadMetrika } from '@shared/lib/analytics'
 
 /* Структурированные данные (JSON-LD) для поисковиков — инжектим один раз
    с актуальным origin, поэтому корректно при любом домене. */
@@ -57,8 +58,10 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname.startsWith('/admin')
   const isFullscreen = pathname === '/' || pathname.startsWith('/category/')
 
+  // Метрику подключаем только если согласие уже дано ранее. Новый посетитель
+  // увидит cookie-баннер; согласие включит её через grantAnalyticsConsent().
   useEffect(() => {
-    loadMetrika()
+    if (hasAnalyticsConsent()) loadMetrika()
   }, [])
 
   useEffect(() => {
@@ -92,6 +95,7 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
           {!isFullscreen && <Footer />}
         </div>
       </div>
+      <CookieConsent />
     </div>
   )
 }
