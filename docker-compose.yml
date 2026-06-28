@@ -23,6 +23,7 @@ x-app-env: &app-env
   S3_BUCKET: ${S3_BUCKET:-numaestra-tracks}
   S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
   S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+  S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   # Email клиенту о готовности заказа (пустой SMTP_HOST → заглушка, только лог).
@@ -35,6 +36,8 @@ x-app-env: &app-env
   SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
   # Абсолютный URL сайта для ссылок в письмах (обязателен при SMTP в prod).
   PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+  # Email админа для служебных уведомлений (новая оплата, демо, провал генерации).
+  ADMIN_NOTIFY_EMAIL: ${ADMIN_NOTIFY_EMAIL:-}
   # В dev с пустым ключом используется небезопасный дев-ключ (предупреждение в логе).
   # В prod обязателен: openssl rand -hex 32
   SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
