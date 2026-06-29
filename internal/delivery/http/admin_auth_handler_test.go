@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/numaestra/numaestra/pkg/adminsession"
 )
 
@@ -43,6 +45,31 @@ func TestAdminAuthHandler_Login_Success(t *testing.T) {
 	login, ok := adminsession.Verify(testAdminSessionSecret, cookies[0].Value)
 	if !ok || login != "owner" {
 		t.Errorf("токен в cookie должен быть валиден с login=owner, получили login=%q ok=%v", login, ok)
+	}
+}
+
+func TestAdminAuthHandler_Login_BcryptHashInEnv(t *testing.T) {
+	// ADMIN_PASSWORD задан как bcrypt-хэш (рекомендуемый прод-вариант: в env нет
+	// открытого пароля). Вход по исходному паролю работает, неверный — отклоняется.
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("GenerateFromPassword: %v", err)
+	}
+	h := NewAdminAuthHandler("owner", string(hash), testAdminSessionSecret, false, discardAdminLogger())
+	router := h.Routes()
+
+	r := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"login":"owner","password":"correct-password"}`))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("вход по bcrypt-хэшу в env: ожидали 200, получили %d (%s)", w.Code, w.Body.String())
+	}
+
+	r2 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"login":"owner","password":"wrong"}`))
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Errorf("неверный пароль при хэше в env: ожидали 401, получили %d", w2.Code)
 	}
 }
 

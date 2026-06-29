@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/numaestra/numaestra/pkg/adminsession"
 )
@@ -20,8 +22,11 @@ const adminSessionTTL = 12 * time.Hour
 // для фронтенда /admin. Использует подписанные stateless-токены (см. pkg/adminsession) —
 // сравнение логина/пароля и подписи токена выполняется за константное время.
 type AdminAuthHandler struct {
-	login         string
-	password      string
+	login string
+	// passwordHash — bcrypt-хэш пароля. Если ADMIN_PASSWORD задан как bcrypt-хэш
+	// ($2a/$2b/$2y), берётся как есть (в env нет открытого пароля). Если plaintext —
+	// хэшируется на старте (защита от перебора; но в env остаётся открытый пароль).
+	passwordHash  []byte
 	sessionSecret []byte
 	// secureCookie выставляет флаг Secure у cookie. Должен быть true везде,
 	// кроме локальной dev-разработки по http (иначе браузер не примет cookie за TLS).
@@ -35,11 +40,33 @@ type AdminAuthHandler struct {
 func NewAdminAuthHandler(login, password string, sessionSecret []byte, secureCookie bool, log *slog.Logger) *AdminAuthHandler {
 	return &AdminAuthHandler{
 		login:         login,
-		password:      password,
+		passwordHash:  adminPasswordHash(password, log),
 		sessionSecret: sessionSecret,
 		secureCookie:  secureCookie,
 		log:           log,
 	}
+}
+
+// adminPasswordHash возвращает bcrypt-хэш для проверки пароля. Если password уже
+// bcrypt-хэш — берёт его как есть; если plaintext — хэширует на старте. Пустой
+// password или ошибка хэширования → nil (вход отключён).
+func adminPasswordHash(password string, log *slog.Logger) []byte {
+	if password == "" {
+		return nil
+	}
+	if isBcryptHash(password) {
+		return []byte(password)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Error("admin: не удалось захэшировать ADMIN_PASSWORD — вход отключён", "err", err)
+		return nil
+	}
+	return hash
+}
+
+func isBcryptHash(s string) bool {
+	return strings.HasPrefix(s, "$2a$") || strings.HasPrefix(s, "$2b$") || strings.HasPrefix(s, "$2y$")
 }
 
 // WithRedis подключает распределённый rate-limit для /login (на всех инстансах
@@ -88,8 +115,9 @@ func (h *AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Пустые ADMIN_LOGIN/ADMIN_PASSWORD в конфиге означают "вход отключён" —
 	// без этой проверки пустые учётные данные на входе совпали бы с пустыми
 	// в конфиге и пропустили бы любого.
-	if h.login == "" || h.password == "" ||
-		!constantTimeEqual(req.Login, h.login) || !constantTimeEqual(req.Password, h.password) {
+	if h.login == "" || len(h.passwordHash) == 0 ||
+		!constantTimeEqual(req.Login, h.login) ||
+		bcrypt.CompareHashAndPassword(h.passwordHash, []byte(req.Password)) != nil {
 		h.log.Warn("admin: неудачная попытка входа", "ip", clientIP(r))
 		respondError(w, r, http.StatusUnauthorized, "неверный логин или пароль")
 		return
