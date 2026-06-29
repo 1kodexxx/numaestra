@@ -65,7 +65,14 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!isAdmin) hitPage(pathname + window.location.search)
+    if (isAdmin) return
+    // Не отправляем access-токен заказа (?token=) в Метрику — это capability-токен,
+    // ему не место у третьей стороны. На /status фронт его всё равно тут же
+    // вычищает из URL, но отправку в аналитику страхуем здесь, у источника.
+    const params = new URLSearchParams(window.location.search)
+    params.delete('token')
+    const qs = params.toString()
+    hitPage(pathname + (qs ? `?${qs}` : ''))
   }, [pathname, isAdmin])
 
   // При навигации всегда открываем страницу с верха. Скролл живёт во вложенном

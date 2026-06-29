@@ -1,7 +1,14 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useLocation } from 'react-router-dom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatusPage } from './StatusPage'
+
+// Печатает текущий URL роутера — для проверки, что токен вычищен из адресной строки.
+function LocationProbe() {
+  const loc = useLocation()
+  return <div data-testid="loc">{loc.pathname + loc.search + loc.hash}</div>
+}
 import { orderApi } from '@entities/order'
 import { orderStorage } from '@shared/lib/storage'
 import { renderWithRouter } from '@test/renderWithRouter'
@@ -164,6 +171,42 @@ describe('StatusPage', () => {
       expect(screen.getByText('Ваша песня готова!')).toBeInTheDocument()
     })
     expect(orderApi.getById).toHaveBeenCalledWith(ORDER_ID, ACCESS_TOKEN)
+  })
+
+  it('читает токен из fragment (#token=) и открывает заказ', async () => {
+    vi.mocked(orderApi.getById).mockResolvedValue(completedOrder())
+
+    renderWithRouter(<StatusPage />, {
+      route: `/status/${ORDER_ID}#token=${ACCESS_TOKEN}`,
+      path: '/status/:orderId',
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Ваша песня готова!')).toBeInTheDocument()
+    })
+    expect(orderStorage.getAccessToken()).toBe(ACCESS_TOKEN)
+    expect(orderApi.getById).toHaveBeenCalledWith(ORDER_ID, ACCESS_TOKEN)
+  })
+
+  it('убирает токен из адресной строки после загрузки (replace)', async () => {
+    vi.mocked(orderApi.getById).mockResolvedValue(completedOrder())
+
+    renderWithRouter(
+      <>
+        <StatusPage />
+        <LocationProbe />
+      </>,
+      { route: `/status/${ORDER_ID}?token=${ACCESS_TOKEN}`, path: '/status/:orderId' },
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Ваша песня готова!')).toBeInTheDocument()
+    })
+    // токен сохранён в storage, но из адресной строки вычищен
+    expect(orderStorage.getAccessToken()).toBe(ACCESS_TOKEN)
+    await waitFor(() => {
+      expect(screen.getByTestId('loc').textContent).not.toContain('token')
+    })
   })
 
   it('не подставляет старый заказ из localStorage при битой ссылке из письма', async () => {

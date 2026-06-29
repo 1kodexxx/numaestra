@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { clearPaidPending, isPaidPending, markPaidPending } from '@shared/lib/paidPending'
 import { orderStorage } from '@shared/lib/storage'
@@ -34,15 +34,41 @@ const DEMO_PAY_UNBLOCK_MS = 240_000
 export function StatusPage() {
   const { orderId: pathOrderId } = useParams<{ orderId?: string }>()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const navigate = useNavigate()
 
   const queryOrderId = searchParams.get('order_id')
-  const urlToken = searchParams.get('token')
   const orderIdFromUrl = queryOrderId ?? pathOrderId ?? null
+
+  // Access-токен из URL читаем ОДИН раз при монтировании: сначала из fragment
+  // (#token=, новые share-ссылки — fragment не уходит в Referer/логи прокси/
+  // Метрику), затем из query (?token=, письма через RuSender, который надёжнее
+  // держит query, чем fragment). Берём из роутерной локации, а не window.location,
+  // чтобы корректно работало и под MemoryRouter (тесты).
+  const [urlToken] = useState<string | null>(() => {
+    const fromQuery = new URLSearchParams(location.search).get('token')
+    if (fromQuery) return fromQuery
+    const m = location.hash.match(/(?:^#|&)token=([^&]+)/)
+    return m ? decodeURIComponent(m[1]) : null
+  })
 
   useEffect(() => {
     if (orderIdFromUrl && urlToken) orderStorage.saveOrder(orderIdFromUrl, urlToken)
   }, [orderIdFromUrl, urlToken])
+
+  // Безопасность: сразу убираем токен из адресной строки через replace (без новой
+  // записи в истории — под BrowserRouter это history.replaceState), чтобы токен не
+  // оседал в истории браузера, не уходил в same-origin Referer и в аналитику.
+  // Работает и для query (?token=), и для fragment (#token=); прочие параметры
+  // (paid/OutSum/InvId) сохраняем. Заказ к этому моменту уже в localStorage (выше).
+  useEffect(() => {
+    if (!urlToken) return
+    const params = new URLSearchParams(location.search)
+    if (!params.has('token') && !location.hash.includes('token=')) return
+    params.delete('token')
+    const qs = params.toString()
+    navigate(location.pathname + (qs ? `?${qs}` : ''), { replace: true })
+  }, [urlToken, location.pathname, location.search, location.hash, navigate])
 
   // Click-tracking в письмах (RuSender) иногда съедает order_id из query.
   // Если token есть, а id нет — не подставляем старый заказ из localStorage.
@@ -560,7 +586,10 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
 function SaveOrderLink({ orderId }: { orderId: string }) {
   const token = orderStorage.getAccessToken()
   if (!token) return null
-  const link = `${window.location.origin}/status/${orderId}?token=${token}`
+  // Токен во fragment (#), а не в query (?): fragment не уходит в Referer, логи
+  // прокси и историю — при открытии ссылки фронт переложит его в localStorage и
+  // вычистит из адресной строки (см. StatusPage).
+  const link = `${window.location.origin}/status/${orderId}#token=${token}`
 
   return (
     <div style={{

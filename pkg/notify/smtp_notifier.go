@@ -351,6 +351,14 @@ func (n *SmtpNotifier) buildAccessLinkBody(notif AccessLinkNotification) string 
 // orderStatusURL формирует абсолютную ссылку на страницу статуса заказа.
 // UUID в path переживает click-tracking RuSender лучше, чем order_id в query
 // (трекер часто обрезает query → фронт падал на старый заказ из localStorage).
+//
+// Токен в письмах НАМЕРЕННО передаём в query (?token=), а не во fragment (#token=):
+// click-трекер RuSender надёжнее сохраняет query, а fragment вообще не доходит до
+// сервера и часто теряется при переписывании ссылки. Утечку токена закрывает
+// фронт: при открытии /status он сразу перекладывает токен в localStorage и
+// вычищает его из адресной строки (history.replaceState), поэтому в историю,
+// Referer и аналитику токен не попадает. Share-ссылки (без трекера) используют
+// fragment напрямую — см. StatusPage. Менять формат X-Access-Token в API не нужно.
 func (n *SmtpNotifier) orderStatusURL(orderID, accessToken string) string {
 	path := "/status/" + orderID
 	if accessToken != "" {
