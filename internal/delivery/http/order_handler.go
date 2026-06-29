@@ -96,7 +96,11 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.With(APIRateLimiter(h.rdb, 5, time.Hour, 1, 3)).
 			Post("/{id}/access-link", h.RequestAccessLink)
 		// Резолв UUID заказа по номеру счёта — для PaymentReturnPage на новом устройстве.
-		r.Get("/by-invoice/{invoiceId}", h.GetOrderByInvoice)
+		// Жёсткий лимит 10/час/IP: InvId последователен, и без этого лимита перебором
+		// можно собирать UUID существующих заказов. Легитимный трафик сюда единичный
+		// (вызывается только как fallback, когда нет invoice-map в localStorage).
+		r.With(APIRateLimiter(h.rdb, 10, time.Hour, 0.1, 10)).
+			Get("/by-invoice/{invoiceId}", h.GetOrderByInvoice)
 	})
 
 	r.Group(func(r chi.Router) {
@@ -816,19 +820,33 @@ func (h *OrderHandler) ListOrders(w http.ResponseWriter, r *http.Request) {
 
 // GetOrderByInvoice возвращает ID заказа по номеру счёта Robokassa (InvId).
 // Используется PaymentReturnPage когда localStorage не содержит invoice map
-// (другой браузер, очищенное хранилище, мобильный Safari в private mode).
-// Отдаёт только order UUID — без email/phone/brief.
+// (другой браузер, очищенное хранилище, мобильный Safari в private mode):
+// после возврата с оплаты страница резолвит UUID заказа по InvId и открывает
+// его статус. Отдаёт только order UUID — без email/phone/brief.
+//
+// Безопасность: InvId последователен, поэтому endpoint жёстко ограничен по частоте
+// (10 запросов/час/IP, см. Routes) — иначе перебором можно собирать UUID
+// существующих заказов. Сделать «есть» и «нет» полностью неотличимыми нельзя:
+// смысл endpoint'а — вернуть UUID существующего заказа, так что 200 vs 404
+// неизбежны; именно rate-limit здесь основная защита. Невалидный и
+// несуществующий InvId отвечают ОДИНАКОВО (404 «заказ не найден»), чтобы не
+// раскрывать деталей разбора, а 404-промахи логируются как сигнал перебора.
 // GET /api/v1/orders/by-invoice/{invoiceId}
 func (h *OrderHandler) GetOrderByInvoice(w http.ResponseWriter, r *http.Request) {
 	invParam := chi.URLParam(r, "invoiceId")
 	invoiceID, err := strconv.ParseInt(invParam, 10, 64)
 	if err != nil || invoiceID <= 0 {
-		respondError(w, r, http.StatusBadRequest, "некорректный номер счёта")
+		respondError(w, r, http.StatusNotFound, "заказ не найден")
 		return
 	}
 
 	order, err := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID)
 	if err != nil {
+		// Для этого endpoint'а 404 — основной сигнал перебора: легитимный
+		// пользователь приходит с реальным InvId. Объём логов ограничен сверху
+		// rate-limit'ом (≤10/час/IP), поэтому шума не создаёт.
+		h.log.Warn("by-invoice: заказ не найден (возможен перебор InvId)",
+			"invoice_id", invoiceID, "ip", clientIP(r))
 		respondError(w, r, http.StatusNotFound, "заказ не найден")
 		return
 	}

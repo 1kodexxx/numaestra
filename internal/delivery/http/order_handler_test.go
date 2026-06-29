@@ -1116,3 +1116,65 @@ func (hTxManager) Do(ctx context.Context, fn func(ctx context.Context) error) er
 }
 
 var _ usecase.TransactionManager = hTxManager{}
+
+// --- GetOrderByInvoice (резолв UUID по InvId, TASK-SEC-02) ---
+
+func TestHandler_GetOrderByInvoice_FoundReturnsUUID(t *testing.T) {
+	h, router, _ := newTestHandler(t)
+	order, err := h.uc.CreateOrder(context.Background(), "user@example.com", "", "Бриф", "", domain.CurrentConsentDocVersion, "", "", nil)
+	if err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/by-invoice/%d", order.InvoiceID()), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PaymentReturn: ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("разбор ответа: %v", err)
+	}
+	if resp["id"] != order.ID().String() {
+		t.Errorf("ожидали UUID %s, получили %q", order.ID().String(), resp["id"])
+	}
+}
+
+func TestHandler_GetOrderByInvoice_UnifiedNotFound(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+
+	// Невалидный и несуществующий InvId отвечают одинаково (404), чтобы не
+	// раскрывать детали разбора. Существование заказа скрыть нельзя (смысл
+	// endpoint'а), но «не число», «<=0» и «нет такого» неотличимы.
+	for _, inv := range []string{"not-a-number", "0", "-7", "4242424242"} {
+		req := httptest.NewRequest(http.MethodGet, "/by-invoice/"+inv, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("InvId %q: ожидали 404, получили %d", inv, rec.Code)
+		}
+	}
+}
+
+func TestHandler_GetOrderByInvoice_RateLimited(t *testing.T) {
+	_, router, _ := newTestHandler(t)
+
+	// Перебор InvId с одного IP должен блокироваться (429). В тесте Redis нет →
+	// APIRateLimiter падает на in-memory limiter (burst 10), 11-й быстрый запрос
+	// отбивается. RemoteAddr у httptest стабилен, поэтому это «один IP».
+	var got429 bool
+	for i := 0; i < 15; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/by-invoice/777777", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	if !got429 {
+		t.Fatal("ожидали 429 после серии запросов к /by-invoice — перебор InvId должен блокироваться")
+	}
+}
