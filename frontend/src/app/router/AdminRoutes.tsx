@@ -1,18 +1,18 @@
-import { lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminLayout } from '@widgets/admin-layout'
+import { lazyWithReload } from '@shared/lib/lazyWithReload'
 
-const AdminLoginPage = lazy(() => import('@pages/admin/login/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })))
-const AdminDashboardPage = lazy(() => import('@pages/admin/dashboard/AdminDashboardPage').then((m) => ({ default: m.AdminDashboardPage })))
-const AdminExamplesPage = lazy(() => import('@pages/admin/examples/AdminExamplesPage').then((m) => ({ default: m.AdminExamplesPage })))
-const AdminReviewsPage = lazy(() => import('@pages/admin/reviews/AdminReviewsPage').then((m) => ({ default: m.AdminReviewsPage })))
-const AdminCategoriesPage = lazy(() => import('@pages/admin/categories/AdminCategoriesPage').then((m) => ({ default: m.AdminCategoriesPage })))
-const AdminCategoryEditPage = lazy(() => import('@pages/admin/categories/AdminCategoryEditPage').then((m) => ({ default: m.AdminCategoryEditPage })))
-const AdminOrdersPage = lazy(() => import('@pages/admin/orders/AdminOrdersPage').then((m) => ({ default: m.AdminOrdersPage })))
-const AdminOrderDetailPage = lazy(() => import('@pages/admin/orders/AdminOrderDetailPage').then((m) => ({ default: m.AdminOrderDetailPage })))
-const AdminGenresPage = lazy(() => import('@pages/admin/genres/AdminGenresPage').then((m) => ({ default: m.AdminGenresPage })))
-const AdminAccountsPage = lazy(() => import('@pages/admin/accounts/AdminAccountsPage').then((m) => ({ default: m.AdminAccountsPage })))
-const AdminPromoCodesPage = lazy(() => import('@pages/admin/promo-codes/AdminPromoCodesPage').then((m) => ({ default: m.AdminPromoCodesPage })))
+const AdminLoginPage = lazyWithReload(() => import('@pages/admin/login/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })))
+const AdminDashboardPage = lazyWithReload(() => import('@pages/admin/dashboard/AdminDashboardPage').then((m) => ({ default: m.AdminDashboardPage })))
+const AdminExamplesPage = lazyWithReload(() => import('@pages/admin/examples/AdminExamplesPage').then((m) => ({ default: m.AdminExamplesPage })))
+const AdminReviewsPage = lazyWithReload(() => import('@pages/admin/reviews/AdminReviewsPage').then((m) => ({ default: m.AdminReviewsPage })))
+const AdminCategoriesPage = lazyWithReload(() => import('@pages/admin/categories/AdminCategoriesPage').then((m) => ({ default: m.AdminCategoriesPage })))
+const AdminCategoryEditPage = lazyWithReload(() => import('@pages/admin/categories/AdminCategoryEditPage').then((m) => ({ default: m.AdminCategoryEditPage })))
+const AdminOrdersPage = lazyWithReload(() => import('@pages/admin/orders/AdminOrdersPage').then((m) => ({ default: m.AdminOrdersPage })))
+const AdminOrderDetailPage = lazyWithReload(() => import('@pages/admin/orders/AdminOrderDetailPage').then((m) => ({ default: m.AdminOrderDetailPage })))
+const AdminGenresPage = lazyWithReload(() => import('@pages/admin/genres/AdminGenresPage').then((m) => ({ default: m.AdminGenresPage })))
+const AdminAccountsPage = lazyWithReload(() => import('@pages/admin/accounts/AdminAccountsPage').then((m) => ({ default: m.AdminAccountsPage })))
+const AdminPromoCodesPage = lazyWithReload(() => import('@pages/admin/promo-codes/AdminPromoCodesPage').then((m) => ({ default: m.AdminPromoCodesPage })))
 
 export function AdminRoutes() {
   return (

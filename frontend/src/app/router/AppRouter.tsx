@@ -1,21 +1,22 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { Spinner } from '@shared/ui'
+import { lazyWithReload } from '@shared/lib/lazyWithReload'
 import { CatalogPage } from '@pages/catalog'
 import { AdminRoot } from '@pages/admin'
 import { StatusOrderSkeleton } from '@pages/status'
 import { AdminRoutes } from './AdminRoutes'
 
-const CategoryPage = lazy(() => import('@pages/category').then((m) => ({ default: m.CategoryPage })))
-const ExampleDetailPage = lazy(() => import('@pages/examples').then((m) => ({ default: m.ExampleDetailPage })))
-const ReviewsPage = lazy(() => import('@pages/reviews').then((m) => ({ default: m.ReviewsPage })))
-const HowItWorksPage = lazy(() => import('@pages/how-it-works').then((m) => ({ default: m.HowItWorksPage })))
-const SharePage = lazy(() => import('@pages/share').then((m) => ({ default: m.SharePage })))
-const StatusPage = lazy(() => import('@pages/status').then((m) => ({ default: m.StatusPage })))
-const LegalPage = lazy(() => import('@pages/legal').then((m) => ({ default: m.LegalPage })))
-const OrderSuccessPage = lazy(() => import('@pages/payment').then((m) => ({ default: m.OrderSuccessPage })))
-const OrderFailPage = lazy(() => import('@pages/payment').then((m) => ({ default: m.OrderFailPage })))
-const NotFoundPage = lazy(() => import('@pages/not-found').then((m) => ({ default: m.NotFoundPage })))
+const CategoryPage = lazyWithReload(() => import('@pages/category').then((m) => ({ default: m.CategoryPage })))
+const ExampleDetailPage = lazyWithReload(() => import('@pages/examples').then((m) => ({ default: m.ExampleDetailPage })))
+const ReviewsPage = lazyWithReload(() => import('@pages/reviews').then((m) => ({ default: m.ReviewsPage })))
+const HowItWorksPage = lazyWithReload(() => import('@pages/how-it-works').then((m) => ({ default: m.HowItWorksPage })))
+const SharePage = lazyWithReload(() => import('@pages/share').then((m) => ({ default: m.SharePage })))
+const StatusPage = lazyWithReload(() => import('@pages/status').then((m) => ({ default: m.StatusPage })))
+const LegalPage = lazyWithReload(() => import('@pages/legal').then((m) => ({ default: m.LegalPage })))
+const OrderSuccessPage = lazyWithReload(() => import('@pages/payment').then((m) => ({ default: m.OrderSuccessPage })))
+const OrderFailPage = lazyWithReload(() => import('@pages/payment').then((m) => ({ default: m.OrderFailPage })))
+const NotFoundPage = lazyWithReload(() => import('@pages/not-found').then((m) => ({ default: m.NotFoundPage })))
 
 function PageFallback() {
   return (

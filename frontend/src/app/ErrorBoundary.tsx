@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { reloadOnceForChunkError } from '@shared/lib/lazyWithReload'
 
 interface State { hasError: boolean }
 
@@ -7,11 +8,15 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   state: State = { hasError: false }
 
   static getDerivedStateFromError(): State {
+    // Всегда выставляем фолбэк (без петли ре-рендера). Для устаревшего чанка
+    // componentDidCatch тут же перезагрузит страницу — фолбэк мелькнёт на миг.
     return { hasError: true }
   }
 
   componentDidCatch(error: unknown) {
-    // eslint-disable-next-line no-console
+    // Тихое восстановление: если упал устаревший чанк после деплоя — один раз
+    // перезагружаемся (подтянется свежий билд), фолбэк не задерживается.
+    if (reloadOnceForChunkError(error)) return
     console.error('UI error:', error)
   }
 
