@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAdminSession } from '@features/admin-session'
-import { Spinner } from '@shared/ui'
+import { BrandMark, Spinner } from '@shared/ui'
 import { useSeo } from '@shared/lib/seo'
 import { A } from './AdminUI'
 import './admin-responsive.css'
@@ -98,12 +98,7 @@ export function AdminLayout() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 6px', marginBottom: '28px' }}>
-          <span style={{
-            width: 34, height: 34, borderRadius: '10px',
-            background: 'linear-gradient(135deg, #00e5c0, #00bfa5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '17px', boxShadow: '0 4px 14px rgba(0,229,192,0.3)',
-          }}>🎵</span>
+          <BrandMark size={30} />
           <div>
             <div style={{ fontSize: '16px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1 }}>Numaestra</div>
             <div style={{ fontSize: '11px', color: A.txt3, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: '3px' }}>Admin</div>
