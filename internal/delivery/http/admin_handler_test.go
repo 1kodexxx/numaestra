@@ -880,3 +880,7 @@ func (s *deleteTrackingStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID
 func (s *deleteTrackingStorage) DeleteByURL(_ context.Context, _ string) error {
 	return nil
 }
+
+func (s *deleteTrackingStorage) ResolvePlayURL(_ context.Context, storedURL string, _ time.Duration) (string, error) {
+	return storedURL, nil
+}

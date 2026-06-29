@@ -158,7 +158,8 @@ func run(ctx context.Context) error {
 	llmClient := openai.NewNoopClient()
 
 	s3Client := s3.NewResilientClient(cfg.S3.Endpoint, cfg.S3.Region, cfg.S3.Bucket, cfg.S3.AccessKey, cfg.S3.SecretKey).
-		WithPublicBaseURL(cfg.S3.PublicBaseURL)
+		WithPublicBaseURL(cfg.S3.PublicBaseURL).
+		WithPresign(cfg.S3.PresignEnabled)
 
 	// Notifier: SMTP если SMTP_HOST задан, иначе заглушка-логгер.
 	var notifier notify.Notifier
@@ -343,7 +344,8 @@ func run(ctx context.Context) error {
 
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
 		WithIdempotency(idempotency.NewStore(rdb)).
-		WithRedis(rdb)
+		WithRedis(rdb).
+		WithTrackStorage(s3Client, cfg.S3.PresignTTL)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log).WithRedis(rdb)
 	genreHandler := apphttp.NewGenreHandler(genreUC, log).WithRedis(rdb)
 	exampleHandler := apphttp.NewExampleHandler(exampleUC, log).WithRedis(rdb)

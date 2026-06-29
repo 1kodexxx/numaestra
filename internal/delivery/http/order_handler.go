@@ -35,6 +35,11 @@ type OrderHandler struct {
 	// rdb — опциональный Redis-клиент; при наличии включает распределённый rate
 	// limiter и защиту вебхука от replay-атак.
 	rdb *redis.Client
+	// storage — хранилище треков; нужно для presigned-ссылок в ответах с треками.
+	// nil → ссылки отдаются как сохранены в БД (как раньше, без presign).
+	storage domain.TrackStorage
+	// presignTTL — срок действия presigned-ссылки на трек (если presign включён).
+	presignTTL time.Duration
 }
 
 func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client, webhookAllowedNets []*net.IPNet) *OrderHandler {
@@ -51,6 +56,43 @@ func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.C
 func (h *OrderHandler) WithIdempotency(store idempotency.Storer) *OrderHandler {
 	h.idempotency = store
 	return h
+}
+
+// WithTrackStorage подключает хранилище треков и TTL для presigned-ссылок. Если
+// не вызван (или presign в хранилище выключен) — ссылки на треки отдаются как
+// сохранены в БД (постоянные публичные URL, как раньше).
+func (h *OrderHandler) WithTrackStorage(storage domain.TrackStorage, presignTTL time.Duration) *OrderHandler {
+	h.storage = storage
+	h.presignTTL = presignTTL
+	return h
+}
+
+// resolvePlayURL подписывает одиночную ссылку для клиента (трек или демо). При
+// выключенном presign / отсутствии хранилища возвращает сохранённый URL как есть;
+// при ошибке подписи деградирует до сохранённого URL, чтобы не ронять плеер.
+func (h *OrderHandler) resolvePlayURL(ctx context.Context, storedURL string) string {
+	if storedURL == "" || h.storage == nil {
+		return storedURL
+	}
+	resolved, err := h.storage.ResolvePlayURL(ctx, storedURL, h.presignTTL)
+	if err != nil {
+		h.log.Warn("presign: не удалось подписать ссылку", "err", err)
+		return storedURL
+	}
+	return resolved
+}
+
+// trackResponses строит ответы по трекам, подставляя presigned-ссылку для каждого.
+func (h *OrderHandler) trackResponses(ctx context.Context, tracks []domain.Track) []TrackResponse {
+	out := make([]TrackResponse, 0, len(tracks))
+	for _, t := range tracks {
+		out = append(out, TrackResponse{
+			Index:       t.Index,
+			AudioURL:    h.resolvePlayURL(ctx, t.AudioURL),
+			DurationSec: t.DurationSec,
+		})
+	}
+	return out
 }
 
 // WithRedis подключает Redis-клиент, включая распределённый rate limiter и
@@ -435,14 +477,7 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tracks []TrackResponse
-	for _, t := range order.Tracks() {
-		tracks = append(tracks, TrackResponse{
-			Index:       t.Index,
-			AudioURL:    t.AudioURL,
-			DurationSec: t.DurationSec,
-		})
-	}
+	tracks := h.trackResponses(r.Context(), order.Tracks())
 
 	paidAt := ""
 	if t := order.PaidAt(); t != nil {
@@ -461,8 +496,12 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		PaidAt:             paidAt,
 		ShareRevoked:       order.ShareRevoked(),
 		DemoStatus:         string(order.DemoStatus()),
-		DemoURL:            order.DemoURL(),
-		UpdatedAt:          order.UpdatedAt().Format(time.RFC3339),
+		// DemoURL НЕ подписываем: демо — короткий тизер с водяным знаком, показывается
+		// на pending-заказе, который активно опрашивается каждые 10с. Подпись меняла бы
+		// demo_url на каждом опросе и сбрасывала бы воспроизведение демо. demos/* при
+		// presign-режиме оставляем публичными (см. deploy/S3-PRESIGN.md).
+		DemoURL:   order.DemoURL(),
+		UpdatedAt: order.UpdatedAt().Format(time.RFC3339),
 	})
 }
 
@@ -625,14 +664,7 @@ func (h *OrderHandler) GetPublicShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tracks []TrackResponse
-	for _, t := range order.Tracks() {
-		tracks = append(tracks, TrackResponse{
-			Index:       t.Index,
-			AudioURL:    t.AudioURL,
-			DurationSec: t.DurationSec,
-		})
-	}
+	tracks := h.trackResponses(r.Context(), order.Tracks())
 
 	respondJSON(w, http.StatusOK, PublicShareResponse{
 		ID:     order.ID().String(),
@@ -659,13 +691,7 @@ func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 
 	var tracks []TrackResponse
 	if order.GenerationStatus() == domain.GenerationStatusCompleted {
-		for _, t := range order.Tracks() {
-			tracks = append(tracks, TrackResponse{
-				Index:       t.Index,
-				AudioURL:    t.AudioURL,
-				DurationSec: t.DurationSec,
-			})
-		}
+		tracks = h.trackResponses(r.Context(), order.Tracks())
 	}
 
 	paidAt := ""
@@ -685,8 +711,12 @@ func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 		ShareRevoked:       order.ShareRevoked(),
 		Tracks:             tracks,
 		DemoStatus:         string(order.DemoStatus()),
-		DemoURL:            order.DemoURL(),
-		UpdatedAt:          order.UpdatedAt().Format(time.RFC3339),
+		// DemoURL НЕ подписываем: демо — короткий тизер с водяным знаком, показывается
+		// на pending-заказе, который активно опрашивается каждые 10с. Подпись меняла бы
+		// demo_url на каждом опросе и сбрасывала бы воспроизведение демо. demos/* при
+		// presign-режиме оставляем публичными (см. deploy/S3-PRESIGN.md).
+		DemoURL:   order.DemoURL(),
+		UpdatedAt: order.UpdatedAt().Format(time.RFC3339),
 	})
 }
 

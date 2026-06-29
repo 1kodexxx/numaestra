@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { usePollOrderStatus } from '@features/poll-order-status'
 import { clearPaidPending, isPaidPending, markPaidPending } from '@shared/lib/paidPending'
@@ -87,11 +87,21 @@ export function StatusPage() {
     if (active && (justPaid || returnedFromRobokassa)) markPaidPending(active)
   }, [active, justPaid, returnedFromRobokassa])
 
-  const { order, loading, error, canManage, pollingTooLong } = usePollOrderStatus(active, { confirmPayment })
+  const { order, loading, error, canManage, pollingTooLong, refetch } = usePollOrderStatus(active, { confirmPayment })
 
   useEffect(() => {
     if (order?.payment_status !== 'pending') clearPaidPending(order?.id ?? '')
   }, [order?.id, order?.payment_status])
+
+  // Плеер сообщает, что presigned-ссылка протухла (403) — обновляем заказ за
+  // свежими ссылками. Cooldown, чтобы серия ошибок не устроила шквал запросов.
+  const lastRefetchRef = useRef(0)
+  const handleTracksStale = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRefetchRef.current < 5000) return
+    lastRefetchRef.current = now
+    refetch()
+  }, [refetch])
 
   const completedTracked = useRef<string | null>(null)
   useEffect(() => {
@@ -158,6 +168,7 @@ export function StatusPage() {
         confirmAwaitingPayment={confirmPayment}
         canManage={canManage}
         pollingTooLong={pollingTooLong}
+        onTracksStale={handleTracksStale}
         onClear={() => { orderStorage.clear(); setActive(null); setInput('') }}
         onBack={() => navigate('/')}
       />
@@ -269,7 +280,7 @@ function OrdersOverview({ currentId, enabled, onSelect }: { currentId: string; e
 const STEPS   = ['Оплата', 'Очередь', 'Создание', 'Готово']
 const STEPKEYS = ['paid', 'queued', 'processing', 'completed'] as const
 
-function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, pollingTooLong, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; confirmAwaitingPayment?: boolean; canManage: boolean; pollingTooLong?: boolean; onClear: () => void; onBack: () => void }) {
+function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, pollingTooLong, onTracksStale, onClear, onBack }: { order: OrderDetail; justPaid?: boolean; confirmAwaitingPayment?: boolean; canManage: boolean; pollingTooLong?: boolean; onTracksStale?: () => void; onClear: () => void; onBack: () => void }) {
   const gs = order.generation_status
   const ps = order.payment_status
   const awaitingPaymentConfirm = Boolean(confirmAwaitingPayment && ps === 'pending')
@@ -511,7 +522,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
       {/* Player */}
       {gs === 'completed' && order.tracks.length > 0 && (
         <div style={{ marginBottom: '16px' }}>
-          <MusicPlayer tracks={order.tracks} />
+          <MusicPlayer tracks={order.tracks} onStale={onTracksStale} />
         </div>
       )}
 

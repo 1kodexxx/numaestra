@@ -37,6 +37,19 @@ func (r *ResilientClient) WithPublicBaseURL(base string) *ResilientClient {
 	return r
 }
 
+// WithPresign включает выдачу временных подписанных ссылок (см. Client.WithPresign).
+// Чейнинг.
+func (r *ResilientClient) WithPresign(enabled bool) *ResilientClient {
+	r.inner.WithPresign(enabled)
+	return r
+}
+
+// ResolvePlayURL подписывает ссылку на трек для клиента (см. Client.ResolvePlayURL).
+// Подпись — локальная операция (без сети), поэтому retry/circuit breaker не нужны.
+func (r *ResilientClient) ResolvePlayURL(ctx context.Context, storedURL string, ttl time.Duration) (string, error) {
+	return r.inner.ResolvePlayURL(ctx, storedURL, ttl)
+}
+
 const maxRetries = 3
 
 func (r *ResilientClient) UploadFromURL(ctx context.Context, sourceURL, key, contentType string) (string, error) {

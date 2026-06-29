@@ -105,6 +105,14 @@ type S3Config struct {
 	// Формат подбирается под маппинг CDN: если origin = бакет, то "https://cdn.example.com";
 	// если origin path-style, то "https://cdn.example.com/{bucket}".
 	PublicBaseURL string
+	// PresignEnabled включает выдачу временных подписанных ссылок (presigned GET)
+	// на треки вместо постоянных публичных URL. Требует приватного бакета (без
+	// public-read на tracks/*, demos/*). По умолчанию false — dev/staging без
+	// миграции бакета работает как раньше (постоянные публичные ссылки).
+	PresignEnabled bool
+	// PresignTTL — срок действия подписанной ссылки на трек (API/share/status).
+	// 24h достаточно для сессии прослушивания/скачивания.
+	PresignTTL time.Duration
 }
 
 type OpenAIConfig struct {
@@ -203,12 +211,14 @@ func Load() (*Config, error) {
 			Model:  getEnv("SUNO_MODEL", "chirp-v5-5"),
 		},
 		S3: S3Config{
-			Endpoint:      getEnv("S3_ENDPOINT", "https://s3.amazonaws.com"),
-			Region:        getEnv("S3_REGION", "us-east-1"),
-			Bucket:        getEnv("S3_BUCKET", "numaestra-tracks"),
-			AccessKey:     getEnv("S3_ACCESS_KEY", ""),
-			SecretKey:     getEnv("S3_SECRET_KEY", ""),
-			PublicBaseURL: strings.TrimRight(getEnv("S3_PUBLIC_BASE_URL", ""), "/"),
+			Endpoint:       getEnv("S3_ENDPOINT", "https://s3.amazonaws.com"),
+			Region:         getEnv("S3_REGION", "us-east-1"),
+			Bucket:         getEnv("S3_BUCKET", "numaestra-tracks"),
+			AccessKey:      getEnv("S3_ACCESS_KEY", ""),
+			SecretKey:      getEnv("S3_SECRET_KEY", ""),
+			PublicBaseURL:  strings.TrimRight(getEnv("S3_PUBLIC_BASE_URL", ""), "/"),
+			PresignEnabled: getBoolEnv("S3_PRESIGN_ENABLED", false),
+			PresignTTL:     getDurationEnv("S3_PRESIGN_TTL", 24*time.Hour),
 		},
 		OpenAI: OpenAIConfig{
 			BaseURL: getEnv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1"),

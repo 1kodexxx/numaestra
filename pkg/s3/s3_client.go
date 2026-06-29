@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,9 @@ type Client struct {
 	// WithPublicBaseURL. Загрузка/удаление при этом по-прежнему идут на endpoint
 	// (реальный S3-API) — CDN обслуживает только чтение.
 	publicBase string
+	// presignEnabled включает выдачу временных подписанных ссылок (presigned GET)
+	// вместо прямых публичных URL. См. WithPresign/ResolvePlayURL.
+	presignEnabled bool
 	// httpClient — для запросов к самому S3 (PUT). Сюда SSRF-фильтр НЕ применяется:
 	// S3-эндпоинт может быть приватным (например MinIO во внутренней сети).
 	httpClient *http.Client
@@ -78,6 +82,82 @@ func (c *Client) WithPublicBaseURL(base string) *Client {
 // objectURL строит публичную ссылку на объект по его ключу.
 func (c *Client) objectURL(key string) string {
 	return c.publicBase + "/" + key
+}
+
+// WithPresign включает выдачу временных подписанных ссылок (presigned GET) вместо
+// прямых публичных URL. При выключенном presign ResolvePlayURL возвращает
+// сохранённый URL как есть (обратная совместимость и dev без приватного бакета).
+// Чейнинг.
+func (c *Client) WithPresign(enabled bool) *Client {
+	c.presignEnabled = enabled
+	return c
+}
+
+// PresignGetURL возвращает временную подписанную ссылку (AWS SigV4 presigned GET)
+// на объект по ключу key. Подпись передаётся в query string, поэтому на приватном
+// бакете прямой GET без неё вернёт 403, а ссылка протухает через ttl. Ссылка
+// строится на S3-endpoint (path-style, не CDN). Операция локальная (подпись),
+// без обращения к сети.
+func (c *Client) PresignGetURL(_ context.Context, key string, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	u, err := url.Parse(c.endpoint + "/" + c.bucket + "/" + key)
+	if err != nil {
+		return "", fmt.Errorf("presign: некорректный ключ %q: %w", key, err)
+	}
+	canonicalURI := u.EscapedPath()
+
+	now := time.Now().UTC()
+	dateStamp := now.Format("20060102")
+	amzDate := now.Format("20060102T150405Z")
+	credentialScope := fmt.Sprintf("%s/%s/s3/aws4_request", dateStamp, c.region)
+
+	// Канонический query SigV4: параметры отсортированы и URL-кодированы. Используем
+	// один и тот же canonicalQuery и в подписи, и в итоговом URL — самосогласованно.
+	q := url.Values{}
+	q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
+	q.Set("X-Amz-Credential", c.accessKey+"/"+credentialScope)
+	q.Set("X-Amz-Date", amzDate)
+	q.Set("X-Amz-Expires", strconv.Itoa(int(ttl.Seconds())))
+	q.Set("X-Amz-SignedHeaders", "host")
+	canonicalQuery := q.Encode()
+
+	canonicalRequest := strings.Join([]string{
+		http.MethodGet,
+		canonicalURI,
+		canonicalQuery,
+		"host:" + u.Host + "\n",
+		"host",
+		unsignedPayload,
+	}, "\n")
+	stringToSign := strings.Join([]string{
+		"AWS4-HMAC-SHA256",
+		amzDate,
+		credentialScope,
+		hexSHA256([]byte(canonicalRequest)),
+	}, "\n")
+	signingKey := deriveSigningKey(c.secretKey, dateStamp, c.region, "s3")
+	signature := hex.EncodeToString(hmacSHA256(signingKey, []byte(stringToSign)))
+
+	return u.Scheme + "://" + u.Host + canonicalURI + "?" + canonicalQuery + "&X-Amz-Signature=" + signature, nil
+}
+
+// ResolvePlayURL принимает значение audio_url из БД (публичный URL или ключ) и
+// возвращает ссылку для воспроизведения/скачивания клиентом. При выключенном
+// presign возвращает сохранённый URL как есть. При включённом — извлекает ключ
+// объекта из URL (см. keyFromURL, понимает CDN-базу и legacy S3-origin) и
+// подписывает его на ttl. URL не из нашего бакета (внешний / examples) подписать
+// нельзя — отдаём как есть.
+func (c *Client) ResolvePlayURL(ctx context.Context, storedURL string, ttl time.Duration) (string, error) {
+	if !c.presignEnabled || storedURL == "" {
+		return storedURL, nil
+	}
+	key, err := c.keyFromURL(storedURL)
+	if err != nil {
+		return storedURL, nil
+	}
+	return c.PresignGetURL(ctx, key, ttl)
 }
 
 // unsignedPayload — специальное значение x-amz-content-sha256, разрешённое S3

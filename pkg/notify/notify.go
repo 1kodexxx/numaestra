@@ -66,7 +66,9 @@ type OrderCompleteNotification struct {
 	AccessToken string // токен доступа клиента — используется для формирования magic-link
 	Email       string
 	Phone       string
-	TrackURLs   []string // постоянные ссылки на треки в S3
+	// TracksCount — число готовых версий (для текста письма). Прямые ссылки на
+	// mp3 в письме не передаём: при presign они временные, основной путь к трекам —
+	// status-ссылка на сайт.
 	TracksCount int
 }
 

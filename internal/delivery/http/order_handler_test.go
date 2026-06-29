@@ -447,6 +447,45 @@ func TestHandler_GetPublicShare_Success(t *testing.T) {
 	}
 }
 
+// presignStorage — мок TrackStorage, который «подписывает» ссылку (имитация
+// presigned GET) для проверки, что handler подставляет результат ResolvePlayURL.
+type presignStorage struct{}
+
+func (presignStorage) UploadFromURL(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (presignStorage) Upload(context.Context, string, string, []byte) (string, error) { return "", nil }
+func (presignStorage) DeleteOrderTracks(context.Context, uuid.UUID) error             { return nil }
+func (presignStorage) DeleteByURL(context.Context, string) error                      { return nil }
+func (presignStorage) ResolvePlayURL(_ context.Context, storedURL string, _ time.Duration) (string, error) {
+	return storedURL + "?X-Amz-Signature=test", nil
+}
+
+func TestHandler_GetPublicShare_PresignedURLs(t *testing.T) {
+	h, router, repo := newTestHandler(t)
+	h.WithTrackStorage(presignStorage{}, time.Hour)
+
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+	_ = order.MarkPaid()
+	_ = order.Enqueue()
+	_ = order.StartProcessing(uuid.New())
+	_ = order.Complete([]domain.Track{{ID: uuid.New(), Index: 1, AudioURL: "https://cdn/a.mp3", DurationSec: 120}})
+	_ = repo.Update(context.Background(), order)
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/share", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var resp PublicShareResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if len(resp.Tracks) != 1 || !strings.Contains(resp.Tracks[0].AudioURL, "X-Amz-Signature=test") {
+		t.Errorf("при включённом presign share должен отдавать подписанные ссылки, получили %+v", resp.Tracks)
+	}
+}
+
 func TestHandler_GetPublicShare_NoTokenNeeded(t *testing.T) {
 	h, router, repo := newTestHandler(t)
 	order := mustCreate(t, h, "user@example.com", "", "Бриф")

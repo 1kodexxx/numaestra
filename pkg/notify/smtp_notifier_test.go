@@ -128,7 +128,6 @@ func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 	notif := OrderCompleteNotification{
 		OrderID:     "test-order-123",
 		Email:       "user@example.com",
-		TrackURLs:   []string{"https://s3.example.com/track1.mp3", "https://s3.example.com/track2.mp3"},
 		TracksCount: 2,
 	}
 
@@ -161,11 +160,13 @@ func TestSmtpNotifier_NotifyOrderComplete(t *testing.T) {
 	if !strings.Contains(body, "https://numaestra.ru/status/test-order-123") {
 		t.Error("тело письма должно содержать абсолютную ссылку на статус заказа (uuid в path)")
 	}
-	if !strings.Contains(body, "track1.mp3") {
-		t.Error("тело письма должно содержать ссылку на трек")
+	// Прямых mp3-ссылок в письме быть НЕ должно (presigned-ссылки временны):
+	// все версии открываются по status-ссылке (CTA «Слушать все версии»).
+	if strings.Contains(body, ".mp3") {
+		t.Error("в письме не должно быть прямых mp3-ссылок (они протухают при presign)")
 	}
-	if !strings.Contains(body, "Вариант 1") {
-		t.Error("тело письма должно содержать подпись трека")
+	if !strings.Contains(body, "Слушать все версии") {
+		t.Error("тело письма должно содержать CTA на прослушивание всех версий на сайте")
 	}
 	if !strings.Contains(body, "email-logo.png") {
 		t.Error("тело письма должно содержать фирменный логотип")
@@ -297,7 +298,6 @@ func TestNotifyOrderComplete_STARTTLS_Success(t *testing.T) {
 	err := n.NotifyOrderComplete(context.Background(), OrderCompleteNotification{
 		OrderID:     "order-abc",
 		Email:       "customer@example.com",
-		TrackURLs:   []string{"https://cdn.example.com/track1.mp3"},
 		TracksCount: 1,
 	})
 	if err != nil {

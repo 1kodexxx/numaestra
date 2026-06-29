@@ -560,6 +560,10 @@ func (m *mockStorage) DeleteByURL(ctx context.Context, publicURL string) error {
 	return nil
 }
 
+func (m *mockStorage) ResolvePlayURL(_ context.Context, storedURL string, _ time.Duration) (string, error) {
+	return storedURL, nil
+}
+
 var _ domain.TrackStorage = (*mockStorage)(nil)
 
 // --- mock Notifier ---

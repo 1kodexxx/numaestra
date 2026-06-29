@@ -45,7 +45,11 @@ const VolIcon = ({ muted }: { muted: boolean }) => muted ? (
 )
 
 /* ─── main component ─── */
-export function MusicPlayer({ tracks }: { tracks: Track[] }) {
+// onStale вызывается, если аудио не загрузилось (например, presigned-ссылка
+// протухла за >TTL и S3 вернул 403). Родитель обновляет заказ и передаёт свежие
+// presigned-ссылки. Вызов — не чаще одного раза на конкретный audio_url, чтобы
+// свежий (но всё ещё сломанный) src не зациклил перезапрос.
+export function MusicPlayer({ tracks, onStale }: { tracks: Track[]; onStale?: () => void }) {
   const [idx, setIdx]         = useState(0)
   const [playing, setPlaying] = useState(false)
   const [time, setTime]       = useState(0)
@@ -53,6 +57,7 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
   const [vol, setVol]         = useState(0.85)
   const [muted, setMuted]     = useState(false)
   const audioRef  = useRef<HTMLAudioElement>(null)
+  const lastStaleRef = useRef<string | null>(null)
   const [buffering, setBuffering] = useAudioBuffering(audioRef)
 
   // Клампим idx: если tracks стал короче (например, сменился заказ),
@@ -84,13 +89,24 @@ export function MusicPlayer({ tracks }: { tracks: Track[] }) {
       if (idx < tracks.length - 1) { setIdx(i => i + 1); setPlaying(true) }
       else setPlaying(false)
     }
+    // Ошибка загрузки src (часто — протухшая presigned-ссылка, 403). Просим
+    // родителя обновить заказ за свежими ссылками. Один раз на данный URL.
+    const onError = () => {
+      const url = track.audio_url
+      if (url && onStale && lastStaleRef.current !== url) {
+        lastStaleRef.current = url
+        onStale()
+      }
+    }
     el.addEventListener('loadedmetadata', onMeta)
     el.addEventListener('timeupdate', onTime)
     el.addEventListener('ended', onEnd)
+    el.addEventListener('error', onError)
     return () => {
       el.removeEventListener('loadedmetadata', onMeta)
       el.removeEventListener('timeupdate', onTime)
       el.removeEventListener('ended', onEnd)
+      el.removeEventListener('error', onError)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, track?.audio_url, track?.duration_sec, tracks.length])

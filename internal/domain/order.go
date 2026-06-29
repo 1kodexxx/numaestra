@@ -821,4 +821,9 @@ type TrackStorage interface {
 	// Upload/UploadFromURL. Нужно для демо-ассетов, чьи ключи содержат случайный
 	// сегмент и потому не выводятся из orderID. Отсутствие объекта — не ошибка.
 	DeleteByURL(ctx context.Context, publicURL string) error
+	// ResolvePlayURL принимает сохранённый в БД audio_url (публичный URL или ключ)
+	// и возвращает ссылку для воспроизведения/скачивания клиентом. При выключенном
+	// presign — возвращает сохранённый URL как есть; при включённом — временную
+	// подписанную ссылку (presigned GET) со сроком ttl.
+	ResolvePlayURL(ctx context.Context, storedURL string, ttl time.Duration) (string, error)
 }

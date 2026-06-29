@@ -695,17 +695,16 @@ func (uc *OrderUseCase) CheckGenerationStatus(ctx context.Context, orderID uuid.
 	// финальный статус уже сохранён в БД и доступен через API.
 	switch result.Status {
 	case domain.MusicGenerationStatusCompleted:
-		var trackURLs []string
-		for _, t := range order.Tracks() {
-			trackURLs = append(trackURLs, t.AudioURL)
-		}
+		// Прямые mp3-ссылки в письмо НЕ кладём: при включённом presign они
+		// временные и протухнут к моменту, когда клиент откроет письмо. Основной
+		// путь к трекам — status-ссылка на сайт (свежие presigned-ссылки на каждый
+		// заход). См. notify.OrderCompleteNotification и smtp_notifier.
 		if notifyErr := uc.notifier.NotifyOrderComplete(ctx, notify.OrderCompleteNotification{
 			OrderID:     order.ID().String(),
 			AccessToken: order.AccessToken(),
 			Email:       order.CustomerEmail(),
 			Phone:       order.CustomerPhone(),
-			TrackURLs:   trackURLs,
-			TracksCount: len(trackURLs),
+			TracksCount: len(order.Tracks()),
 		}); notifyErr != nil {
 			uc.log.Error("ошибка отправки уведомления об успехе", "order_id", order.ID(), "err", notifyErr)
 		}

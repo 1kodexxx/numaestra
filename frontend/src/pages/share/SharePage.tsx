@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { orderApi } from '@entities/order'
 import type { Track } from '@entities/order'
@@ -31,12 +31,24 @@ export function SharePage() {
     noindex: true,
   })
 
-  useEffect(() => {
+  const load = useCallback(() => {
     orderApi
       .getPublicShare(id)
       .then((res) => setTracks(res.tracks))
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Песня не найдена'))
   }, [id])
+
+  useEffect(() => { load() }, [load])
+
+  // Плеер сообщает о протухшей presigned-ссылке (403) — перезапрашиваем share
+  // за свежими ссылками. Cooldown против шквала запросов при серии ошибок.
+  const lastReloadRef = useRef(0)
+  const handleStale = useCallback(() => {
+    const now = Date.now()
+    if (now - lastReloadRef.current < 5000) return
+    lastReloadRef.current = now
+    load()
+  }, [load])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '40px' }}>
@@ -62,7 +74,7 @@ export function SharePage() {
           </div>
         )}
 
-        {tracks && tracks.length > 0 && <MusicPlayer tracks={tracks} />}
+        {tracks && tracks.length > 0 && <MusicPlayer tracks={tracks} onStale={handleStale} />}
 
         {tracks && tracks.length === 0 && (
           <div style={{ textAlign: 'center', padding: '32px 0', color: TEXT2, fontSize: '14px' }}>

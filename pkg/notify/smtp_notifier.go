@@ -288,30 +288,14 @@ func (n *SmtpNotifier) deliverMessage(client *smtp.Client, auth smtp.Auth, to, m
 func (n *SmtpNotifier) buildBody(notif OrderCompleteNotification) string {
 	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
 
-	var tracks strings.Builder
-	for i, trackURL := range notif.TrackURLs {
-		escaped := html.EscapeString(trackURL)
-		fmt.Fprintf(&tracks,
-			`<tr>
-			  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-			    <a href="%s" style="color:%s;text-decoration:none;font-size:15px;font-weight:600">
-			      Вариант %d →
-			    </a>
-			  </td>
-			</tr>`,
-			escaped, emailAccent, i+1,
-		)
-	}
-
 	hero := emailHero("🎵", "Ваша песня готова!",
 		fmt.Sprintf("%d версии трека ждут вас на сайте", notif.TracksCount))
 
+	// Прямые mp3-ссылки в письмо не добавляем (presigned-ссылки временны) — все
+	// версии открываются в плеере на сайте по status-ссылке ниже.
 	body := emailContentRow("8px 32px 0", emailOrderBadge(shortOrderID(notif.OrderID))) +
-		emailContentRow("28px 32px 8px", fmt.Sprintf(`%s
-              <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">%s</table>
-              %s%s`,
-			emailParagraph("Мы закончили генерацию вашей персональной песни. Все версии доступны в плеере на сайте — ссылки действуют бессрочно."),
-			tracks.String(),
+		emailContentRow("28px 32px 8px", fmt.Sprintf(`%s%s%s`,
+			emailParagraph("Мы закончили генерацию вашей персональной песни. Все версии доступны в плеере на сайте — слушайте и скачивайте."),
 			emailCTAButton(statusURL, "Слушать все версии"),
 			emailCopyLink(statusURL),
 		))
@@ -374,14 +358,7 @@ func (n *SmtpNotifier) buildPlainBody(notif OrderCompleteNotification) string {
 	statusURL := n.orderStatusURL(notif.OrderID, notif.AccessToken)
 	var b strings.Builder
 	fmt.Fprintf(&b, "Здравствуйте!\n\nВаша персональная песня в Numaestra готова — %d версии трека.\n\n", notif.TracksCount)
-	fmt.Fprintf(&b, "Слушать на сайте:\n%s\n\n", statusURL)
-	if len(notif.TrackURLs) > 0 {
-		b.WriteString("Прямые ссылки на треки:\n")
-		for i, u := range notif.TrackURLs {
-			fmt.Fprintf(&b, "  Вариант %d: %s\n", i+1, u)
-		}
-		b.WriteString("\n")
-	}
+	fmt.Fprintf(&b, "Все версии — в плеере на сайте (слушайте и скачивайте):\n%s\n\n", statusURL)
 	b.WriteString("—\nNumaestra · персональные песни на заказ\n")
 	if n.publicAppURL != "" {
 		fmt.Fprintf(&b, "%s\n", n.publicAppURL)

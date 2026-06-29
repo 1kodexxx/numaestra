@@ -10,6 +10,7 @@ func TestLoad_Defaults(t *testing.T) {
 	for _, k := range []string{
 		"APP_ENV", "HTTP_PORT", "HTTP_SHUTDOWN_TIMEOUT", "POSTGRES_DSN",
 		"REDIS_ADDR", "ROBOKASSA_IS_TEST", "SUNO_API_URL",
+		"S3_PRESIGN_ENABLED", "S3_PRESIGN_TTL",
 	} {
 		t.Setenv(k, "")
 	}
@@ -32,6 +33,27 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.Pricing.PriceKopecks != 200000 {
 		t.Errorf("дефолтная цена должна быть 200000 (2000 ₽), получили %d", cfg.Pricing.PriceKopecks)
+	}
+	if cfg.S3.PresignEnabled {
+		t.Error("по умолчанию S3_PRESIGN_ENABLED должен быть false (dev без миграции бакета)")
+	}
+	if cfg.S3.PresignTTL != 24*time.Hour {
+		t.Errorf("дефолтный S3_PRESIGN_TTL должен быть 24h, получили %v", cfg.S3.PresignTTL)
+	}
+}
+
+func TestLoad_S3PresignOverride(t *testing.T) {
+	t.Setenv("S3_PRESIGN_ENABLED", "true")
+	t.Setenv("S3_PRESIGN_TTL", "168h")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load упал: %v", err)
+	}
+	if !cfg.S3.PresignEnabled {
+		t.Error("S3_PRESIGN_ENABLED=true должен включать presign")
+	}
+	if cfg.S3.PresignTTL != 168*time.Hour {
+		t.Errorf("ожидали TTL 168h, получили %v", cfg.S3.PresignTTL)
 	}
 }
 

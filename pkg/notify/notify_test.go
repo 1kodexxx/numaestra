@@ -12,7 +12,6 @@ func TestLogNotifier_NotifyOrderComplete(t *testing.T) {
 	err := n.NotifyOrderComplete(context.Background(), OrderCompleteNotification{
 		OrderID:     "order-1",
 		Email:       "user@example.com",
-		TrackURLs:   []string{"https://s3/1.mp3"},
 		TracksCount: 1,
 	})
 	if err != nil {

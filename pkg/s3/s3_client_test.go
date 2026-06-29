@@ -5,8 +5,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -286,5 +288,74 @@ func TestDeleteByURL_HandlesCDNAndS3Origin(t *testing.T) {
 	}
 	if deleted[1] != "/test-bucket/tracks/o/demo-x.mp3" {
 		t.Errorf("ключ из S3-ссылки извлечён неверно: %s", deleted[1])
+	}
+}
+
+func TestPresignGetURL_ContainsSignatureAndTTL(t *testing.T) {
+	c := New("https://s3.example.com", "us-east-1", "test-bucket", "AKIA", "secret")
+	u, err := c.PresignGetURL(context.Background(), "tracks/o/1.mp3", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("PresignGetURL: %v", err)
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		t.Fatalf("результат не является URL: %v", err)
+	}
+	// path-style на S3-endpoint: /{bucket}/{key}.
+	if parsed.Path != "/test-bucket/tracks/o/1.mp3" {
+		t.Errorf("ожидали path-style /test-bucket/tracks/o/1.mp3, получили %q", parsed.Path)
+	}
+	q := parsed.Query()
+	if q.Get("X-Amz-Algorithm") != "AWS4-HMAC-SHA256" {
+		t.Errorf("ожидали алгоритм SigV4, получили %q", q.Get("X-Amz-Algorithm"))
+	}
+	if q.Get("X-Amz-Signature") == "" {
+		t.Error("presigned URL должен содержать X-Amz-Signature")
+	}
+	if q.Get("X-Amz-Expires") != "86400" {
+		t.Errorf("X-Amz-Expires должен соответствовать TTL 24h (86400), получили %q", q.Get("X-Amz-Expires"))
+	}
+	if !strings.HasPrefix(q.Get("X-Amz-Credential"), "AKIA/") {
+		t.Errorf("X-Amz-Credential должен начинаться с accessKey, получили %q", q.Get("X-Amz-Credential"))
+	}
+}
+
+func TestResolvePlayURL(t *testing.T) {
+	stored := "https://cdn.example.com/tracks/o/1.mp3"
+	c := New("https://s3.example.com", "us-east-1", "test-bucket", "AKIA", "secret").
+		WithPublicBaseURL("https://cdn.example.com")
+
+	// presign выключен → URL возвращается как есть (обратная совместимость).
+	got, err := c.ResolvePlayURL(context.Background(), stored, time.Hour)
+	if err != nil {
+		t.Fatalf("ResolvePlayURL (disabled): %v", err)
+	}
+	if got != stored {
+		t.Errorf("при выключенном presign ожидали URL как есть, получили %q", got)
+	}
+
+	// presign включён → подписанная ссылка, ключ извлечён из CDN-базы.
+	c.WithPresign(true)
+	got, err = c.ResolvePlayURL(context.Background(), stored, time.Hour)
+	if err != nil {
+		t.Fatalf("ResolvePlayURL (enabled): %v", err)
+	}
+	if !strings.Contains(got, "X-Amz-Signature=") {
+		t.Errorf("при включённом presign ожидали подписанную ссылку, получили %q", got)
+	}
+	if !strings.Contains(got, "/test-bucket/tracks/o/1.mp3") {
+		t.Errorf("ключ должен извлечься из CDN-ссылки, получили %q", got)
+	}
+
+	// legacy public URL (прямой S3-origin, до подключения CDN) тоже подписывается.
+	legacy := "https://s3.example.com/test-bucket/tracks/o/2.mp3"
+	if got, err = c.ResolvePlayURL(context.Background(), legacy, time.Hour); err != nil || !strings.Contains(got, "X-Amz-Signature=") {
+		t.Errorf("legacy S3-URL должен подписываться, получили %q (err %v)", got, err)
+	}
+
+	// чужой URL (не наш бакет) подписать нельзя → возвращаем как есть.
+	foreign := "https://evil.example.com/x.mp3"
+	if got, err = c.ResolvePlayURL(context.Background(), foreign, time.Hour); err != nil || got != foreign {
+		t.Errorf("чужой URL должен возвращаться как есть, получили %q (err %v)", got, err)
 	}
 }

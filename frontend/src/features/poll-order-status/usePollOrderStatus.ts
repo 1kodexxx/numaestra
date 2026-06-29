@@ -193,6 +193,13 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     startPolling(orderId)
   }, [orderId, state.order?.demo_status, state.order?.generation_status, startPolling])
 
+  // refetch — разовое принудительное обновление заказа (вне опроса). Нужно, когда
+  // опрос уже остановлен (completed), но плеер получил 403 на протухшей
+  // presigned-ссылке и просит свежие ссылки (см. MusicPlayer onStale).
+  const refetch = useCallback(() => {
+    if (orderId) void fetchOnce(orderId)
+  }, [orderId, fetchOnce])
+
   // Пока оплата не подтверждена — повторяем sync-payment на каждом быстром тике.
   // Это покрывает сценарий: первый sync вернул { synced: false } (OpState не готов),
   // webhook не дошёл, пользователь ждёт на странице.
@@ -211,5 +218,5 @@ export function usePollOrderStatus(orderId: string | null, options?: PollOrderOp
     return () => clearTimeout(t)
   }, [confirmPayment, orderId, state.order?.payment_status])
 
-  return state
+  return { ...state, refetch }
 }

@@ -556,6 +556,9 @@ func (s *wStorage) Upload(_ context.Context, key, _ string, _ []byte) (string, e
 }
 func (s *wStorage) DeleteOrderTracks(_ context.Context, _ uuid.UUID) error { return nil }
 func (s *wStorage) DeleteByURL(_ context.Context, _ string) error          { return nil }
+func (s *wStorage) ResolvePlayURL(_ context.Context, storedURL string, _ time.Duration) (string, error) {
+	return storedURL, nil
+}
 
 var _ domain.TrackStorage = (*wStorage)(nil)
 
