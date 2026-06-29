@@ -23,6 +23,14 @@ const TEXT2  = theme.text2
 const TEXT3  = theme.text3
 const BORDER = theme.border
 
+// Демо (Suno v5.5) обычно готовится 1–3 минуты. Кнопку оплаты держим
+// заблокированной, пока демо генерируется, но не дольше этого порога — иначе
+// действительно зависшее демо заблокировало бы оплату навсегда. Порог намеренно
+// ВЫШЕ обычного времени демо: при штатной генерации кнопка не должна
+// разблокироваться раньше, чем демо будет готово (раньше было 90с — короче
+// нормального демо, поэтому кнопка «оживала» в середине процесса).
+const DEMO_PAY_UNBLOCK_MS = 240_000
+
 export function StatusPage() {
   const { orderId: pathOrderId } = useParams<{ orderId?: string }>()
   const [searchParams] = useSearchParams()
@@ -277,7 +285,7 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
   const [forcePay, setForcePay] = useState(false)
   useEffect(() => {
     if (!demoInFlight) { setForcePay(false); return }
-    const t = setTimeout(() => setForcePay(true), 90_000)
+    const t = setTimeout(() => setForcePay(true), DEMO_PAY_UNBLOCK_MS)
     return () => clearTimeout(t)
   }, [demoInFlight])
   const payBlockedForDemo = demoInFlight && !forcePay
@@ -392,6 +400,10 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
             {payBlockedForDemo ? (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
                 🎧 Бесплатное демо почти готово — послушайте, и если понравится, оплатите. Вы получите именно эту песню.
+              </div>
+            ) : demoInFlight ? (
+              <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+                ⏳ Демо готовится дольше обычного. Можно оплатить сейчас — на заказ это не влияет, вы получите 4 полные версии. Или подождите: демо появится выше само.
               </div>
             ) : (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
