@@ -32,8 +32,9 @@ vet: ## Статический анализ go vet
 lint: ## Запустить golangci-lint (должен быть установлен)
 	golangci-lint run
 
-vuln: ## Проверить уязвимости в зависимостях (govulncheck)
+vuln: ## Проверить уязвимости: govulncheck (Go) + npm audit рантайма (фронт)
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	cd frontend && npm audit --omit=dev --audit-level=high
 
 tidy: ## Привести в порядок зависимости
 	go mod tidy
