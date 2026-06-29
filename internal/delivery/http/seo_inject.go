@@ -314,10 +314,19 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 	canonical := baseURL + "/category/" + id
 	coverAbs := absoluteURL(baseURL, cat.CoverImageURL())
 
+	// Серверный текст для краулеров: несколько содержательных абзацев, засеянных
+	// уникальными полями категории (Title, Description, SeoTags), чтобы у каждой
+	// страницы был свой осмысленный контент, а не тонкий шаблон «заголовок + цена».
 	var b strings.Builder
 	fmt.Fprintf(&b, `<main><h1>%s — песня на заказ нейросетью</h1>`, text(cat.Title()))
 	fmt.Fprintf(&b, `<p>%s</p>`, text(desc))
-	fmt.Fprintf(&b, `<p>Цена: %s ₽ · 4 уникальные версии · готово за 10 минут.</p>`, s.priceRubles)
+	fmt.Fprintf(&b, `<p>Numaestra создаёт персональную песню в категории «%s»: вы описываете повод и детали, а нейросеть пишет уникальный текст и музыку. Через ~10 минут вы получаете 4 готовые версии трека и выбираете лучшую.</p>`, text(cat.Title()))
+	if tags := cat.SeoTags(); len(tags) > 0 {
+		// Уникальные ключевые слова категории естественной строкой — релевантность
+		// под длинный хвост запросов («песня на свадьбу», «первый танец» и т.п.).
+		fmt.Fprintf(&b, `<p>Подходит для случаев: %s.</p>`, text(strings.Join(tags, ", ")))
+	}
+	fmt.Fprintf(&b, `<p>Перед оплатой можно бесплатно послушать демо — вы платите, только если песня понравилась. Цена: %s ₽ за 4 уникальные версии, один платёж, без подписок.</p>`, s.priceRubles)
 	b.WriteString(`</main>`)
 
 	breadcrumb := breadcrumbJSONLD([]crumb{

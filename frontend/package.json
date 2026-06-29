@@ -16,6 +16,7 @@
     "test:all": "npm run lint && npm run test && npm run test:e2e"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

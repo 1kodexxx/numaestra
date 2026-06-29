@@ -41,9 +41,8 @@
     <meta name="twitter:description" content="Опишите повод — получите 4 уникальные версии песни уже через 10 минут. 30+ категорий, один платёж, без подписок." />
     <meta name="twitter:image" content="/og-image.png" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- Шрифт Inter self-hosted (см. src/main.tsx, @fontsource/inter) — без внешних
+         запросов к Google Fonts: быстрее LCP и нет зависимости от fonts.gstatic. -->
   </head>
   <body>
     <div id="root"></div>

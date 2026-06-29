@@ -5,9 +5,17 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/numaestra/numaestra/internal/usecase"
 )
+
+// sitemapBuildDate — дата сборки/деплоя (момент старта процесса). Используется как
+// <lastmod> для всех страниц sitemap: контент (тексты категорий, FAQ, статика)
+// вшит в бинарь, поэтому его «последнее изменение» = последняя выкатка. Для
+// динамики (новые отзывы/примеры через админку без редеплоя) это приблизительно,
+// но валидно и без схемы БД; per-entity lastmod потребовал бы updated_at в домене.
+var sitemapBuildDate = time.Now().UTC().Format("2006-01-02")
 
 // SeoHandler отдаёт robots.txt и sitemap.xml. Абсолютные URL строятся по хосту
 // запроса (с учётом X-Forwarded-* за обратным прокси), поэтому работает при любом
@@ -70,6 +78,9 @@ func (h *SeoHandler) Sitemap(w http.ResponseWriter, r *http.Request) {
 		b.WriteString("    <loc>")
 		b.WriteString(xmlEscape(loc))
 		b.WriteString("</loc>\n")
+		b.WriteString("    <lastmod>")
+		b.WriteString(sitemapBuildDate)
+		b.WriteString("</lastmod>\n")
 		b.WriteString("    <changefreq>")
 		b.WriteString(freq)
 		b.WriteString("</changefreq>\n")

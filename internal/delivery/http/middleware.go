@@ -197,8 +197,8 @@ func MaxBodyBytes(n int64) func(http.Handler) http.Handler {
 }
 
 // contentSecurityPolicy — CSP под фактические ресурсы фронта:
-//   - style 'unsafe-inline' — React раскладывает стили инлайном (style={{}}) +
-//     Google Fonts CSS;
+//   - style 'unsafe-inline' — React раскладывает стили инлайном (style={{}});
+//   - font 'self' — Inter self-hosted (@fontsource), без внешних Google Fonts;
 //   - img https:/data: — обложки из S3 и сток-картинки (loremflickr);
 //   - media 'self'/https:/blob: — локальные mp3, треки из S3, синтез демо (blob);
 //   - connect https: — fetch треков для скачивания (download.ts) и API;
@@ -207,8 +207,8 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	// mc.yandex.ru — tag.js Яндекс.Метрики; yastatic.net — ассеты Вебвизора.
 	// Отправка хитов и пиксели уже покрыты img-src/connect-src https: ниже.
 	"script-src 'self' https://mc.yandex.ru https://yastatic.net; " +
-	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-	"font-src 'self' data: https://fonts.gstatic.com; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"font-src 'self' data:; " +
 	"img-src 'self' data: https:; " +
 	"media-src 'self' blob: https:; " +
 	// https: покрывает хиты Метрики; wss-домены — для Вебвизора (запись сессий

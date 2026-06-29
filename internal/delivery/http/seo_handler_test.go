@@ -119,6 +119,9 @@ func TestSeoHandler_Sitemap_AlwaysIncludesLegalPages(t *testing.T) {
 	if !strings.Contains(body, "<loc>https://numaestra.ru/examples</loc>") {
 		t.Error("sitemap должен содержать страницу /examples")
 	}
+	if !strings.Contains(body, "<lastmod>") {
+		t.Error("sitemap должен содержать <lastmod> для подсказки краулерам о свежести")
+	}
 }
 
 func TestSeoHandler_Sitemap_WithExamples(t *testing.T) {
