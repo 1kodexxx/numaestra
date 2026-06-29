@@ -10,16 +10,28 @@ const TEXT3 = theme.text3
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// formatRub форматирует копейки в «1 500 ₽» (тот же стиль, что price_label).
+function formatRub(kopecks: number): string {
+  return `${Math.round(kopecks / 100).toLocaleString('ru-RU')} ₽`
+}
+
 interface ContactModalProps {
   loading: boolean
   error: string | null
   priceLabel: string
+  // Полная цена и скидка по промокоду (в копейках). При discountKopecks > 0 блок
+  // цены показывает перечёркнутую полную цену, итоговую со скидкой и экономию.
+  // Это ровно та сумма, что уйдёт в Robokassa — бэкенд применяет тот же промокод
+  // при создании заказа (order.AmountKopecks), вебхук сверяет её же.
+  priceKopecks?: number
+  discountKopecks?: number
+  discountLabel?: string
   onClose: () => void
   onSubmit: (email: string, phone: string) => void
 }
 
 /** Email/phone capture + price summary, shown before redirecting to payment. */
-export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: ContactModalProps) {
+export function ContactModal({ loading, error, priceLabel, priceKopecks, discountKopecks = 0, discountLabel, onClose, onSubmit }: ContactModalProps) {
   const titleId = useId()
   const trapRef = useFocusTrap(true)
   const [email, setEmail] = useState('')
@@ -32,6 +44,10 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
   // не изменить, поэтому ловим ошибку здесь, до отправки.
   const suggestion = useMemo(() => suggestEmailFix(email), [email])
   const emailValid = EMAIL_RE.test(email.trim())
+
+  // Скидка по промокоду: показываем итоговую цену и экономию (та же сумма уйдёт в оплату).
+  const hasDiscount = discountKopecks > 0 && typeof priceKopecks === 'number'
+  const finalKopecks = hasDiscount ? priceKopecks! - discountKopecks : (priceKopecks ?? 0)
 
   // Фокус на контейнер диалога — ТОЛЬКО при открытии (a11y/скринридер). Раньше
   // это жило в эффекте с [loading, onClose], который перезапускался на каждый
@@ -87,12 +103,12 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
         }}
       >
         <div id={titleId} style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '6px' }}>
-          {loading ? 'Создаём заказ…' : 'Оформление заказа'}
+          {loading ? 'Готовим демо…' : 'Получить бесплатное демо'}
         </div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '28px' }}>
           {loading
-            ? 'Подождите — готовим оплату и перенаправим вас на защищённую страницу.'
-            : 'Отправим готовые треки на вашу почту'}
+            ? 'Секунду — создаём заказ и открываем страницу с вашим демо.'
+            : 'Оставьте email — пришлём демо вашей песни. Оплата потом, только если понравится.'}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
@@ -122,9 +138,21 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
           borderRadius: '16px', padding: '16px 20px',
           textAlign: 'center', marginBottom: '20px',
         }}>
-          <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>4 уникальных версии</div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>{priceLabel}</div>
-          <div style={{ fontSize: '12px', color: TEXT3, marginTop: '2px' }}>Один платёж, без подписок</div>
+          <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>Полная песня — потом, если понравится</div>
+          {hasDiscount ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '16px', color: TEXT3, textDecoration: 'line-through' }}>{priceLabel}</span>
+                <span style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>{formatRub(finalKopecks)}</span>
+              </div>
+              <div style={{ fontSize: '12px', color: ACCENT, fontWeight: 700, marginTop: '4px' }}>
+                {discountLabel ? `${discountLabel} · ` : ''}сэкономите {formatRub(discountKopecks)}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>{priceLabel}</div>
+          )}
+          <div style={{ fontSize: '12px', color: TEXT3, marginTop: '2px' }}>4 версии · один платёж · без подписок</div>
         </div>
 
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: loading ? 'default' : 'pointer', marginBottom: '18px', opacity: loading ? 0.6 : 1 }}>
@@ -162,14 +190,14 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
             fontSize: '12.5px', color: TEXT2, lineHeight: 1.45,
           }}>
             <span aria-hidden style={{ flexShrink: 0 }}>📧</span>
-            <span>Треки и ссылка на заказ придут на <b style={{ color: '#fff', wordBreak: 'break-all' }}>{email.trim()}</b> — проверьте, что адрес верный.</span>
+            <span>Демо и ссылка на заказ придут на <b style={{ color: '#fff', wordBreak: 'break-all' }}>{email.trim()}</b> — проверьте, что адрес верный.</span>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: '10px' }}>
           <Button variant="text" size="lg" onClick={onClose} disabled={loading} style={{ flex: 1 }}>Отмена</Button>
           <Button size="lg" onClick={go} loading={loading} disabled={!agree || loading} style={{ flex: 2 }}>
-            {loading ? 'Создаём заказ…' : 'К оплате →'}
+            {loading ? 'Готовим демо…' : 'Слушать демо бесплатно →'}
           </Button>
         </div>
       </div>

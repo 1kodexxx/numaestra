@@ -1723,6 +1723,9 @@ export function CatalogPage() {
           loading={submitting}
           error={submitError}
           priceLabel={publicConfig.price_label}
+          priceKopecks={publicConfig.price_kopecks}
+          discountKopecks={promoStatus?.discount_kopecks ?? 0}
+          discountLabel={promoStatus?.label}
           onClose={() => setShowContact(false)}
           onSubmit={handleCustomOrder}
         />

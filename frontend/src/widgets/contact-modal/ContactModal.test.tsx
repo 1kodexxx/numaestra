@@ -19,6 +19,43 @@ describe('ContactModal', () => {
     expect(screen.queryByRole('button', { name: /Возможно/ })).not.toBeInTheDocument()
   })
 
+  it('показывает цену со скидкой и экономию при применённом промокоде', () => {
+    render(
+      <ContactModal
+        loading={false}
+        error={null}
+        priceLabel="2 000 ₽"
+        priceKopecks={200_000}
+        discountKopecks={50_000}
+        discountLabel="−25%"
+        onClose={() => {}}
+        onSubmit={vi.fn()}
+      />,
+    )
+    // строка экономии (та же сумма уйдёт в оплату)
+    const saving = screen.getByText(/сэкономите/)
+    expect(saving).toHaveTextContent('500')
+    expect(saving).toHaveTextContent('−25%')
+    // полная цена перечёркнута, итоговая со скидкой — 1 500
+    expect(screen.getByText('2 000 ₽')).toBeInTheDocument()
+    expect(screen.getByText(/1\s+500/)).toBeInTheDocument()
+  })
+
+  it('без промокода показывает полную цену без экономии', () => {
+    render(
+      <ContactModal
+        loading={false}
+        error={null}
+        priceLabel="2 000 ₽"
+        priceKopecks={200_000}
+        onClose={() => {}}
+        onSubmit={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('2 000 ₽')).toBeInTheDocument()
+    expect(screen.queryByText(/сэкономите/)).not.toBeInTheDocument()
+  })
+
   it('показывает подтверждение адреса для корректного email', () => {
     const base = { loading: false, error: null, priceLabel: '2000 ₽', onSubmit: vi.fn(), onClose: () => {} }
     render(<ContactModal {...base} />)
