@@ -1,7 +1,8 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { Button, TextField } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
 import { useFocusTrap } from '@shared/lib/useFocusTrap'
+import { suggestEmailFix } from '@shared/lib/emailHint'
 
 const ACCENT = theme.accent
 const TEXT2 = theme.text2
@@ -25,6 +26,12 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
   const [phone, setPhone] = useState('')
   const [agree, setAgree] = useState(false)
   const [err, setErr] = useState('')
+
+  // Подсказка об опечатке в домене («gmial.com» → «gmail.com») и признак валидного
+  // адреса — для строки подтверждения перед оплатой. Email после создания заказа
+  // не изменить, поэтому ловим ошибку здесь, до отправки.
+  const suggestion = useMemo(() => suggestEmailFix(email), [email])
+  const emailValid = EMAIL_RE.test(email.trim())
 
   // Фокус на контейнер диалога — ТОЛЬКО при открытии (a11y/скринридер). Раньше
   // это жило в эффекте с [loading, onClose], который перезапускался на каждый
@@ -89,7 +96,24 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
-          <TextField label="Email" type="email" required value={email} onChange={setEmail} placeholder="your@email.com" surfaceColor={theme.surface} disabled={loading} />
+          <div>
+            <TextField label="Email" type="email" required value={email} onChange={setEmail} placeholder="your@email.com" surfaceColor={theme.surface} disabled={loading} />
+            {suggestion && !loading && (
+              <button
+                type="button"
+                onClick={() => { setEmail(suggestion); setErr('') }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  marginTop: '8px', padding: '7px 12px',
+                  background: 'rgba(0,229,192,0.08)', border: '1px solid rgba(0,229,192,0.22)',
+                  borderRadius: '10px', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: '12.5px', color: TEXT2, textAlign: 'left', lineHeight: 1.4,
+                }}
+              >
+                Возможно, вы имели в виду&nbsp;<b style={{ color: ACCENT }}>{suggestion}</b>?
+              </button>
+            )}
+          </div>
           <TextField label="Телефон (необязательно)" type="tel" value={phone} onChange={setPhone} placeholder="+7 999 000 00 00" surfaceColor={theme.surface} disabled={loading} />
         </div>
 
@@ -127,6 +151,18 @@ export function ContactModal({ loading, error, priceLabel, onClose, onSubmit }: 
             fontSize: '13px', color: theme.error, marginBottom: '14px',
           }}>
             {err || error}
+          </div>
+        )}
+
+        {emailValid && !loading && !suggestion && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: '8px',
+            background: 'rgba(255,255,255,0.04)', border: `1px solid ${theme.border}`,
+            borderRadius: '12px', padding: '10px 14px', marginBottom: '14px',
+            fontSize: '12.5px', color: TEXT2, lineHeight: 1.45,
+          }}>
+            <span aria-hidden style={{ flexShrink: 0 }}>📧</span>
+            <span>Треки и ссылка на заказ придут на <b style={{ color: '#fff', wordBreak: 'break-all' }}>{email.trim()}</b> — проверьте, что адрес верный.</span>
           </div>
         )}
 

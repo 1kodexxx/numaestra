@@ -458,6 +458,11 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
         )}
       </div>
 
+      {/* Страховка от потери доступа: явная ссылка на заказ с токеном. Email может
+          оказаться с опечаткой или письмо уйдёт в спам — эта ссылка открывает заказ
+          с любого устройства без почты. Показываем владельцу (есть токен в storage). */}
+      {canManage && <SaveOrderLink orderId={order.id} />}
+
       {/* Share — выше плеера и скачивания */}
       {gs === 'completed' && (
         <div className="status-share-highlight">
@@ -534,6 +539,40 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
           <Button size="lg" fullWidth onClick={onBack}>На главную</Button>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ── «Сохраните ссылку на заказ»: страховка на случай опечатки в email или
+      письма в спаме. Ссылка с access-токеном открывает заказ с любого устройства. ── */
+function SaveOrderLink({ orderId }: { orderId: string }) {
+  const token = orderStorage.getAccessToken()
+  if (!token) return null
+  const link = `${window.location.origin}/status/${orderId}?token=${token}`
+
+  return (
+    <div style={{
+      background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '20px',
+      padding: '18px 22px', marginBottom: '16px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+        <span aria-hidden style={{ fontSize: '20px', lineHeight: 1.2, flexShrink: 0 }}>🔖</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', marginBottom: '3px' }}>
+            Сохраните ссылку на заказ
+          </div>
+          <div style={{ fontSize: '12.5px', color: TEXT2, lineHeight: 1.45, marginBottom: '12px' }}>
+            Откроет заказ с любого устройства — даже если письмо не дойдёт или попадёт в спам.
+          </div>
+          <Button
+            variant="outlined"
+            size="md"
+            onClick={() => copyText(link, 'Ссылка на заказ скопирована')}
+          >
+            Скопировать ссылку
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
