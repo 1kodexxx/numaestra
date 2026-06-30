@@ -4,9 +4,10 @@ import { theme } from '@shared/lib/theme'
 import { grantAnalyticsConsent, hasAnalyticsConsent } from '@shared/lib/analytics'
 
 /**
- * Минимальный баннер согласия на cookie/аналитику. Показывается один раз, пока
- * пользователь не нажал «Принять» (решение хранится в localStorage). До согласия
- * Метрика не подключается — её грузит grantAnalyticsConsent() по клику.
+ * Минимальный баннер-уведомление о cookie/аналитике. Показывается один раз, пока
+ * пользователь не нажал «Хорошо» (решение хранится в localStorage). Счётчик
+ * Метрики работает по умолчанию (стандартная веб-аналитика); согласие здесь —
+ * дополнительный opt-in на запись сессий (Вебвизор), см. grantAnalyticsConsent().
  *
  * Слим-бар у нижнего края: компактный, с safe-area, переносится в столбик на
  * узких экранах, чтобы не перекрывать критичный UI и исчезать за один тап.
@@ -46,7 +47,8 @@ export function CookieConsent() {
       }}
     >
       <span style={{ flex: 1, minWidth: '200px', fontSize: '12.5px', lineHeight: 1.5, color: theme.text2 }}>
-        Мы используем cookie и Яндекс.Метрику для работы сайта и аналитики.{' '}
+        Мы используем cookie и Яндекс.Метрику для работы сайта и аналитики.
+        Нажимая «Хорошо», вы соглашаетесь с записью сессий для улучшения сервиса.{' '}
         <Link to="/legal/privacy" style={{ color: theme.accent, textDecoration: 'none' }}>
           Политика конфиденциальности
         </Link>
@@ -68,7 +70,7 @@ export function CookieConsent() {
           WebkitTapHighlightColor: 'transparent',
         }}
       >
-        Принять
+        Хорошо
       </button>
     </div>
   )

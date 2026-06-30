@@ -6,7 +6,7 @@ import { CookieConsent } from '@widgets/cookie-consent'
 import { AppRouter } from './router/AppRouter'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
-import { hasAnalyticsConsent, hitPage, loadMetrika } from '@shared/lib/analytics'
+import { hitPage, loadMetrika } from '@shared/lib/analytics'
 
 /* Структурированные данные (JSON-LD) для поисковиков — инжектим один раз
    с актуальным origin, поэтому корректно при любом домене. */
@@ -58,10 +58,12 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname.startsWith('/admin')
   const isFullscreen = pathname === '/' || pathname.startsWith('/category/')
 
-  // Метрику подключаем только если согласие уже дано ранее. Новый посетитель
-  // увидит cookie-баннер; согласие включит её через grantAnalyticsConsent().
+  // Счётчик Метрики (просмотры, цели, карта кликов) грузим по умолчанию — это
+  // стандартная веб-аналитика, без неё не считается реклама/CAC, а Яндекс.Директ
+  // не находит счётчик на сайте. Вебвизор (запись сессий) остаётся под согласием —
+  // см. webvisor в loadMetrika(); cookie-баннер служит уведомлением и opt-in'ом.
   useEffect(() => {
-    if (hasAnalyticsConsent()) loadMetrika()
+    loadMetrika()
   }, [])
 
   useEffect(() => {

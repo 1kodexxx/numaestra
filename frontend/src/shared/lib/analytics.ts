@@ -23,10 +23,13 @@ declare global {
 
 let loaded = false
 
-// Ключ согласия на аналитические cookie. Метрика подключается ТОЛЬКО после него.
+// Ключ согласия на аналитические cookie. ВАЖНО: сам счётчик Метрики (просмотры,
+// цели, карта кликов) грузится по умолчанию — это стандартная веб-аналитика, без
+// неё не считается реклама/CAC, а Яндекс.Директ вообще не находит счётчик на сайте.
+// За согласием остаётся только Вебвизор — запись сессий, самое чувствительное.
 const CONSENT_KEY = 'numaestra_analytics_consent'
 
-/** Дал ли пользователь согласие на аналитические cookie (cookie-баннер). */
+/** Дал ли пользователь согласие на аналитические cookie → включает Вебвизор. */
 export function hasAnalyticsConsent(): boolean {
   try {
     return localStorage.getItem(CONSENT_KEY) === 'granted'
@@ -35,12 +38,14 @@ export function hasAnalyticsConsent(): boolean {
   }
 }
 
-/** Сохраняет согласие и подключает Метрику. Вызывается из cookie-баннера. */
+/** Сохраняет согласие на запись сессий (Вебвизор). Счётчик к этому моменту уже
+ *  загружен по умолчанию; если по какой-то причине ещё нет — догружаем здесь.
+ *  Вебвизор задаётся в init, поэтому фактически включится со следующего визита. */
 export function grantAnalyticsConsent(): void {
   try {
     localStorage.setItem(CONSENT_KEY, 'granted')
   } catch {
-    // localStorage недоступен (приватный режим) — подключим хотя бы на сессию.
+    // localStorage недоступен (приватный режим) — согласие проживёт сессию.
   }
   loadMetrika()
 }
@@ -74,10 +79,12 @@ export function loadMetrika(): void {
 
   // Опции из официального сниппета счётчика. ssr — HTML отдаётся серверным
   // SEO-инжектором; ecommerce — хук на window.dataLayer для будущих e-commerce
-  // событий; webvisor/clickmap — запись сессий и карта кликов.
+  // событий; clickmap — карта кликов. webvisor (запись сессий) включаем только
+  // после cookie-согласия — это самые чувствительные данные; счётчик же работает
+  // для всех, иначе Директ не видит его и реклама/CAC не считаются.
   w.ym(id, 'init', {
     ssr: true,
-    webvisor: true,
+    webvisor: hasAnalyticsConsent(),
     clickmap: true,
     ecommerce: 'dataLayer',
     referrer: document.referrer,
