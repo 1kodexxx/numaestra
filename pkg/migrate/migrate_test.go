@@ -1,10 +1,70 @@
 package migrate
 
 import (
+	"context"
+	"errors"
+	"io"
 	"io/fs"
+	"log/slog"
 	"testing"
 	"testing/fstest"
+	"time"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// --- acquireLockWithRetry (логика дедлайна/повторов, без реального Postgres) ---
+
+func TestAcquireLockWithRetry_GotImmediately(t *testing.T) {
+	calls := 0
+	err := acquireLockWithRetry(context.Background(), discardLogger(), time.Second, 5*time.Millisecond, func() (bool, error) {
+		calls++
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("ожидали успех, получили %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("ожидали 1 попытку, получили %d", calls)
+	}
+}
+
+func TestAcquireLockWithRetry_Timeout(t *testing.T) {
+	calls := 0
+	err := acquireLockWithRetry(context.Background(), discardLogger(), 30*time.Millisecond, 5*time.Millisecond, func() (bool, error) {
+		calls++
+		return false, nil // лок всё время занят
+	})
+	if err == nil {
+		t.Fatal("ожидали ошибку таймаута, лок не должен был захватиться")
+	}
+	if calls < 2 {
+		t.Errorf("ожидали несколько попыток до таймаута, получили %d", calls)
+	}
+}
+
+func TestAcquireLockWithRetry_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // отменяем сразу
+	err := acquireLockWithRetry(ctx, discardLogger(), 10*time.Second, 5*time.Millisecond, func() (bool, error) {
+		return false, nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ожидали context.Canceled, получили %v", err)
+	}
+}
+
+func TestAcquireLockWithRetry_TryLockError(t *testing.T) {
+	sentinel := errors.New("db down")
+	err := acquireLockWithRetry(context.Background(), discardLogger(), time.Second, 5*time.Millisecond, func() (bool, error) {
+		return false, sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("ошибка tryLock должна пробрасываться, получили %v", err)
+	}
+}
 
 // --- listMigrationFiles (тестируем внутреннюю логику через публичный Run косвенно) ---
 // Поскольку Run требует реальный pgxpool, тестируем логику сортировки и фильтрации
