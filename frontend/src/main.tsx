@@ -21,3 +21,18 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+// Убираем стартовый сплэш-лоадер (из index.html), как только React смонтировался
+// и отрисовал первый кадр (двойной requestAnimationFrame). Плавно гасим и удаляем
+// из DOM. Если React по какой-то причине упал — лоадер всё равно снимется по rAF,
+// а ErrorBoundary покажет фолбэк.
+function dismissAppLoader() {
+  const el = document.getElementById('app-loader')
+  if (!el) return
+  el.classList.add('app-loader--hide')
+  el.addEventListener('transitionend', () => el.remove(), { once: true })
+  // Подстраховка, если transitionend не придёт (например, prefers-reduced-motion).
+  setTimeout(() => el.remove(), 900)
+}
+
+requestAnimationFrame(() => requestAnimationFrame(dismissAppLoader))

@@ -45,6 +45,56 @@
          запросов к Google Fonts: быстрее LCP и нет зависимости от fonts.gstatic. -->
   </head>
   <body>
+    <!-- Стартовый сплэш: вшит в index.html (inline-CSS), поэтому появляется
+         МГНОВЕННО, ещё до загрузки JS-бандла, и закрывает «белый экран». Удаляется
+         из DOM из src/main.tsx, как только React смонтировался (плавное затухание).
+         Фирменный эквалайзер «танцует» как аудио-визуализатор — под музыкальный бренд. -->
+    <style>
+      #app-loader {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+        background:
+          radial-gradient(60% 50% at 50% 42%, rgba(0, 229, 192, 0.12) 0%, transparent 70%),
+          #080808;
+        transition: opacity 0.55s ease;
+      }
+      #app-loader.app-loader--hide { opacity: 0; pointer-events: none; }
+      #app-loader .nm-eq { display: flex; align-items: center; gap: 8px; height: 64px; }
+      #app-loader .nm-eq span {
+        width: 11px; height: 64px; border-radius: 6px;
+        background: linear-gradient(180deg, #00e5c0, #00bfa5);
+        box-shadow: 0 0 16px rgba(0, 229, 192, 0.45);
+        transform-origin: center; transform: scaleY(0.26);
+        animation: nm-eq 0.9s ease-in-out infinite;
+      }
+      #app-loader .nm-eq span:nth-child(1) { animation-duration: 0.90s; animation-delay: 0.00s; }
+      #app-loader .nm-eq span:nth-child(2) { animation-duration: 0.70s; animation-delay: 0.18s; }
+      #app-loader .nm-eq span:nth-child(3) { animation-duration: 1.15s; animation-delay: 0.32s; }
+      #app-loader .nm-eq span:nth-child(4) { animation-duration: 0.72s; animation-delay: 0.46s; }
+      #app-loader .nm-eq span:nth-child(5) { animation-duration: 0.95s; animation-delay: 0.22s; }
+      @keyframes nm-eq { 0%, 100% { transform: scaleY(0.26); } 50% { transform: scaleY(1); } }
+      #app-loader .nm-word {
+        font-family: 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+        font-size: 25px; font-weight: 800; letter-spacing: -0.02em; color: #fff;
+        opacity: 0; animation: nm-fade 0.6s ease 0.15s forwards;
+      }
+      #app-loader .nm-sub {
+        font-family: 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+        font-size: 13px; font-weight: 500; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.4);
+        margin-top: -10px; opacity: 0; animation: nm-fade 0.6s ease 0.35s forwards;
+      }
+      @keyframes nm-fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      @media (prefers-reduced-motion: reduce) {
+        #app-loader .nm-eq span { animation: none; transform: scaleY(0.7); }
+        #app-loader .nm-word, #app-loader .nm-sub { animation: none; opacity: 1; }
+      }
+    </style>
+    <div id="app-loader" role="status" aria-label="Загрузка Numaestra">
+      <div class="nm-eq" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="nm-word">Numaestra</div>
+      <div class="nm-sub">настраиваем звук…</div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
