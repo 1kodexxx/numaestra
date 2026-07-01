@@ -49,7 +49,7 @@ func TestFormatAmount(t *testing.T) {
 
 func TestClient_PaymentURL_ContainsRequiredParams(t *testing.T) {
 	c := newTestClient(false)
-	u := c.PaymentURL("1500.00", 42, "Тестовый заказ")
+	u := c.PaymentURL("1500.00", 42, "Тестовый заказ", "")
 
 	for _, param := range []string{"MerchantLogin", "OutSum", "InvId", "SignatureValue", "Description"} {
 		if !strings.Contains(u, param) {
@@ -62,8 +62,8 @@ func TestClient_PaymentURL_IsTestFlag(t *testing.T) {
 	prod := newTestClient(false)
 	test := newTestClient(true)
 
-	uProd := prod.PaymentURL("100.00", 1, "Desc")
-	uTest := test.PaymentURL("100.00", 1, "Desc")
+	uProd := prod.PaymentURL("100.00", 1, "Desc", "")
+	uTest := test.PaymentURL("100.00", 1, "Desc", "")
 
 	if !strings.Contains(uProd, "IsTest=0") {
 		t.Errorf("продакшн URL должен содержать IsTest=0: %s", uProd)
@@ -75,7 +75,7 @@ func TestClient_PaymentURL_IsTestFlag(t *testing.T) {
 
 func TestClient_PaymentURL_SignatureIsUpperMD5(t *testing.T) {
 	c := newTestClient(false)
-	u := c.PaymentURL("1500.00", 7, "Desc")
+	u := c.PaymentURL("1500.00", 7, "Desc", "")
 
 	// Извлекаем SignatureValue из URL
 	sig := extractParam(u, "SignatureValue")
@@ -159,7 +159,7 @@ func TestClient_PaymentAndWebhook_SameAmount(t *testing.T) {
 
 	// Имитируем: сформировали ссылку → Robokassa прислала вебхук с той же суммой
 	invID := "99"
-	paymentSig := extractParam(c.PaymentURL(outSum, 99, "Desc"), "SignatureValue")
+	paymentSig := extractParam(c.PaymentURL(outSum, 99, "Desc", ""), "SignatureValue")
 	webhookSig := c.signWebhook(outSum, invID)
 
 	// Подписи разные (разные пароли), но формат суммы должен быть одинаковым

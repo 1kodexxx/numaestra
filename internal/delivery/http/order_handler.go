@@ -508,7 +508,7 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 // buildPaymentURL формирует ссылку на оплату Robokassa для заказа.
 func (h *OrderHandler) buildPaymentURL(order *domain.Order) string {
 	outSum := robokassa.FormatAmount(order.AmountKopecks())
-	return h.rk.PaymentURL(outSum, order.InvoiceID(), "Генерация студийной песни Numaestra")
+	return h.rk.PaymentURL(outSum, order.InvoiceID(), "Генерация студийной песни Numaestra", order.CustomerEmail())
 }
 
 // GetPaymentURL заново формирует ссылку на оплату для неоплаченного заказа —

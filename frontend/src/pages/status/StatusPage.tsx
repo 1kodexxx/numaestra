@@ -6,6 +6,8 @@ import { orderStorage } from '@shared/lib/storage'
 import { MusicPlayer } from '@widgets/player'
 import { Button, TextField, copyText } from '@shared/ui'
 import { orderApi } from '@entities/order'
+import { reviewApi } from '@entities/review'
+import { ApiError } from '@shared/api'
 import { useSeo } from '@shared/lib/seo'
 import { downloadFile } from '@shared/lib/download'
 import { ShareBar } from '@widgets/share-bar'
@@ -574,6 +576,9 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
         </div>
       )}
 
+      {/* Review prompt — показываем только после завершения генерации */}
+      {gs === 'completed' && <ReviewPrompt orderId={order.id} />}
+
       {/* Actions — восстановление доступа для НЕ-pending заказов (для pending показано
           выше, в блоке оплаты, чтобы клиент мог получить ссылку и оплатить). */}
       {!canManage && ps !== 'pending' && (
@@ -588,6 +593,116 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
           <Button size="lg" fullWidth onClick={onBack}>На главную</Button>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ── Предложение оставить отзыв после завершения генерации ── */
+function ReviewStars({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div style={{ display: 'inline-flex', gap: '4px' }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <span
+          key={n}
+          onClick={() => onChange(n)}
+          style={{
+            fontSize: '28px', lineHeight: 1, cursor: 'pointer',
+            color: n <= value ? '#fbbf24' : 'rgba(255,255,255,0.18)',
+            transition: 'color 0.12s',
+          }}
+        >
+          ★
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ReviewPrompt({ orderId }: { orderId: string }) {
+  const storageKey = `numaestra_review_sent_${orderId}`
+  const [alreadySent] = useState(() => !!localStorage.getItem(storageKey))
+  const [name, setName] = useState('')
+  const [rating, setRating] = useState(5)
+  const [body, setBody] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [sent, setSent] = useState(alreadySent)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  if (sent) {
+    return (
+      <div className="pop-in" style={{
+        background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.22)',
+        borderRadius: '20px', padding: '20px 22px', marginBottom: '16px',
+        display: 'flex', alignItems: 'center', gap: '14px',
+      }}>
+        <span style={{ fontSize: '28px', lineHeight: 1, flexShrink: 0 }}>🙏</span>
+        <div>
+          <div style={{ fontSize: '15px', fontWeight: 700, color: '#4ade80', marginBottom: '2px' }}>Спасибо за отзыв!</div>
+          <div style={{ fontSize: '13px', color: TEXT2 }}>Он уже опубликован и помогает другим решиться на заказ.</div>
+        </div>
+      </div>
+    )
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setFormError(null); setSubmitting(true)
+    try {
+      await reviewApi.create({ author_name: name.trim(), rating, body: body.trim() })
+      localStorage.setItem(storageKey, '1')
+      setSent(true)
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'Не удалось отправить отзыв. Попробуйте ещё раз.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div style={{
+      background: '#0f0f0f', border: `1px solid ${BORDER}`, borderRadius: '20px',
+      padding: '20px 22px', marginBottom: '16px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '16px' }}>
+        <span style={{ fontSize: '22px', lineHeight: 1.2, flexShrink: 0 }}>💬</span>
+        <div>
+          <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '3px' }}>Нам очень важен ваш отзыв</div>
+          <div style={{ fontSize: '13px', color: TEXT2, lineHeight: 1.45 }}>
+            Расскажите, как вам песня — это занимает меньше минуты и очень помогает нам развиваться.
+          </div>
+        </div>
+      </div>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <TextField
+          label="Ваше имя"
+          value={name}
+          onChange={setName}
+          required
+          surfaceColor={theme.surface}
+        />
+        <div>
+          <div style={{ fontSize: '12px', color: TEXT2, fontWeight: 500, marginBottom: '8px' }}>Оценка</div>
+          <ReviewStars value={rating} onChange={setRating} />
+        </div>
+        <TextField
+          label="Ваш отзыв"
+          value={body}
+          onChange={setBody}
+          multiline
+          rows={3}
+          required
+          placeholder="Расскажите о вашем опыте: какой повод, понравился ли результат…"
+          surfaceColor={theme.surface}
+        />
+        {formError && (
+          <div style={{ fontSize: '13px', color: '#f87171', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '10px', padding: '10px 14px' }}>
+            {formError}
+          </div>
+        )}
+        <Button type="submit" loading={submitting} disabled={!name.trim() || !body.trim()} style={{ alignSelf: 'flex-start' }}>
+          Оставить отзыв
+        </Button>
+      </form>
     </div>
   )
 }

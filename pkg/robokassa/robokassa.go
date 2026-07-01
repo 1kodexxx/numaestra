@@ -96,7 +96,8 @@ func (c *Client) WithTestHTTP(httpClient *http.Client, opStateURL string) *Clien
 // outSum — сумма в рублях с двумя знаками после запятой (например "1500.00").
 // invID — уникальный номер счёта (InvId).
 // description — описание заказа, отображаемое на странице оплаты.
-func (c *Client) PaymentURL(outSum string, invID int64, description string) string {
+// email — email покупателя; если не пустой, подставляется в форму Robokassa автоматически.
+func (c *Client) PaymentURL(outSum string, invID int64, description, email string) string {
 	invIDStr := fmt.Sprintf("%d", invID)
 	sig := c.signPayment(outSum, invIDStr)
 
@@ -112,6 +113,9 @@ func (c *Client) PaymentURL(outSum string, invID int64, description string) stri
 	params.Set("Description", description)
 	params.Set("SignatureValue", sig)
 	params.Set("IsTest", isTest)
+	if email != "" {
+		params.Set("Email", email)
+	}
 
 	return paymentBaseURL + "?" + params.Encode()
 }
