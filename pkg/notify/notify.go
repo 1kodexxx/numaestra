@@ -45,6 +45,7 @@ type AdminEventKind string
 const (
 	AdminEventPaidOrder        AdminEventKind = "paid_order"        // заказ оплачен (продажа)
 	AdminEventDemoReady        AdminEventKind = "demo_ready"        // готово бесплатное демо
+	AdminEventDemoFailed       AdminEventKind = "demo_failed"       // бесплатное демо сорвалось (клиент может уйти, не оплатив)
 	AdminEventGenerationFailed AdminEventKind = "generation_failed" // генерация оплаченного заказа сорвалась
 )
 
@@ -57,7 +58,7 @@ type AdminEventNotification struct {
 	CustomerPhone string
 	AmountKopecks int64
 	Brief         string
-	FailureReason string // только для AdminEventGenerationFailed
+	FailureReason string // для AdminEventGenerationFailed и AdminEventDemoFailed
 }
 
 // OrderCompleteNotification содержит данные для уведомления о завершении заказа.

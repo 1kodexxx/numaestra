@@ -121,6 +121,10 @@ func (n *SmtpNotifier) buildAdminEmail(notif AdminEventNotification) (subject, h
 		subject = fmt.Sprintf("🎧 Готово демо · заказ #%d — Numaestra", notif.InvoiceID)
 		emoji, title = "🎧", "Демо готово"
 		lead = fmt.Sprintf("По заказу #%d сгенерировано бесплатное демо.", notif.InvoiceID)
+	case AdminEventDemoFailed:
+		subject = fmt.Sprintf("🚫 Демо не создалось · заказ #%d — Numaestra", notif.InvoiceID)
+		emoji, title = "🚫", "Демо не создалось"
+		lead = fmt.Sprintf("По заказу #%d не удалось сгенерировать бесплатное демо — клиент может уйти, не оплатив. Частая причина: упоминание реального артиста/бренда в тексте (модерация Suno).", notif.InvoiceID)
 	case AdminEventGenerationFailed:
 		subject = fmt.Sprintf("⚠️ Ошибка генерации · заказ #%d — Numaestra", notif.InvoiceID)
 		emoji, title = "⚠️", "Ошибка генерации"
@@ -137,7 +141,7 @@ func (n *SmtpNotifier) buildAdminEmail(notif AdminEventNotification) (subject, h
 	facts.WriteString(emailParagraph(html.EscapeString(lead)))
 	facts.WriteString(adminFactLine("Email клиента", notif.CustomerEmail))
 	facts.WriteString(adminFactLine("Телефон", notif.CustomerPhone))
-	if notif.Kind == AdminEventGenerationFailed && notif.FailureReason != "" {
+	if (notif.Kind == AdminEventGenerationFailed || notif.Kind == AdminEventDemoFailed) && notif.FailureReason != "" {
 		facts.WriteString(adminFactLine("Причина", notif.FailureReason))
 	}
 	if notif.Brief != "" {
@@ -198,7 +202,7 @@ func (n *SmtpNotifier) buildAdminPlain(notif AdminEventNotification, lead, admin
 	if notif.CustomerPhone != "" {
 		fmt.Fprintf(&b, "Телефон: %s\n", notif.CustomerPhone)
 	}
-	if notif.Kind == AdminEventGenerationFailed && notif.FailureReason != "" {
+	if (notif.Kind == AdminEventGenerationFailed || notif.Kind == AdminEventDemoFailed) && notif.FailureReason != "" {
 		fmt.Fprintf(&b, "Причина: %s\n", notif.FailureReason)
 	}
 	if notif.Brief != "" {

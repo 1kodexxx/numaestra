@@ -612,6 +612,27 @@ export function CategoryPage() {
           placeholder="Строки или припев, которые должны прозвучать дословно..."
           surfaceColor={SURFACE}
         />
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            marginTop: "-8px",
+            padding: "10px 12px",
+            borderRadius: "10px",
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.25)",
+            fontSize: "12px",
+            color: "#fbbf24",
+            lineHeight: 1.5,
+          }}
+        >
+          <span style={{ flexShrink: 0 }}>⚠️</span>
+          <span>
+            Не упоминайте <b>реальных артистов и названия брендов</b> (например «Ludacris»,
+            «Wildberries») — ИИ-студия такие песни не создаёт, и демо не сгенерируется.
+            Мат и жаргон — можно.
+          </span>
+        </div>
 
         {/* live preview */}
         <div

@@ -1343,6 +1343,17 @@ func (uc *OrderUseCase) CheckDemoStatus(ctx context.Context, orderID uuid.UUID, 
 	uc.releaseDemoAccount(ctx, accountID, false)
 	uc.markDemoFailed(ctx, order)
 	uc.log.Warn("демо не удалось", "order_id", order.ID(), "status", result.Status, "reason", result.Error)
+	// Алерт админу: демо сорвалось до оплаты — клиент, скорее всего, уйдёт, если
+	// не связаться. Частая причина — модерация Suno (реальный артист/бренд в тексте).
+	uc.notifyAdminAsync(notify.AdminEventNotification{
+		Kind:          notify.AdminEventDemoFailed,
+		OrderID:       order.ID().String(),
+		InvoiceID:     order.InvoiceID(),
+		CustomerEmail: order.CustomerEmail(),
+		CustomerPhone: order.CustomerPhone(),
+		Brief:         order.Brief(),
+		FailureReason: result.Error,
+	})
 	return nil
 }
 
