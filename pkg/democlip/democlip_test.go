@@ -153,6 +153,34 @@ func TestBestWindowStart_RespectsIntroSkip(t *testing.T) {
 	}
 }
 
+func TestHookScore_FavorsLoudAndVocal(t *testing.T) {
+	// Секунда 1: громкий инструментал без вокала (high full, low vocal).
+	// Секунда 2: тихий куплет с вокалом (low full, high vocal).
+	// Секунда 3: припев — громко И с вокалом (high both) → должен победить.
+	full := []float64{9, 1, 9}
+	vocal := []float64{1, 9, 9}
+	got := hookScore(full, vocal)
+	want := []float64{9, 9, 81}
+	if len(got) != len(want) {
+		t.Fatalf("длина: got %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("hookScore[%d] = %v, хотели %v", i, got[i], want[i])
+		}
+	}
+	// Именно припев (индекс 2) — максимум оценки.
+	if bestWindowStart(got, 1, 0) != 2 {
+		t.Errorf("ожидали, что победит припев (индекс 2)")
+	}
+}
+
+func TestHookScore_DiffLengths_UsesMin(t *testing.T) {
+	if got := hookScore([]float64{1, 2, 3}, []float64{4, 5}); len(got) != 2 {
+		t.Errorf("ожидали длину min=2, получили %d", len(got))
+	}
+}
+
 func TestBestWindowStart_ShortTrack_ReturnsZero(t *testing.T) {
 	if got := bestWindowStart([]float64{1, 2}, 5, 0); got != 0 {
 		t.Errorf("для трека короче окна ожидали 0, получили %d", got)

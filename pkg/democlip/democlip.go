@@ -59,13 +59,23 @@ func (p *Processor) Process(ctx context.Context, sourceURL string) ([]byte, erro
 	}
 	defer cleanup()
 
-	rms, err := p.rmsPerSecond(ctx, path)
+	// «Самый яркий момент» (припев/хук) — участок, который ОДНОВРЕМЕННО громкий
+	// (полная аранжировка) и с ВОКАЛОМ. Считаем две энергии: полную и в вокальной
+	// полосе, затем перемножаем (hookScore). Так подавляются и тихие куплеты
+	// (мало полной энергии), и инструментальные проигрыши (мало вокала) — остаётся
+	// именно припев, ради которого демо и хочется купить.
+	full, err := p.energyPerSecond(ctx, path, false)
 	if err != nil {
 		return nil, fmt.Errorf("democlip: анализ энергии: %w", err)
 	}
+	vocal, err := p.energyPerSecond(ctx, path, true)
+	if err != nil {
+		return nil, fmt.Errorf("democlip: анализ вокальной энергии: %w", err)
+	}
+	score := hookScore(full, vocal)
 
-	totalSec := len(rms)
-	start := bestWindowStart(rms, p.clipSeconds, p.introSkip)
+	totalSec := len(score)
+	start := bestWindowStart(score, p.clipSeconds, p.introSkip)
 	// Длительность фрагмента не должна вылезать за конец короткого клипа.
 	dur := p.clipSeconds
 	if totalSec > 0 && start+dur > totalSec {
@@ -133,19 +143,37 @@ const (
 	vocalBandHighHz = 3400
 )
 
-// rmsPerSecond декодирует аудио в моно PCM, отфильтрованный до вокального
-// диапазона, и возвращает RMS по каждой секунде. RMS отражает энергию именно
-// голоса, а не общую громкость трека — так демо ловит участок с пением.
-func (p *Processor) rmsPerSecond(ctx context.Context, src string) ([]float64, error) {
-	cmd := exec.CommandContext(ctx, p.ffmpeg,
-		"-v", "error", "-i", src,
-		"-af", fmt.Sprintf("highpass=f=%d,lowpass=f=%d", vocalBandLowHz, vocalBandHighHz),
-		"-ac", "1", "-ar", fmt.Sprint(analysisSampleRate), "-f", "s16le", "-")
+// energyPerSecond декодирует аудио в моно PCM и возвращает RMS по каждой секунде.
+// При vocalBand=true применяется полосовой фильтр вокального диапазона — тогда RMS
+// отражает энергию голоса, а не общую громкость трека.
+func (p *Processor) energyPerSecond(ctx context.Context, src string, vocalBand bool) ([]float64, error) {
+	args := []string{"-v", "error", "-i", src}
+	if vocalBand {
+		args = append(args, "-af", fmt.Sprintf("highpass=f=%d,lowpass=f=%d", vocalBandLowHz, vocalBandHighHz))
+	}
+	args = append(args, "-ac", "1", "-ar", fmt.Sprint(analysisSampleRate), "-f", "s16le", "-")
+	cmd := exec.CommandContext(ctx, p.ffmpeg, args...)
 	raw, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 	return rmsWindows(raw, analysisSampleRate), nil
+}
+
+// hookScore объединяет полную и вокальную энергию посекундно в оценку «яркости».
+// Произведение выделяет секции, сильные ПО ОБОИМ признакам (громко + с вокалом =
+// припев), и подавляет как тихие куплеты, так и инструментальные проигрыши.
+// Длины срезов могут отличаться на секунду из-за фильтра — берём минимум.
+func hookScore(full, vocal []float64) []float64 {
+	n := len(full)
+	if len(vocal) < n {
+		n = len(vocal)
+	}
+	out := make([]float64, n)
+	for i := 0; i < n; i++ {
+		out[i] = full[i] * vocal[i]
+	}
+	return out
 }
 
 // rmsWindows вычисляет RMS на каждую секунду из PCM s16le mono.
