@@ -3,6 +3,7 @@ package robokassa
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,12 @@ const opStateBaseURL = "https://auth.robokassa.ru/Merchant/WebService/Service.as
 
 // StateCodePaid — успешная оплата по документации OpStateExt Robokassa.
 const StateCodePaid = 100
+
+// ErrOperationNotFound — OpStateExt вернул Result.Code=3: операции с таким InvId
+// у Robokassa нет. Для pending-заказа это штатное «ещё не оплачено» (клиент не
+// начинал/не завершил оплату), а не сбой. Для возвратов (fetchOpKey) — реальная
+// ошибка: нельзя вернуть несуществующий платёж.
+var ErrOperationNotFound = errors.New("операция не найдена в Robokassa")
 
 // operationStateResponse — подмножество XML-ответа OpStateExt.
 type operationStateResponse struct {
@@ -32,26 +39,33 @@ type operationStateResponse struct {
 
 // IsInvoicePaid проверяет в Robokassa, что счёт оплачен (State.Code = 100).
 // Работает только в боевом режиме; для тестовых платежей OpStateExt недоступен.
+// «Операция не найдена» (клиент не платил) — не ошибка, а «не оплачено».
 func (c *Client) IsInvoicePaid(ctx context.Context, invID int64) (bool, error) {
 	if c.isTest {
 		return false, nil
 	}
 	state, err := c.fetchOperationState(ctx, invID)
 	if err != nil {
+		if errors.Is(err, ErrOperationNotFound) {
+			return false, nil
+		}
 		return false, err
 	}
 	return state.State.Code == StateCodePaid, nil
 }
 
 // GetPaidAmountKopecks проверяет статус счёта через OpStateExt и возвращает
-// фактически списанную сумму в копейках. Если счёт не оплачен — возвращает (0, false, nil).
-// Работает только в боевом режиме.
+// фактически списанную сумму в копейках. Если счёт не оплачен (в т.ч. операции
+// ещё нет в Robokassa) — возвращает (0, false, nil). Работает только в боевом режиме.
 func (c *Client) GetPaidAmountKopecks(ctx context.Context, invID int64) (kopecks int64, paid bool, err error) {
 	if c.isTest {
 		return 0, false, nil
 	}
 	state, err := c.fetchOperationState(ctx, invID)
 	if err != nil {
+		if errors.Is(err, ErrOperationNotFound) {
+			return 0, false, nil
+		}
 		return 0, false, err
 	}
 	if state.State.Code != StateCodePaid {
@@ -111,7 +125,7 @@ func (c *Client) fetchOperationState(ctx context.Context, invID int64) (*operati
 	case 0:
 		// ok
 	case 3:
-		return nil, fmt.Errorf("операция с InvoiceID=%s не найдена в Robokassa", invIDStr)
+		return nil, fmt.Errorf("InvoiceID=%s: %w", invIDStr, ErrOperationNotFound)
 	default:
 		return nil, fmt.Errorf("opstate: код результата %d", state.Result.Code)
 	}

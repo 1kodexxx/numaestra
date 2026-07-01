@@ -46,6 +46,36 @@ func TestIsInvoicePaid_Pending(t *testing.T) {
 	}
 }
 
+// Code=3 (операция не найдена) для pending-заказа — штатное «не оплачено»,
+// а не ошибка: клиент не начинал/не завершил оплату. Иначе фоновая сверка
+// сыпала бы WARN по каждому брошенному заказу.
+func TestIsInvoicePaid_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<?xml version="1.0"?><OperationStateResponse xmlns="http://merchant.roboxchange.com/WebService/"><Result><Code>3</Code></Result></OperationStateResponse>`)
+	}))
+	defer srv.Close()
+
+	c := New("shop", "p1", "p2", "p3", false)
+	c.httpClient = srv.Client()
+	c.opStateURL = srv.URL
+
+	paid, err := c.IsInvoicePaid(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("Code=3 не должен быть ошибкой: %v", err)
+	}
+	if paid {
+		t.Fatal("ожидали paid=false")
+	}
+
+	kopecks, paid, err := c.GetPaidAmountKopecks(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("GetPaidAmountKopecks Code=3 не должен быть ошибкой: %v", err)
+	}
+	if paid || kopecks != 0 {
+		t.Fatalf("ожидали (0, false), получили (%d, %v)", kopecks, paid)
+	}
+}
+
 func TestIsInvoicePaid_TestModeSkipped(t *testing.T) {
 	c := New("shop", "p1", "p2", "p3", true)
 	paid, err := c.IsInvoicePaid(context.Background(), 7)
