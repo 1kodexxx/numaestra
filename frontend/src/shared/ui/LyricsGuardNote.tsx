@@ -55,7 +55,7 @@ export function LyricsGuardNote({ text, style }: { text: string; style?: React.C
       <span style={{ flexShrink: 0 }}>⚠️</span>
       <span>
         Не упоминайте <b>реальных артистов и названия брендов</b> (например «Ludacris»,
-        «Wildberries») — ИИ-студия такие песни не создаёт, и демо не сгенерируется. Мат и жаргон — можно.
+        «Wildberries») — ИИ-студия такие песни не создаёт, и демо не сгенерируется.
       </span>
     </div>
   )
