@@ -79,6 +79,12 @@ type RobokassaConfig struct {
 	Password3     string // Для JWT API возвратов (генерируется отдельно в кабинете)
 	IsTest        bool   // Флаг тестового режима
 	TestAutoPay   bool   // В тестовом режиме считать все счета оплаченными (для sync-payment)
+	// ReceiptSno/ReceiptTax — параметры фискального чека (54-ФЗ).
+	// Если ReceiptSno пустой — чек не формируется.
+	// ReceiptSno: "osn", "usn_income", "usn_income_outcome", "envd", "esn", "patent".
+	// ReceiptTax: "none", "vat0", "vat10", "vat20".
+	ReceiptSno string
+	ReceiptTax string
 	// AllowedIPs — список IP/CIDR, с которых принимаются вебхуки ResultURL.
 	// Пустой список отключает фильтрацию по IP (подпись проверяется всегда).
 	// Актуальные подсети Robokassa см. в их документации/поддержке.
@@ -203,6 +209,8 @@ func Load() (*Config, error) {
 			// иначе платежи уходят в тест и Robokassa их не зачисляет.
 			IsTest:      getBoolEnv("ROBOKASSA_IS_TEST", false),
 			TestAutoPay: getBoolEnv("ROBOKASSA_TEST_AUTO_PAY", false),
+			ReceiptSno:  getEnv("ROBOKASSA_RECEIPT_SNO", ""),
+			ReceiptTax:  getEnv("ROBOKASSA_RECEIPT_TAX", "none"),
 			AllowedIPs:  getCSVEnv("ROBOKASSA_ALLOWED_IPS"),
 		},
 		Suno: SunoConfig{

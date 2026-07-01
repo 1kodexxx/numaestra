@@ -15,6 +15,7 @@ import (
 	"crypto/md5"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,6 +29,46 @@ const (
 	paymentBaseURL = "https://auth.robokassa.ru/Merchant/Index.aspx"
 )
 
+// receiptItem — позиция в фискальном чеке (54-ФЗ).
+type receiptItem struct {
+	Name          string  `json:"name"`
+	Quantity      float64 `json:"quantity"`
+	Sum           float64 `json:"sum"`
+	PaymentMethod string  `json:"payment_method"`
+	PaymentObject string  `json:"payment_object"`
+	Tax           string  `json:"tax"`
+}
+
+// receipt — структура чека для параметра Receipt (54-ФЗ).
+type receipt struct {
+	Sno   string        `json:"sno"`
+	Email string        `json:"email"`
+	Items []receiptItem `json:"items"`
+}
+
+// buildReceipt формирует URL-encoded JSON чека для Robokassa (54-ФЗ).
+// sno — система налогообложения (например "usn_income").
+// tax — ставка НДС для позиции (например "none", "vat20").
+func buildReceipt(email, description string, amountRub float64, sno, tax string) string {
+	r := receipt{
+		Sno:   sno,
+		Email: email,
+		Items: []receiptItem{{
+			Name:          description,
+			Quantity:      1,
+			Sum:           amountRub,
+			PaymentMethod: "full_prepayment",
+			PaymentObject: "service",
+			Tax:           tax,
+		}},
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return ""
+	}
+	return url.QueryEscape(string(b))
+}
+
 // Client инкапсулирует учётные данные мерчанта и методы работы с Robokassa.
 type Client struct {
 	merchantLogin   string
@@ -36,6 +77,8 @@ type Client struct {
 	password3       string // для JWT API возвратов
 	isTest          bool
 	testAutoPay     bool // для тестового режима: IsInvoicePaid/GetPaidAmountKopecks возвращают true
+	receiptSno      string // система налогообложения для чека 54-ФЗ (например "usn_income")
+	receiptTax      string // ставка НДС для позиций чека (например "none")
 	httpClient      *http.Client
 	opStateURL      string // переопределяется в тестах
 	refundCreateURL string // переопределяется в тестах
@@ -81,6 +124,16 @@ func (c *Client) IsTestAutoPay() bool {
 	return c.isTest && c.testAutoPay
 }
 
+// WithReceipt включает генерацию фискального чека (54-ФЗ) при формировании ссылки оплаты.
+// sno — система налогообложения: "osn", "usn_income", "usn_income_outcome", "envd", "esn", "patent".
+// tax — ставка НДС для каждой позиции: "none", "vat0", "vat10", "vat20".
+// Если WithReceipt не вызван, параметр Receipt в URL не передаётся.
+func (c *Client) WithReceipt(sno, tax string) *Client {
+	c.receiptSno = sno
+	c.receiptTax = tax
+	return c
+}
+
 // WithTestHTTP подключает httptest-сервер к XML/Refund API (используется в HTTP-тестах).
 func (c *Client) WithTestHTTP(httpClient *http.Client, opStateURL string) *Client {
 	if httpClient != nil {
@@ -96,7 +149,7 @@ func (c *Client) WithTestHTTP(httpClient *http.Client, opStateURL string) *Clien
 // outSum — сумма в рублях с двумя знаками после запятой (например "1500.00").
 // invID — уникальный номер счёта (InvId).
 // description — описание заказа, отображаемое на странице оплаты.
-// email — email покупателя; если не пустой, подставляется в форму Robokassa автоматически.
+// email — email покупателя; подставляется в форму и в фискальный чек (если WithReceipt задан).
 func (c *Client) PaymentURL(outSum string, invID int64, description, email string) string {
 	invIDStr := fmt.Sprintf("%d", invID)
 	sig := c.signPayment(outSum, invIDStr)
@@ -115,6 +168,12 @@ func (c *Client) PaymentURL(outSum string, invID int64, description, email strin
 	params.Set("IsTest", isTest)
 	if email != "" {
 		params.Set("Email", email)
+	}
+	if c.receiptSno != "" && email != "" {
+		amountRub, _ := strconv.ParseFloat(outSum, 64)
+		if r := buildReceipt(email, description, amountRub, c.receiptSno, c.receiptTax); r != "" {
+			params.Set("Receipt", r)
+		}
 	}
 
 	return paymentBaseURL + "?" + params.Encode()

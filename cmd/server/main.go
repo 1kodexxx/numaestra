@@ -187,6 +187,9 @@ func run(ctx context.Context) error {
 	if cfg.Robokassa.TestAutoPay {
 		rkClient.WithTestAutoPay()
 	}
+	if cfg.Robokassa.ReceiptSno != "" {
+		rkClient.WithReceipt(cfg.Robokassa.ReceiptSno, cfg.Robokassa.ReceiptTax)
+	}
 
 	// Redis-клиент создаём здесь (а не только в HTTP-секции), чтобы ограничитель
 	// демо (дневной лимит + лимит на email) работал и в worker-режиме, где крутится
