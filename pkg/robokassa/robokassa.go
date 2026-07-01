@@ -76,7 +76,7 @@ type Client struct {
 	password2       string // для проверки подписи вебхука и OpStateExt
 	password3       string // для JWT API возвратов
 	isTest          bool
-	testAutoPay     bool // для тестового режима: IsInvoicePaid/GetPaidAmountKopecks возвращают true
+	testAutoPay     bool   // для тестового режима: IsInvoicePaid/GetPaidAmountKopecks возвращают true
 	receiptSno      string // система налогообложения для чека 54-ФЗ (например "usn_income")
 	receiptTax      string // ставка НДС для позиций чека (например "none")
 	httpClient      *http.Client
