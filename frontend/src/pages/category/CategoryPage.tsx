@@ -32,7 +32,7 @@ const BORDER = theme.border;
 // Жанры: пользователь может выбирать пресеты И добавлять свои, но суммарно не
 // более трёх. mapping_key совпадает с ключом GENRE в Suno-тегах на бэкенде.
 const GENRE_KEY = "GENRE";
-const MAX_GENRES = 3;
+const MAX_GENRES = 2;
 const TEXT2 = theme.text2;
 const TEXT3 = theme.text3;
 const PANEL_W = 240;
@@ -172,7 +172,7 @@ function QuestionField({
 
   const hint = q.config?.hint
     ?? (q.mapping_key === GENRE_KEY
-      ? `до ${maxSelect ?? MAX_GENRES} — но 1–2 дают самый чистый звук`
+      ? `1–2 жанра — так звук чище`
       : multi
         ? allowCustom
           ? `до ${maxSelect ?? MAX_GENRES} — выбирайте из списка или добавьте свой`

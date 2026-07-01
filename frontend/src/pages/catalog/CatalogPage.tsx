@@ -45,7 +45,7 @@ const TEXT2 = theme.text2;
 const TEXT3 = theme.text3;
 const SURFACE = theme.dark;
 
-const MAX_GENRES = 3;
+const MAX_GENRES = 2;
 const MAX_MOODS = 3;
 
 /* ─── icon map: matches Russian and English keywords ─── */
@@ -876,7 +876,7 @@ function PromptBuilder({
           surfaceColor={SURFACE}
         />
 
-        <Section label="Жанр" required hint={`до ${MAX_GENRES} — но 1–2 дают самый чистый звук`}>
+        <Section label="Жанр" required hint={`1–2 жанра — так звук чище`}>
           {genrePresets.map((label) => {
             const suno = labelToSuno.get(label);
             const selected = suno ? form.genres.includes(suno) : false;
