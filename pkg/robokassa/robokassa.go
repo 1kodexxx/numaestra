@@ -205,9 +205,12 @@ func FormatAmount(amountKopecks int64) string {
 	return fmt.Sprintf("%s%d.%02d", sign, amountKopecks/100, amountKopecks%100)
 }
 
-// ParseAmountKopecks разбирает сумму в рублях из вебхука Robokassa (например "1500.00"
-// или "1500") в целочисленные копейки. Парсинг идёт по строке без float, чтобы
-// исключить ошибки округления при сверке оплаченной суммы с суммой заказа.
+// ParseAmountKopecks разбирает сумму в рублях из Robokassa в целочисленные копейки.
+// Формат зависит от источника: вебхук ResultURL шлёт "1500.00", а OpStateExt —
+// "1500.000000" (6 знаков после запятой). Поэтому дробную часть длиннее 2 знаков
+// принимаем, если «лишние» разряды нулевые (реальный платёж не бывает дробнее
+// копейки). Парсинг идёт по строке без float, чтобы исключить ошибки округления
+// при сверке оплаченной суммы с суммой заказа.
 func ParseAmountKopecks(outSum string) (int64, error) {
 	s := strings.TrimSpace(outSum)
 	if s == "" {
@@ -225,25 +228,28 @@ func ParseAmountKopecks(outSum string) (int64, error) {
 	}
 
 	var kop int64
-	if hasFraction {
-		switch len(kopStr) {
-		case 0:
-			kop = 0
-		case 1:
-			d, perr := strconv.ParseInt(kopStr, 10, 64)
-			if perr != nil || d < 0 {
-				return 0, fmt.Errorf("некорректная копеечная часть суммы %q", outSum)
+	if hasFraction && kopStr != "" {
+		// Разряды после первых двух должны быть нулевыми — иначе теряли бы точность
+		// дробнее копейки, и сверка с суммой заказа была бы неверной.
+		if len(kopStr) > 2 {
+			for _, r := range kopStr[2:] {
+				if r != '0' {
+					return 0, fmt.Errorf("сумма дробнее копейки не поддерживается: %q", outSum)
+				}
 			}
-			kop = d * 10
-		case 2:
-			d, perr := strconv.ParseInt(kopStr, 10, 64)
-			if perr != nil || d < 0 {
-				return 0, fmt.Errorf("некорректная копеечная часть суммы %q", outSum)
-			}
-			kop = d
-		default:
-			return 0, fmt.Errorf("слишком много знаков после запятой в сумме %q", outSum)
 		}
+		// Нормализуем к ровно двум разрядам копеек: "5" → "50", "000000" → "00".
+		kopDigits := kopStr
+		if len(kopDigits) == 1 {
+			kopDigits += "0"
+		} else {
+			kopDigits = kopDigits[:2]
+		}
+		d, perr := strconv.ParseInt(kopDigits, 10, 64)
+		if perr != nil || d < 0 {
+			return 0, fmt.Errorf("некорректная копеечная часть суммы %q", outSum)
+		}
+		kop = d
 	}
 
 	return rub*100 + kop, nil
