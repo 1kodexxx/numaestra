@@ -121,10 +121,25 @@ func downloadTemp(ctx context.Context, sourceURL string) (string, func(), error)
 	return tmp.Name(), func() { os.Remove(tmp.Name()) }, nil //nolint:errcheck
 }
 
-// rmsPerSecond декодирует аудио в моно PCM и возвращает RMS по каждой секунде.
+// vocalBandLowHz/vocalBandHighHz — полоса анализа энергии. Анализируем НЕ весь
+// спектр, а вокальный диапазон: голос и его форманты живут примерно в 300–3400 Гц.
+// Бас и бочка (<300 Гц) и верхи тарелок (>3400 Гц) отфильтровываются, поэтому
+// громкий инструментальный проигрыш (дроп, барабаны, бас) больше не «перевешивает»
+// вокал по громкости. Без этого bestWindowStart выбирал самый громкий участок по
+// полному спектру и мог поймать голый инструментал без пения (демо без вокала →
+// клиент не понимает, что покупает, и уходит).
+const (
+	vocalBandLowHz  = 300
+	vocalBandHighHz = 3400
+)
+
+// rmsPerSecond декодирует аудио в моно PCM, отфильтрованный до вокального
+// диапазона, и возвращает RMS по каждой секунде. RMS отражает энергию именно
+// голоса, а не общую громкость трека — так демо ловит участок с пением.
 func (p *Processor) rmsPerSecond(ctx context.Context, src string) ([]float64, error) {
 	cmd := exec.CommandContext(ctx, p.ffmpeg,
 		"-v", "error", "-i", src,
+		"-af", fmt.Sprintf("highpass=f=%d,lowpass=f=%d", vocalBandLowHz, vocalBandHighHz),
 		"-ac", "1", "-ar", fmt.Sprint(analysisSampleRate), "-f", "s16le", "-")
 	raw, err := cmd.Output()
 	if err != nil {
