@@ -876,7 +876,7 @@ function PromptBuilder({
           surfaceColor={SURFACE}
         />
 
-        <Section label="Жанр" required hint={`до ${MAX_GENRES} — выбирайте из списка или добавьте свой`}>
+        <Section label="Жанр" required hint={`до ${MAX_GENRES} — но 1–2 дают самый чистый звук`}>
           {genrePresets.map((label) => {
             const suno = labelToSuno.get(label);
             const selected = suno ? form.genres.includes(suno) : false;

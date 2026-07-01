@@ -171,11 +171,13 @@ function QuestionField({
   const atLimit = maxSelect != null && tagValues.length >= maxSelect;
 
   const hint = q.config?.hint
-    ?? (multi
-      ? allowCustom
-        ? `до ${maxSelect ?? MAX_GENRES} — выбирайте из списка или добавьте свой`
-        : `можно выбрать несколько${maxSelect ? `, до ${maxSelect}` : ""}`
-      : undefined);
+    ?? (q.mapping_key === GENRE_KEY
+      ? `до ${maxSelect ?? MAX_GENRES} — но 1–2 дают самый чистый звук`
+      : multi
+        ? allowCustom
+          ? `до ${maxSelect ?? MAX_GENRES} — выбирайте из списка или добавьте свой`
+          : `можно выбрать несколько${maxSelect ? `, до ${maxSelect}` : ""}`
+        : undefined);
 
   function addCustom() {
     const v = customInput.trim();
