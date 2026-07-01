@@ -1338,9 +1338,11 @@ func (uc *OrderUseCase) CheckDemoStatus(ctx context.Context, orderID uuid.UUID, 
 	}
 
 	// Терминально без клипов (failed/timeout) — освобождаем слот, помечаем failed.
+	// Логируем причину от Suno (result.Error, напр. модерация промпта/имён) — иначе
+	// «failed» без объяснения не даёт понять, чинить бриф или это сбой провайдера.
 	uc.releaseDemoAccount(ctx, accountID, false)
 	uc.markDemoFailed(ctx, order)
-	uc.log.Warn("демо не удалось", "order_id", order.ID(), "status", result.Status)
+	uc.log.Warn("демо не удалось", "order_id", order.ID(), "status", result.Status, "reason", result.Error)
 	return nil
 }
 
