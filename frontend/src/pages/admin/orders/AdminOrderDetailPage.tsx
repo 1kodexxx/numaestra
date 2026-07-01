@@ -150,7 +150,7 @@ export function AdminOrderDetailPage() {
             />
           )}
           <div className="admin-info-grid__full">
-            <Info label="Бриф" value={order.brief} />
+            <BriefBlock brief={order.brief} />
           </div>
         </div>
       </Panel>
@@ -333,6 +333,46 @@ function Info({ label, value }: { label: string; value: string }) {
     <div>
       <div style={{ fontSize: '11px', color: A.txt3, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{label}</div>
       <div style={{ fontSize: '14px', color: A.txt, lineHeight: 1.5, wordBreak: 'break-word' }}>{value}</div>
+    </div>
+  )
+}
+
+// formatBrief раскладывает бриф для чтения: служебные маркеры Suno и заголовки
+// секций текста ([Куплет], [Припев], [Аутро], [Bridge]…) выносятся на новую строку,
+// существующие переносы сохраняются. Значение в БД не меняется — это только показ.
+function formatBrief(brief: string): string {
+  return brief
+    // Каждый маркер Suno — с новой строки, с пустой строкой-разделителем перед ним.
+    .replace(/[ \t]*(#SUNO_(?:TAGS|DESC|LYRICS)#)/g, '\n\n$1')
+    // Заголовки секций текста в квадратных скобках — с новой строки (стихи, не блок).
+    .replace(/[ \t]*(\[[^\]]+\])/g, '\n\n$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// BriefBlock — читаемый вывод брифа в админке: секции и куплеты по строкам,
+// моноширинный шрифт, сохранение переносов (white-space: pre-wrap).
+function BriefBlock({ brief }: { brief: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: '11px', color: A.txt3, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Бриф</div>
+      <pre
+        style={{
+          margin: 0,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontSize: '13px',
+          color: A.txt,
+          lineHeight: 1.65,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          background: 'rgba(255,255,255,0.02)',
+          border: `1px solid ${A.border}`,
+          borderRadius: '12px',
+          padding: '14px 16px',
+        }}
+      >
+        {formatBrief(brief)}
+      </pre>
     </div>
   )
 }
