@@ -1692,17 +1692,19 @@ export function CatalogPage() {
   const filteredCategories = categories;
   const filteredPopular = popular;
 
-  // Конструктор промпта — непрозрачный полноэкранный оверлей поверх всего.
+  // Конструктор промпта — непрозрачный полноэкранный оверлей поверх ВСЕГО, включая
+  // навбар и плашку акции (top:0, z-index выше навбара=50). Так его кнопка «Назад»
+  // всегда доступна вверху и ничем не перекрывается, а высота плашки не влияет.
   const constructorOverlay = briefOpen && (
     <div
       className="fade-in safe-overlay-bottom"
       style={{
         position: "fixed",
-        top: 60,
+        top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        zIndex: 40,
+        zIndex: 60,
         background: "#080808",
         display: "flex",
         alignItems: "flex-start",
