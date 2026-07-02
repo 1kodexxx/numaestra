@@ -245,7 +245,7 @@ func Load() (*Config, error) {
 			PerIPDaily:    int(getInt64Env("DEMO_PER_IP_DAILY", 5)),
 
 			ClipEnabled:      getBoolEnv("DEMO_CLIP_ENABLED", true),
-			ClipSeconds:      int(getInt64Env("DEMO_CLIP_SECONDS", 28)),
+			ClipSeconds:      int(getInt64Env("DEMO_CLIP_SECONDS", 45)),
 			IntroSkipSeconds: int(getInt64Env("DEMO_INTRO_SKIP_SECONDS", 8)),
 			Watermark:        getBoolEnv("DEMO_WATERMARK", true),
 			FfmpegPath:       getEnv("FFMPEG_PATH", ""),
