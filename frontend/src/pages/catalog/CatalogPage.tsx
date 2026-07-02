@@ -1629,7 +1629,11 @@ export function CatalogPage() {
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
   async function applyPromoCode(codeArg?: string): Promise<boolean> {
-    const code = (codeArg ?? promoCode).trim().toUpperCase();
+    // codeArg — только строка (из URL-автоприменения). Если функцию передали как
+    // onClick-хэндлер, сюда прилетит объект события — защищаемся проверкой типа,
+    // иначе .trim() упал бы и промо не применилось (была такая регрессия).
+    const source = typeof codeArg === "string" ? codeArg : promoCode;
+    const code = source.trim().toUpperCase();
     if (!code) return false;
     setPromoLoading(true);
     setPromoStatus(null);
@@ -1732,7 +1736,7 @@ export function CatalogPage() {
           promoError={promoError}
           promoLoading={promoLoading}
           onPromoChange={(v) => { setPromoCode(v); setPromoStatus(null); setPromoError(null); }}
-          onApplyPromo={applyPromoCode}
+          onApplyPromo={() => applyPromoCode()}
           onClearPromo={() => { setPromoCode(""); setPromoStatus(null); setPromoError(null); }}
         />
       </div>
