@@ -16,7 +16,7 @@ import { useSeo } from "@shared/lib/seo";
 import type { GenreOption } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { theme } from "@shared/lib/theme";
-import { Button, TextField, useRipple, LyricsGuardNote } from "@shared/ui";
+import { Button, TextField, useRipple, LyricsGuardNote, showToast } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import { FloatingPlayer } from "@widgets/floating-player";
 import { Footer } from "@widgets/footer";
@@ -1628,9 +1628,9 @@ export function CatalogPage() {
 
   const { loading: submitting, error: submitError, submit } = useCreateOrder();
 
-  async function applyPromoCode() {
-    const code = promoCode.trim().toUpperCase();
-    if (!code) return;
+  async function applyPromoCode(codeArg?: string): Promise<boolean> {
+    const code = (codeArg ?? promoCode).trim().toUpperCase();
+    if (!code) return false;
     setPromoLoading(true);
     setPromoStatus(null);
     setPromoError(null);
@@ -1641,13 +1641,31 @@ export function CatalogPage() {
           ? `−${res.discount_value}%`
           : `−${res.discount_value} ₽`;
       setPromoStatus({ discount_kopecks: res.discount_kopecks, label });
+      return true;
     } catch {
       setPromoStatus(null);
       setPromoError("Промокод недействителен или истёк");
+      return false;
     } finally {
       setPromoLoading(false);
     }
   }
+
+  // Промокод из ссылки: /?promo=1WEEK — подставляем и применяем автоматически,
+  // чтобы можно было раздавать готовую ссылку со скидкой (реклама, письма, соцсети).
+  // Ждём загрузки цены (нужна для расчёта скидки) и применяем один раз.
+  const autoPromoRef = useRef(false);
+  useEffect(() => {
+    if (autoPromoRef.current || !publicConfig.price_kopecks) return;
+    const urlPromo = new URLSearchParams(window.location.search).get("promo");
+    if (!urlPromo) return;
+    autoPromoRef.current = true;
+    const code = urlPromo.trim().toUpperCase();
+    setPromoCode(code);
+    void applyPromoCode(code).then((ok) => {
+      if (ok) showToast(`Промокод ${code} применён — скидка активна 🎉`);
+    });
+  }, [publicConfig.price_kopecks]);
 
   async function handleCustomOrder(email: string, phone: string) {
     const brief = composeBrief(form, genres);
