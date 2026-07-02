@@ -34,6 +34,10 @@ var (
 	// слишком долгое время после создания заказа. Защищает от реплея старых
 	// вебхуков с валидной подписью.
 	ErrPaymentWindowExpired = errors.New("платёжное окно заказа истекло")
+	// ErrOrderNotPending — промокод нельзя применить к оплаченному/завершённому заказу.
+	ErrOrderNotPending = errors.New("заказ уже оплачен — скидку применить нельзя")
+	// ErrPromoAlreadyApplied — к заказу уже применён промокод (повторно нельзя).
+	ErrPromoAlreadyApplied = errors.New("к заказу уже применён промокод")
 )
 
 // maxPaymentWindow — максимальное время от создания заказа до принятия оплаты.
@@ -296,6 +300,81 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 	uc.log.Info("создан новый заказ", "order_id", order.ID(), "invoice_id", invoiceID,
 		"category_id", categoryID, "promo_code", promoCode, "referral_code", referralCode)
 	return order, nil
+}
+
+// PromoApplyResult — итог применения промокода к существующему заказу.
+type PromoApplyResult struct {
+	AmountKopecks   int64
+	DiscountKopecks int64
+	DiscountType    domain.DiscountType
+	DiscountValue   int
+}
+
+// ApplyPromoToOrder применяет промокод к УЖЕ созданному неоплаченному заказу и
+// пересчитывает сумму. Закрывает кейс «клиент создал заказ, потом решил применить
+// скидку» — раньше промо действовал только при создании, и такой клиент уходил.
+// Идемпотентность/гонки: сумму меняем только пока заказ pending (UpdatePromo с
+// WHERE payment_status='pending'), счётчик использований инкрементим в одной
+// транзакции с апдейтом — как при создании.
+func (uc *OrderUseCase) ApplyPromoToOrder(ctx context.Context, orderID uuid.UUID, promoCode string) (*PromoApplyResult, error) {
+	if uc.promoRepo == nil {
+		return nil, domain.ErrPromoCodeNotFound
+	}
+	order, err := uc.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("получение заказа: %w", err)
+	}
+	if order.PaymentStatus() != domain.PaymentStatusPending {
+		return nil, ErrOrderNotPending
+	}
+	if order.PromoCodeID() != nil {
+		return nil, ErrPromoAlreadyApplied
+	}
+
+	promo, err := uc.promoRepo.GetByCode(ctx, strings.ToUpper(strings.TrimSpace(promoCode)))
+	if err != nil {
+		if errors.Is(err, domain.ErrPromoCodeNotFound) {
+			return nil, domain.ErrPromoCodeNotFound
+		}
+		return nil, fmt.Errorf("проверка промокода: %w", err)
+	}
+	if !promo.IsValid() {
+		return nil, domain.ErrPromoCodeInvalid
+	}
+
+	discountKopecks := promo.Apply(order.AmountKopecks())
+	order.ApplyPromo(promo.ID(), discountKopecks)
+
+	// Сначала инкремент лимита, затем апдейт суммы — в одной транзакции. Если апдейт
+	// не затронул строку (заказ успел оплатиться), откатываемся и сообщаем клиенту.
+	if err := uc.tx.Do(ctx, func(ctx context.Context) error {
+		ok, err := uc.promoRepo.IncrementUses(ctx, promo.ID())
+		if err != nil {
+			return fmt.Errorf("увеличение счётчика промокода: %w", err)
+		}
+		if !ok {
+			return domain.ErrPromoCodeInvalid
+		}
+		applied, err := uc.orderRepo.UpdatePromo(ctx, order)
+		if err != nil {
+			return fmt.Errorf("сохранение скидки: %w", err)
+		}
+		if !applied {
+			return ErrOrderNotPending
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	uc.log.Info("промокод применён к заказу", "order_id", order.ID(),
+		"invoice_id", order.InvoiceID(), "discount_kopecks", discountKopecks)
+	return &PromoApplyResult{
+		AmountKopecks:   order.AmountKopecks(),
+		DiscountKopecks: discountKopecks,
+		DiscountType:    promo.GetDiscountType(),
+		DiscountValue:   promo.DiscountValue(),
+	}, nil
 }
 
 func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int64, paidKopecks int64) error {

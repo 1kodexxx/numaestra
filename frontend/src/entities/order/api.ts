@@ -40,6 +40,14 @@ export const orderApi = {
     })
   },
 
+  // Применить промокод к уже созданному неоплаченному заказу — пересчитывает сумму.
+  applyPromo(id: string, promoCode: string, accessToken?: string) {
+    return apiFetch<{ amount_kopecks: number; discount_kopecks: number }>(
+      `/orders/${id}/apply-promo`,
+      { method: 'POST', body: { promo_code: promoCode }, accessToken },
+    )
+  },
+
   getPublicStatus(id: string) {
     return apiFetch<OrderDetail>(`/orders/${id}/status`)
   },

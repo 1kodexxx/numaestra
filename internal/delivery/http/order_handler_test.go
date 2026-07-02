@@ -1039,6 +1039,18 @@ func (r *hOrderRepo) Update(_ context.Context, o *domain.Order) error {
 	return nil
 }
 
+func (r *hOrderRepo) UpdatePromo(_ context.Context, o *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur, ok := r.orders[o.ID()]
+	if !ok || cur.PaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	snap := o.Snapshot()
+	r.orders[snap.ID] = snap
+	return true, nil
+}
+
 func (r *hOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

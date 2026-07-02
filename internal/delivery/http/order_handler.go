@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -163,6 +164,7 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Get("/{id}/payment-url", h.GetPaymentURL)
+		r.Post("/{id}/apply-promo", h.ApplyPromo)
 		r.Post("/{id}/share/revoke", h.RevokeShare)
 		r.Post("/{id}/share/restore", h.RestoreShare)
 	})
@@ -544,6 +546,55 @@ func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"payment_url": h.buildPaymentURL(order)})
+}
+
+// ApplyPromo применяет промокод к уже созданному неоплаченному заказу и
+// пересчитывает сумму. Закрывает кейс «создал заказ → потом захотел скидку».
+// Доступ по X-Access-Token (через requireOrderAccess). POST /api/v1/orders/{id}/apply-promo
+func (h *OrderHandler) ApplyPromo(w http.ResponseWriter, r *http.Request) {
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
+
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	var body struct {
+		PromoCode string `json:"promo_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.PromoCode) == "" {
+		respondError(w, r, http.StatusBadRequest, "укажите промокод")
+		return
+	}
+
+	// requireOrderAccess уже проверил доступ владельца; сверяем, что токен именно
+	// для этого заказа (owner.ID == orderID), чтобы промо нельзя было применить к чужому.
+	if owner.ID() != orderID {
+		respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
+		return
+	}
+
+	res, err := h.uc.ApplyPromoToOrder(r.Context(), orderID, body.PromoCode)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrPromoCodeNotFound), errors.Is(err, domain.ErrPromoCodeInvalid):
+			respondError(w, r, http.StatusUnprocessableEntity, "промокод недействителен или истёк")
+		case errors.Is(err, usecase.ErrPromoAlreadyApplied):
+			respondError(w, r, http.StatusConflict, "к заказу уже применён промокод")
+		case errors.Is(err, usecase.ErrOrderNotPending):
+			respondError(w, r, http.StatusConflict, "заказ уже оплачен — скидку применить нельзя")
+		default:
+			h.log.Error("ошибка применения промокода к заказу", "order_id", orderID, "err", err)
+			respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		}
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]int64{
+		"amount_kopecks":   res.AmountKopecks,
+		"discount_kopecks": res.DiscountKopecks,
+	})
 }
 
 // SyncPayment подтягивает статус оплаты из Robokassa, если ResultURL не дошёл.

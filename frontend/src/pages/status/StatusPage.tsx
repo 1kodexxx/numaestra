@@ -313,6 +313,27 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
 
   const [paying, setPaying] = useState(false)
   const [payError, setPayError] = useState<string | null>(null)
+  const [promoInput, setPromoInput] = useState('')
+  const [promoBusy, setPromoBusy] = useState(false)
+  const [promoMsg, setPromoMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function handleApplyPromo() {
+    const code = promoInput.trim().toUpperCase()
+    if (!code) return
+    setPromoBusy(true); setPromoMsg(null)
+    try {
+      const token = orderStorage.getAccessToken() ?? undefined
+      const res = await orderApi.applyPromo(order.id, code, token)
+      setPromoMsg({
+        ok: true,
+        text: `Скидка −${Math.round(res.discount_kopecks / 100)} ₽ применена. К оплате: ${Math.round(res.amount_kopecks / 100)} ₽`,
+      })
+    } catch (err) {
+      setPromoMsg({ ok: false, text: err instanceof Error ? err.message : 'Не удалось применить промокод' })
+    } finally {
+      setPromoBusy(false)
+    }
+  }
 
   // Демо как часть заказа: пока демо генерируется (processing), придерживаем оплату —
   // тогда клиент получит ровно ту песню, что слушал, а backend переиспользует
@@ -447,6 +468,41 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
             ) : (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
                 Первая попытка не прошла? Нажмите ещё раз — заказ сохранён.
+              </div>
+            )}
+
+            {/* Промокод к уже созданному заказу: клиент мог создать заказ, а скидку
+                захотеть потом. Применяется к текущему заказу, сумма пересчитывается. */}
+            {promoMsg?.ok ? (
+              <div style={{
+                marginTop: '12px', fontSize: '13px', color: '#4ade80',
+                background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+                borderRadius: '10px', padding: '10px 14px',
+              }}>
+                ✓ {promoMsg.text}
+              </div>
+            ) : (
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+                  <input
+                    value={promoInput}
+                    onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromoMsg(null) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleApplyPromo() }}
+                    placeholder="Промокод"
+                    style={{
+                      flex: 1, minWidth: 0, padding: '10px 14px', borderRadius: '10px',
+                      background: 'rgba(255,255,255,0.04)', border: `1px solid ${BORDER}`,
+                      color: '#fff', fontSize: '13px', fontFamily: 'inherit', outline: 'none',
+                      textTransform: 'uppercase',
+                    }}
+                  />
+                  <Button size="md" variant="outlined" loading={promoBusy} disabled={!promoInput.trim()} onClick={handleApplyPromo}>
+                    Применить
+                  </Button>
+                </div>
+                {promoMsg && !promoMsg.ok && (
+                  <div style={{ fontSize: '12px', color: '#f87171', marginTop: '8px' }}>{promoMsg.text}</div>
+                )}
               </div>
             )}
           </div>

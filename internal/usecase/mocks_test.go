@@ -161,6 +161,17 @@ func (r *inMemOrderRepo) Update(_ context.Context, order *domain.Order) error {
 	return nil
 }
 
+func (r *inMemOrderRepo) UpdatePromo(_ context.Context, order *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	existing, ok := r.orders[order.ID()]
+	if !ok || existing.PaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	r.save(order)
+	return true, nil
+}
+
 func (r *inMemOrderRepo) ApplyPaymentSuccess(_ context.Context, order *domain.Order) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

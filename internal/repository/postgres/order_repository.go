@@ -127,6 +127,26 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 	})
 }
 
+// UpdatePromo сохраняет промо-скидку (amount/original/discount/promo_code_id) —
+// только пока заказ не оплачен. Условие WHERE payment_status='pending' защищает
+// от изменения суммы уже оплаченного заказа (гонка «клиент применил промо в момент
+// подтверждения оплаты»). applied=false → заказ уже оплачен, сумму не трогаем.
+func (r *OrderRepository) UpdatePromo(ctx context.Context, order *domain.Order) (bool, error) {
+	snap := order.Snapshot()
+	query := `
+		UPDATE orders
+		SET amount_kopecks = $1, original_amount_kopecks = $2, discount_kopecks = $3, promo_code_id = $4, updated_at = $5
+		WHERE id = $6 AND payment_status = 'pending'
+	`
+	cmd, err := r.conn(ctx).Exec(ctx, query,
+		snap.AmountKopecks, snap.OriginalAmountKopecks, snap.DiscountKopecks, snap.PromoCodeID, snap.UpdatedAt, snap.ID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("update promo: %w", err)
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
 // UpdateDemo пишет ТОЛЬКО demo-колонки — это намеренная изоляция от платёжного
 // пути: обычный Update не упоминает demo_*, поэтому параллельный платный апдейт
 // не может затереть результат демо-генерации (и наоборот). updated_at трогаем,

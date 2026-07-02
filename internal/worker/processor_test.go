@@ -441,6 +441,10 @@ func (r *wOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) ([]*d
 	return nil, nil
 }
 func (r *wOrderRepo) UpdateDemo(_ context.Context, o *domain.Order) error { r.put(o); return nil }
+func (r *wOrderRepo) UpdatePromo(_ context.Context, o *domain.Order) (bool, error) {
+	r.put(o)
+	return true, nil
+}
 func (r *wOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil
 }

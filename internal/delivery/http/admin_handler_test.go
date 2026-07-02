@@ -193,6 +193,9 @@ func (r *adminOrderRepo) ListPendingPayment(_ context.Context, _, _ time.Time) (
 }
 
 func (r *adminOrderRepo) UpdateDemo(_ context.Context, _ *domain.Order) error { return nil }
+func (r *adminOrderRepo) UpdatePromo(_ context.Context, _ *domain.Order) (bool, error) {
+	return true, nil
+}
 
 func (r *adminOrderRepo) ListStuckDemo(_ context.Context, _ time.Time) ([]*domain.Order, error) {
 	return nil, nil

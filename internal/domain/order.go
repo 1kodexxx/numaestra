@@ -743,6 +743,12 @@ type OrderRepository interface {
 	GetByInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
 	Update(ctx context.Context, order *Order) error
 
+	// UpdatePromo сохраняет промо-скидку заказа (amount/original/discount/promo_code_id)
+	// ТОЛЬКО пока заказ не оплачен (WHERE payment_status='pending'). Возвращает
+	// applied=false, если заказ уже оплачен и менять сумму нельзя. Обычный Update
+	// не трогает эти колонки, поэтому нужен отдельный метод.
+	UpdatePromo(ctx context.Context, order *Order) (applied bool, err error)
+
 	// ApplyPaymentSuccess идемпотентно и атомарно фиксирует успешную оплату:
 	// переводит заказ в paid+queued ТОЛЬКО если он ещё в payment_status='pending'.
 	// Возвращает applied=true, если переход выполнен именно этим вызовом, и
