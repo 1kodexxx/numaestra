@@ -187,8 +187,8 @@ func run(ctx context.Context) error {
 	if cfg.Robokassa.TestAutoPay {
 		rkClient.WithTestAutoPay()
 	}
-	if cfg.Robokassa.ReceiptSno != "" {
-		rkClient.WithReceipt(cfg.Robokassa.ReceiptSno, cfg.Robokassa.ReceiptTax)
+	if cfg.Robokassa.ReceiptEnabled {
+		rkClient.WithReceipt(true, cfg.Robokassa.ReceiptSno, cfg.Robokassa.ReceiptTax)
 	}
 
 	// Redis-клиент создаём здесь (а не только в HTTP-секции), чтобы ограничитель

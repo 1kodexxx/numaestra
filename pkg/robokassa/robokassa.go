@@ -39,20 +39,24 @@ type receiptItem struct {
 	Tax           string  `json:"tax"`
 }
 
-// receipt — структура чека для параметра Receipt (54-ФЗ).
+// receipt — структура чека для параметра Receipt (54-ФЗ). Sno опционален: для
+// самозанятого (НПД, Робочеки СМЗ) система налогообложения не указывается —
+// omitempty убирает поле, если sno пуст.
 type receipt struct {
-	Sno   string        `json:"sno"`
-	Email string        `json:"email"`
+	Sno   string        `json:"sno,omitempty"`
 	Items []receiptItem `json:"items"`
 }
 
-// buildReceipt формирует URL-encoded JSON чека для Robokassa (54-ФЗ).
-// sno — система налогообложения (например "usn_income").
-// tax — ставка НДС для позиции (например "none", "vat20").
-func buildReceipt(email, description string, amountRub float64, sno, tax string) string {
+// buildReceiptEncoded формирует ОДИНАРНО URL-кодированный JSON чека — именно в
+// таком виде Receipt участвует в подписи (MerchantLogin:OutSum:InvId:Receipt:Пароль#1).
+// В сам URL значение уходит через url.Values.Encode(), который кодирует его ЕЩЁ раз
+// (двойное кодирование) — как требует Robokassa. tax по умолчанию "none" (самозанятый).
+func buildReceiptEncoded(description string, amountRub float64, sno, tax string) string {
+	if tax == "" {
+		tax = "none"
+	}
 	r := receipt{
-		Sno:   sno,
-		Email: email,
+		Sno: sno,
 		Items: []receiptItem{{
 			Name:          description,
 			Quantity:      1,
@@ -62,11 +66,16 @@ func buildReceipt(email, description string, amountRub float64, sno, tax string)
 			Tax:           tax,
 		}},
 	}
-	b, err := json.Marshal(r)
-	if err != nil {
+	// SetEscapeHTML(false): не экранировать <,>,& в < и т.п. — чек их не содержит,
+	// но так JSON максимально совпадает с тем, что ждёт Robokassa.
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(r); err != nil {
 		return ""
 	}
-	return url.QueryEscape(string(b))
+	// Encoder добавляет \n в конце — убираем перед кодированием.
+	return url.QueryEscape(strings.TrimRight(buf.String(), "\n"))
 }
 
 // Client инкапсулирует учётные данные мерчанта и методы работы с Robokassa.
@@ -77,8 +86,9 @@ type Client struct {
 	password3       string // для JWT API возвратов
 	isTest          bool
 	testAutoPay     bool   // для тестового режима: IsInvoicePaid/GetPaidAmountKopecks возвращают true
-	receiptSno      string // система налогообложения для чека 54-ФЗ (например "usn_income")
-	receiptTax      string // ставка НДС для позиций чека (например "none")
+	receiptEnabled  bool   // передавать Receipt (данные чека) в ссылке оплаты + подписи
+	receiptSno      string // система налогообложения (пусто для самозанятого/НПД)
+	receiptTax      string // ставка НДС для позиций чека (по умолчанию "none")
 	httpClient      *http.Client
 	opStateURL      string // переопределяется в тестах
 	refundCreateURL string // переопределяется в тестах
@@ -124,11 +134,14 @@ func (c *Client) IsTestAutoPay() bool {
 	return c.isTest && c.testAutoPay
 }
 
-// WithReceipt включает генерацию фискального чека (54-ФЗ) при формировании ссылки оплаты.
-// sno — система налогообложения: "osn", "usn_income", "usn_income_outcome", "envd", "esn", "patent".
-// tax — ставка НДС для каждой позиции: "none", "vat0", "vat10", "vat20".
-// Если WithReceipt не вызван, параметр Receipt в URL не передаётся.
-func (c *Client) WithReceipt(sno, tax string) *Client {
+// WithReceipt включает передачу фискального чека (Receipt) в ссылке оплаты и подписи.
+// enabled — включатель (по умолчанию выключено: Receipt не передаётся, поведение как раньше).
+// sno — система налогообложения ("" для самозанятого/НПД; иначе "usn_income" и т.п.).
+// tax — ставка НДС позиции ("none" для самозанятого; "vat0/vat10/vat20" — для НДС).
+// Без Receipt некоторые каналы (СБП) при включённой фискализации блокируют оплату
+// с ошибкой email — передача Receipt (с корректной подписью) это устраняет.
+func (c *Client) WithReceipt(enabled bool, sno, tax string) *Client {
+	c.receiptEnabled = enabled
 	c.receiptSno = sno
 	c.receiptTax = tax
 	return c
@@ -152,7 +165,16 @@ func (c *Client) WithTestHTTP(httpClient *http.Client, opStateURL string) *Clien
 // email — email покупателя; подставляется в форму и в фискальный чек (если WithReceipt задан).
 func (c *Client) PaymentURL(outSum string, invID int64, description, email string) string {
 	invIDStr := fmt.Sprintf("%d", invID)
-	sig := c.signPayment(outSum, invIDStr)
+
+	// Receipt (одинарно url-кодированный JSON) участвует и в подписи, и в URL. Если
+	// выключен — receiptEnc == "", подпись и URL считаются как раньше (карта не ломается).
+	var receiptEnc string
+	if c.receiptEnabled {
+		amountRub, _ := strconv.ParseFloat(outSum, 64)
+		receiptEnc = buildReceiptEncoded(description, amountRub, c.receiptSno, c.receiptTax)
+	}
+
+	sig := c.signPayment(outSum, invIDStr, receiptEnc)
 
 	isTest := "0"
 	if c.isTest {
@@ -169,11 +191,10 @@ func (c *Client) PaymentURL(outSum string, invID int64, description, email strin
 	if email != "" {
 		params.Set("Email", email)
 	}
-	if c.receiptSno != "" && email != "" {
-		amountRub, _ := strconv.ParseFloat(outSum, 64)
-		if r := buildReceipt(email, description, amountRub, c.receiptSno, c.receiptTax); r != "" {
-			params.Set("Receipt", r)
-		}
+	if receiptEnc != "" {
+		// receiptEnc уже одинарно закодирован; Encode() докодирует его ещё раз —
+		// в URL Receipt оказывается двойным url-encode, как требует Robokassa.
+		params.Set("Receipt", receiptEnc)
 	}
 
 	return paymentBaseURL + "?" + params.Encode()
@@ -313,9 +334,16 @@ func (c *Client) clearPendingRefund(invID int64) {
 }
 
 // signPayment вычисляет MD5-подпись для генерации ссылки оплаты.
-// Формула: MD5(MerchantLogin:OutSum:InvId:Password1)
-func (c *Client) signPayment(outSum, invID string) string {
-	raw := fmt.Sprintf("%s:%s:%s:%s", c.merchantLogin, outSum, invID, c.password1)
+// Без чека:  MD5(MerchantLogin:OutSum:InvId:Password1)
+// С чеком:   MD5(MerchantLogin:OutSum:InvId:Receipt:Password1) — Receipt в том же
+// одинарно url-кодированном виде, что и в URL до второго кодирования.
+func (c *Client) signPayment(outSum, invID, receiptEnc string) string {
+	var raw string
+	if receiptEnc != "" {
+		raw = fmt.Sprintf("%s:%s:%s:%s:%s", c.merchantLogin, outSum, invID, receiptEnc, c.password1)
+	} else {
+		raw = fmt.Sprintf("%s:%s:%s:%s", c.merchantLogin, outSum, invID, c.password1)
+	}
 	return upperMD5(raw)
 }
 

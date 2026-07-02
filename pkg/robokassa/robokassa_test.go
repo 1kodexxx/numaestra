@@ -91,6 +91,44 @@ func TestClient_PaymentURL_SignatureIsUpperMD5(t *testing.T) {
 	}
 }
 
+// По умолчанию Receipt выключен — параметр не должен появляться в URL, а подпись
+// считается по старой формуле (карта продолжает работать как раньше).
+func TestClient_PaymentURL_NoReceiptByDefault(t *testing.T) {
+	c := newTestClient(false)
+	u := c.PaymentURL("1500.00", 7, "Desc", "a@b.ru")
+	if strings.Contains(u, "Receipt=") {
+		t.Errorf("без WithReceipt параметр Receipt не должен передаваться: %s", u)
+	}
+	// Подпись без чека = MD5(MerchantLogin:OutSum:InvId:Password1)
+	want := c.signPayment("1500.00", "7", "")
+	if got := extractParam(u, "SignatureValue"); got != want {
+		t.Errorf("подпись без чека: got %s, want %s", got, want)
+	}
+}
+
+// С включённым Receipt: параметр в URL двойной url-encode, а подпись включает
+// одинарно закодированный Receipt (MerchantLogin:OutSum:InvId:Receipt:Password1).
+func TestClient_PaymentURL_ReceiptInSignature(t *testing.T) {
+	c := newTestClient(false).WithReceipt(true, "", "none")
+	u := c.PaymentURL("1500.00", 7, "Песня", "a@b.ru")
+
+	if !strings.Contains(u, "Receipt=") {
+		t.Fatalf("Receipt должен быть в URL: %s", u)
+	}
+	// В URL Receipt закодирован дважды → содержит %25 (закодированный %).
+	rawReceipt := extractParam(u, "Receipt")
+	if !strings.Contains(rawReceipt, "%25") {
+		t.Errorf("Receipt в URL должен быть двойным url-encode (ожидали %%25): %s", rawReceipt)
+	}
+
+	// Подпись должна совпасть с MD5(...:receiptEnc:pass1), где receiptEnc — одинарный encode.
+	receiptEnc := buildReceiptEncoded("Песня", 1500, "", "none")
+	want := c.signPayment("1500.00", "7", receiptEnc)
+	if got := extractParam(u, "SignatureValue"); got != want {
+		t.Errorf("подпись с чеком не совпала: got %s, want %s", got, want)
+	}
+}
+
 // --- VerifyWebhook ---
 
 func TestClient_VerifyWebhook_ValidSignature(t *testing.T) {
@@ -129,7 +167,7 @@ func TestClient_VerifyWebhook_CaseInsensitive(t *testing.T) {
 func TestClient_VerifyWebhook_WrongPassword(t *testing.T) {
 	c := newTestClient(false)
 	// Подпись посчитана с Password1, а проверяем с Password2 — должна упасть
-	wrongSig := c.signPayment("1500.00", "42")
+	wrongSig := c.signPayment("1500.00", "42", "")
 	if c.VerifyWebhook("1500.00", "42", wrongSig) {
 		t.Error("подпись с неверным паролем не должна проходить верификацию")
 	}
