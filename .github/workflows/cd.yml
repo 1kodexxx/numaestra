@@ -72,15 +72,33 @@ jobs:
     # но шаг деплоя пропускается (не падает красным).
     if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     steps:
+      # Прямой ssh без сторонних экшенов: appleboy/ssh-action качает бинарник
+      # drone-ssh с GitHub Releases на старте, и эта загрузка периодически падает
+      # (Connection reset by peer). Нативный ssh уже есть на раннере — без загрузок.
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            set -e
-            cd ~/numaestra
-            git pull --ff-only origin main
-            IMAGE_TAG=${{ needs.build-and-push.outputs.short_sha }} bash deploy/deploy.sh
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USERNAME }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          # Небольшой ретрай на случай кратковременного сетевого сбоя до сервера.
+          for attempt in 1 2 3; do
+            if ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new \
+              "$SSH_USER@$SSH_HOST" \
+              "set -e; cd ~/numaestra; git pull --ff-only origin main; IMAGE_TAG='$IMAGE_TAG' bash deploy/deploy.sh"; then
+              echo "Деплой успешен (попытка $attempt)"
+              exit 0
+            fi
+            echo "Попытка $attempt не удалась, повтор через 10с…"
+            sleep 10
+          done
+          echo "Деплой не удался после 3 попыток" >&2
+          exit 1
