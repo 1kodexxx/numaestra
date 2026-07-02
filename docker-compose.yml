@@ -14,6 +14,14 @@ x-app-env: &app-env
   ROBOKASSA_IS_TEST: ${ROBOKASSA_IS_TEST:-true}
   ROBOKASSA_ALLOWED_IPS: ${ROBOKASSA_ALLOWED_IPS:-}
   PRICE_KOPECKS: ${PRICE_KOPECKS:-200000}
+  # Демо (бесплатный фрагмент): длина/интро и антифрод-лимиты. Дефолты совпадают
+  # с дефолтами в коде — меняются через .env без пересборки.
+  DEMO_CLIP_SECONDS: ${DEMO_CLIP_SECONDS:-45}
+  DEMO_INTRO_SKIP_SECONDS: ${DEMO_INTRO_SKIP_SECONDS:-8}
+  DEMO_DAILY_LIMIT: ${DEMO_DAILY_LIMIT:-200}
+  DEMO_PER_IP_DAILY: ${DEMO_PER_IP_DAILY:-5}
+  DEMO_PER_EMAIL_HOURS: ${DEMO_PER_EMAIL_HOURS:-24}
+  DEMO_TOKEN_RESERVE: ${DEMO_TOKEN_RESERVE:-10}
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
   SUNO_API_URL: ${SUNO_API_URL:-https://api.ttapi.io}
   SUNO_API_KEY: ${SUNO_API_KEY:-}
