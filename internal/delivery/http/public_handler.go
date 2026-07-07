@@ -11,11 +11,12 @@ import (
 
 // PublicHandler отдаёт публичные настройки витрины (цена, версия согласия).
 type PublicHandler struct {
-	priceKopecks int64
+	priceKopecks    int64
+	oldPriceKopecks int64
 }
 
-func NewPublicHandler(priceKopecks int64) *PublicHandler {
-	return &PublicHandler{priceKopecks: priceKopecks}
+func NewPublicHandler(priceKopecks, oldPriceKopecks int64) *PublicHandler {
+	return &PublicHandler{priceKopecks: priceKopecks, oldPriceKopecks: oldPriceKopecks}
 }
 
 func (h *PublicHandler) Routes() chi.Router {
@@ -25,17 +26,24 @@ func (h *PublicHandler) Routes() chi.Router {
 }
 
 type publicConfigResponse struct {
-	PriceKopecks      int64  `json:"price_kopecks"`
-	PriceLabel        string `json:"price_label"`
+	PriceKopecks int64  `json:"price_kopecks"`
+	PriceLabel   string `json:"price_label"`
+	// OldPriceLabel — зачёркнутая «старая» цена (маркетинг). Пусто = не показывать.
+	OldPriceLabel     string `json:"old_price_label,omitempty"`
 	ConsentDocVersion string `json:"consent_doc_version"`
 }
 
 func (h *PublicHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	respondJSON(w, http.StatusOK, publicConfigResponse{
+	resp := publicConfigResponse{
 		PriceKopecks:      h.priceKopecks,
 		PriceLabel:        formatRubles(h.priceKopecks),
 		ConsentDocVersion: domain.CurrentConsentDocVersion,
-	})
+	}
+	// Старая цена имеет смысл, только когда она выше текущей.
+	if h.oldPriceKopecks > h.priceKopecks {
+		resp.OldPriceLabel = formatRubles(h.oldPriceKopecks)
+	}
+	respondJSON(w, http.StatusOK, resp)
 }
 
 func formatRubles(kopecks int64) string {

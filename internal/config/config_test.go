@@ -31,8 +31,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Robokassa.IsTest {
 		t.Error("по умолчанию ROBOKASSA_IS_TEST должен быть false (безопасный продакшен-дефолт)")
 	}
-	if cfg.Pricing.PriceKopecks != 200000 {
-		t.Errorf("дефолтная цена должна быть 200000 (2000 ₽), получили %d", cfg.Pricing.PriceKopecks)
+	if cfg.Pricing.PriceKopecks != 99000 {
+		t.Errorf("дефолтная цена должна быть 99000 (990 ₽), получили %d", cfg.Pricing.PriceKopecks)
 	}
 	if cfg.S3.PresignEnabled {
 		t.Error("по умолчанию S3_PRESIGN_ENABLED должен быть false (dev без миграции бакета)")

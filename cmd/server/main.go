@@ -484,7 +484,7 @@ func newRouter(
 
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
-	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks).Routes())
+	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks, cfg.Pricing.OldPriceKopecks).Routes())
 	r.Mount("/api/v1/genres", genreHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
 	r.Mount("/api/v1/reviews", reviewHandler.Routes())

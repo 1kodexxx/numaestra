@@ -717,6 +717,7 @@ export function CategoryPage() {
       loading={submitting}
       error={submitError}
       priceLabel={publicConfig.price_label}
+      oldPriceLabel={publicConfig.old_price_label}
       onClose={() => setShowContact(false)}
       onSubmit={handleOrder}
     />

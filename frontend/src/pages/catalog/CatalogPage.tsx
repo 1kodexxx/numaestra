@@ -156,9 +156,11 @@ function Equalizer() {
 function Hero({
   compact,
   priceLabel,
+  oldPriceLabel,
 }: {
   compact: boolean;
   priceLabel: string;
+  oldPriceLabel?: string;
 }) {
   return (
     <div
@@ -282,8 +284,12 @@ function Hero({
             { t: "🎧 Демо бесплатно", accent: true },
             { t: "4 версии на выбор", accent: false },
             { t: "Готово за 10 минут", accent: false },
-            { t: `${priceLabel} · без подписок`, accent: false },
-          ].map(({ t, accent }) => (
+            {
+              t: `${priceLabel} · без подписок`,
+              old: oldPriceLabel,
+              accent: false,
+            },
+          ].map(({ t, old, accent }: { t: string; old?: string; accent: boolean }) => (
             <div
               key={t}
               style={{
@@ -312,6 +318,9 @@ function Hero({
                 >
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
+              )}
+              {old && (
+                <s style={{ color: "rgba(255,255,255,0.35)" }}>{old}</s>
               )}
               {t}
             </div>
@@ -1076,11 +1085,13 @@ function CategoryCard({
   index,
   onClick,
   priceLabel,
+  oldPriceLabel,
 }: {
   cat: Category;
   index: number;
   onClick: () => void;
   priceLabel: string;
+  oldPriceLabel?: string;
 }) {
   const [h, setH] = useState(false);
   const icon = getIcon(cat, index);
@@ -1179,6 +1190,11 @@ function CategoryCard({
             transition: "all 0.2s",
           }}
         >
+          {oldPriceLabel && (
+            <s style={{ color: TEXT3, fontWeight: 500, marginRight: "4px" }}>
+              {oldPriceLabel}
+            </s>
+          )}
           {priceLabel}
         </span>
       </div>
@@ -1253,11 +1269,13 @@ function PopularCard({
   rank,
   onClick,
   priceLabel,
+  oldPriceLabel,
 }: {
   cat: Category;
   rank: number;
   onClick: () => void;
   priceLabel: string;
+  oldPriceLabel?: string;
 }) {
   const [h, setH] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -1373,6 +1391,11 @@ function PopularCard({
           transition: "all 0.2s",
         }}
       >
+        {oldPriceLabel && (
+          <s style={{ color: TEXT3, fontWeight: 500, marginRight: "4px" }}>
+            {oldPriceLabel}
+          </s>
+        )}
         {priceLabel}
       </span>
     </button>
@@ -1750,6 +1773,7 @@ export function CatalogPage() {
           loading={submitting}
           error={submitError}
           priceLabel={publicConfig.price_label}
+          oldPriceLabel={publicConfig.old_price_label}
           priceKopecks={publicConfig.price_kopecks}
           discountKopecks={promoStatus?.discount_kopecks ?? 0}
           discountLabel={promoStatus?.label}
@@ -1791,6 +1815,7 @@ export function CatalogPage() {
             <Hero
               compact={isMobile || isShort}
               priceLabel={publicConfig.price_label}
+              oldPriceLabel={publicConfig.old_price_label}
             />
           </div>
 
@@ -1865,6 +1890,7 @@ export function CatalogPage() {
                     cat={cat}
                     rank={i + 1}
                     priceLabel={publicConfig.price_label}
+                    oldPriceLabel={publicConfig.old_price_label}
                     onClick={() => navigate(`/category/${cat.id}`)}
                   />
                 ))}
@@ -1920,6 +1946,7 @@ export function CatalogPage() {
                         cat={cat}
                         index={i}
                         priceLabel={publicConfig.price_label}
+                        oldPriceLabel={publicConfig.old_price_label}
                         onClick={() => navigate(`/category/${cat.id}`)}
                       />
                     </div>

@@ -19,6 +19,9 @@ interface ContactModalProps {
   loading: boolean
   error: string | null
   priceLabel: string
+  // Зачёркнутая «старая» цена (маркетинг). Показывается только без промокода —
+  // при активной скидке перечёркивается сама priceLabel, второй строкой не мешаем.
+  oldPriceLabel?: string
   // Полная цена и скидка по промокоду (в копейках). При discountKopecks > 0 блок
   // цены показывает перечёркнутую полную цену, итоговую со скидкой и экономию.
   // Это ровно та сумма, что уйдёт в Robokassa — бэкенд применяет тот же промокод
@@ -31,7 +34,7 @@ interface ContactModalProps {
 }
 
 /** Email/phone capture + price summary, shown before redirecting to payment. */
-export function ContactModal({ loading, error, priceLabel, priceKopecks, discountKopecks = 0, discountLabel, onClose, onSubmit }: ContactModalProps) {
+export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceKopecks, discountKopecks = 0, discountLabel, onClose, onSubmit }: ContactModalProps) {
   const titleId = useId()
   const trapRef = useFocusTrap(true)
   const [email, setEmail] = useState('')
@@ -149,6 +152,11 @@ export function ContactModal({ loading, error, priceLabel, priceKopecks, discoun
                 {discountLabel ? `${discountLabel} · ` : ''}сэкономите {formatRub(discountKopecks)}
               </div>
             </>
+          ) : oldPriceLabel ? (
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '16px', color: TEXT3, textDecoration: 'line-through' }}>{oldPriceLabel}</span>
+              <span style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>{priceLabel}</span>
+            </div>
           ) : (
             <div style={{ fontSize: '28px', fontWeight: 800, color: ACCENT, letterSpacing: '-0.03em' }}>{priceLabel}</div>
           )}

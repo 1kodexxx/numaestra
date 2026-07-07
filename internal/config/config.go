@@ -152,6 +152,9 @@ type NotifyConfig struct {
 // продукт фиксированный (4 версии песни за один платёж, без тарифов и подписок).
 type PricingConfig struct {
 	PriceKopecks int64 // фиксированная цена заказа в копейках
+	// OldPriceKopecks — зачёркнутая «старая» цена на витрине (маркетинг).
+	// Показывается, только если больше текущей. 0 = не показывать.
+	OldPriceKopecks int64
 }
 
 // DemoConfig — защита расхода кредитов на бесплатные демо + параметры обработки.
@@ -237,8 +240,10 @@ func Load() (*Config, error) {
 			APIKey:  getEnv("OPENAI_API_KEY", ""),
 		},
 		Pricing: PricingConfig{
-			// Фиксированная цена за 4 версии песни. По умолчанию — 2000 ₽.
-			PriceKopecks: getInt64Env("PRICE_KOPECKS", 200000),
+			// Фиксированная цена за 4 версии песни. По умолчанию — 990 ₽.
+			PriceKopecks: getInt64Env("PRICE_KOPECKS", 99000),
+			// Прежняя цена (зачёркнутая на витрине). По умолчанию — 2000 ₽.
+			OldPriceKopecks: getInt64Env("OLD_PRICE_KOPECKS", 200000),
 		},
 		Demo: DemoConfig{
 			// По умолчанию — разумные значения: 200 демо/сутки, бронь 10 токенов
