@@ -3,7 +3,6 @@ import { BrowserRouter, useLocation } from 'react-router-dom'
 import { Navbar } from '@widgets/navbar'
 import { Footer } from '@widgets/footer'
 import { CookieConsent } from '@widgets/cookie-consent'
-import { PromoBanner } from '@widgets/promo-banner'
 import { AppRouter } from './router/AppRouter'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePublicConfig } from '@shared/lib/usePublicConfig'
@@ -97,7 +96,8 @@ function PublicChrome({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <a href="#main-content" className="skip-link">Перейти к содержимому</a>
-      <PromoBanner />
+      {/* Промо-плашка отключена: цена снижена до 990 ₽, акция −500 ₽ не действует.
+          Вернуть: import { PromoBanner } from '@widgets/promo-banner' и <PromoBanner />. */}
       <Navbar />
       <div ref={scrollRef} id="main-content" style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto' }}>
         {/* Перемонтируем по pathname → проигрывается плавное появление на каждой навигации */}
