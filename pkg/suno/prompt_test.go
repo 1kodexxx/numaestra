@@ -169,6 +169,69 @@ func TestResolveMusicInput_LyricsCustomMode(t *testing.T) {
 	}
 }
 
+// Реальный кейс первого покупателя: в поле «свой текст» вписана одна фраза
+// («с любовью к папе») — Custom Mode спел бы ровно её и оборвал песню на ~30с.
+// Короткий текст должен уйти в Inspiration Mode как обязательные дословные строки.
+func TestResolveMusicInput_ShortLyricsWovenIntoDescription(t *testing.T) {
+	raw := EncodePromptWithLyrics("pop", "Песня для папы на юбилей", "с любовью к папе")
+	in := ResolveMusicInput(raw, "", false)
+	if in.Lyrics != "" {
+		t.Fatalf("короткая фраза не должна уходить в Custom Mode: %+v", in)
+	}
+	if !strings.Contains(in.Description, "с любовью к папе") {
+		t.Errorf("фраза клиента должна попасть в описание дословно: %q", in.Description)
+	}
+	if !strings.Contains(in.Description, "verbatim") {
+		t.Errorf("описание должно требовать дословную вставку строк: %q", in.Description)
+	}
+	if !strings.Contains(in.Description, "Песня для папы на юбилей") {
+		t.Errorf("исходное описание должно сохраниться: %q", in.Description)
+	}
+}
+
+// Короткая фраза без описания: инструкция с дословными строками не должна потеряться.
+func TestResolveMusicInput_ShortLyricsWithoutDescription(t *testing.T) {
+	raw := EncodePromptWithLyrics("pop", "", "лучший папа на свете")
+	in := ResolveMusicInput(raw, "", false)
+	if in.Lyrics != "" || !strings.Contains(in.Description, "лучший папа на свете") {
+		t.Errorf("ожидали Inspiration Mode с фразой клиента в описании: %+v", in)
+	}
+}
+
+// Длинный неструктурированный текст (полная песня без [Verse]-разметки) —
+// по-прежнему Custom Mode.
+func TestResolveMusicInput_LongPlainLyricsStayCustom(t *testing.T) {
+	line := "Эта строчка полноценной песни про родного папу и нашу семью"
+	full := strings.Repeat(line+"\n", 10)
+	raw := EncodePromptWithLyrics("pop", "", full)
+	in := ResolveMusicInput(raw, "", false)
+	if in.Lyrics == "" || in.Description != "" {
+		t.Errorf("полный текст должен остаться в Custom Mode: %+v", in)
+	}
+}
+
+func TestIsCompleteSongLyrics(t *testing.T) {
+	longLine := "Полноценная строка текста песни о самом дорогом человеке"
+	cases := []struct {
+		name   string
+		lyrics string
+		want   bool
+	}{
+		{"пустая строка", "", false},
+		{"одна фраза", "с любовью к папе", false},
+		{"короткий припев", "Папа, ты мой герой\nПапа, ты всегда со мной", false},
+		{"структура делает полным", "[Verse]\nСтрока\n[Chorus]\nПрипев", true},
+		{"куплет-маркер кириллицей", "[Куплет]\nСтрока", true},
+		{"длинный текст без структуры", strings.Repeat(longLine+"\n", 10), true},
+		{"длинный, но мало строк", strings.Repeat(longLine+" ", 10), false},
+	}
+	for _, tc := range cases {
+		if got := IsCompleteSongLyrics(tc.lyrics); got != tc.want {
+			t.Errorf("%s: IsCompleteSongLyrics = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func countSubstring(s, sub string) int {
 	n := 0
 	for i := 0; i+len(sub) <= len(s); i++ {

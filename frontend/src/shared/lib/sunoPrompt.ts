@@ -4,6 +4,29 @@ export const SUNO_TAGS_MARKER = "#SUNO_TAGS#";
 export const SUNO_DESC_MARKER = "#SUNO_DESC#";
 export const SUNO_LYRICS_MARKER = "#SUNO_LYRICS#";
 
+// Порог «полного текста песни» — зеркало бэкенда (pkg/suno/prompt.go,
+// IsCompleteSongLyrics). Короче порога — сервер вплетёт строки в песню
+// дословно, а остальной текст допишет нейросеть (Inspiration Mode).
+const MIN_COMPLETE_LYRICS_CHARS = 400;
+const MIN_COMPLETE_LYRICS_LINES = 8;
+
+/** Текст тянет на полную песню для Custom Mode (Suno поёт только его). */
+export function isCompleteSongLyrics(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  const lower = t.toLowerCase();
+  if (
+    lower.includes("[verse") ||
+    lower.includes("[chorus") ||
+    lower.includes("[куплет") ||
+    lower.includes("[припев")
+  ) {
+    return true;
+  }
+  const lines = t.split("\n").filter((l) => l.trim() !== "").length;
+  return [...t].length >= MIN_COMPLETE_LYRICS_CHARS && lines >= MIN_COMPLETE_LYRICS_LINES;
+}
+
 export interface GenreOption {
   label: string;
   sunoValue: string;

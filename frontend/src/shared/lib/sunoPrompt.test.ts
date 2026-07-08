@@ -9,6 +9,7 @@ import {
   formatQuizDescription,
   stripUnfilledPlaceholders,
   encodeSunoPrompt,
+  isCompleteSongLyrics,
   SUNO_LYRICS_MARKER,
   type GenreOption,
 } from "./sunoPrompt";
@@ -204,5 +205,18 @@ describe("sunoPrompt", () => {
     expect(desc).toContain("Ivan");
     expect(desc).toContain("навсегда");
     expect(desc).not.toContain("Create a");
+  });
+
+  // Зеркало pkg/suno IsCompleteSongLyrics: короткая фраза — не полный текст
+  // (кейс «с любовью к папе» → 30-секундный обрубок в Custom Mode).
+  it("isCompleteSongLyrics отличает фразу от полного текста", () => {
+    expect(isCompleteSongLyrics("")).toBe(false);
+    expect(isCompleteSongLyrics("с любовью к папе")).toBe(false);
+    expect(isCompleteSongLyrics("Папа, ты мой герой\nПапа, ты всегда со мной")).toBe(false);
+    expect(isCompleteSongLyrics("[Verse]\nСтрока\n[Chorus]\nПрипев")).toBe(true);
+    expect(isCompleteSongLyrics("[Куплет]\nСтрока")).toBe(true);
+    const line = "Полноценная строка текста песни о самом дорогом человеке";
+    expect(isCompleteSongLyrics((line + "\n").repeat(10))).toBe(true);
+    expect(isCompleteSongLyrics((line + " ").repeat(10))).toBe(false);
   });
 });

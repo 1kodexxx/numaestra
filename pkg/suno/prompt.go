@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Маркеры кодированного промпта (хранятся в suno_prompt и в brief конструктора).
@@ -346,8 +347,14 @@ func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInpu
 
 	in := MusicInput{Tags: tags, Instrumental: instrumental}
 	switch {
+	case lyrics != "" && !IsCompleteSongLyrics(lyrics):
+		// Клиент прислал фразу/припев, а не полный текст. Custom Mode спел бы
+		// ровно эти слова и оборвал песню (реальный кейс: «с любовью к папе» →
+		// 30-секундный клип). Уходим в Inspiration Mode: Suno пишет полный текст,
+		// обязуясь дословно вставить строки клиента.
+		in.Description = weaveVerbatimLines(text, lyrics)
 	case lyrics != "":
-		// Custom Mode: точные слова клиента.
+		// Custom Mode: точные слова клиента (полный текст песни).
 		in.Lyrics = lyrics
 	case encoded || !IsStructuredLyricsText(text):
 		// Inspiration Mode: описание идеи, текст пишет Suno.
@@ -357,6 +364,44 @@ func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInpu
 		in.Lyrics = text
 	}
 	return in
+}
+
+// Порог «полного текста песни»: короче — считаем фразой/припевом, который надо
+// вплести в песню, а не петь как весь текст. Полный текст (2 куплета + припев)
+// обычно ≥ 600 символов; 400/8 строк — консервативная нижняя граница.
+const (
+	minCompleteLyricsRunes = 400
+	minCompleteLyricsLines = 8
+)
+
+// IsCompleteSongLyrics — присланный текст тянет на ПОЛНУЮ песню для Custom Mode:
+// либо явная структура ([Verse]/[Куплет]...), либо достаточные объём и число строк.
+func IsCompleteSongLyrics(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if IsStructuredLyricsText(s) {
+		return true
+	}
+	lines := 0
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.TrimSpace(ln) != "" {
+			lines++
+		}
+	}
+	return utf8.RuneCountInString(s) >= minCompleteLyricsRunes && lines >= minCompleteLyricsLines
+}
+
+// weaveVerbatimLines дополняет описание требованием дословно вставить строки
+// клиента в полный текст песни (Inspiration Mode).
+func weaveVerbatimLines(description, lyrics string) string {
+	instr := "The song MUST include the following customer lines verbatim, exactly as written (do not translate or alter them), woven naturally into complete full-length lyrics:\n" + strings.TrimSpace(lyrics)
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return instr
+	}
+	return description + "\n\n" + instr
 }
 
 // IsStructuredLyricsText — готовый текст песни с секциями (Custom Mode), не описание.

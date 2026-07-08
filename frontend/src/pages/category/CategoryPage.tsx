@@ -8,7 +8,7 @@ import { useSeo } from "@shared/lib/seo";
 import { composeCategoryBrief } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { theme } from "@shared/lib/theme";
-import { Button, TextField, LyricsGuardNote } from "@shared/ui";
+import { Button, TextField, LyricsGuardNote, ShortLyricsNote } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import {
   PanelHeader,
@@ -614,6 +614,7 @@ export function CategoryPage() {
           placeholder="Строки или припев, которые должны прозвучать дословно..."
           surfaceColor={SURFACE}
         />
+        <ShortLyricsNote text={customText} style={{ marginTop: "-8px" }} />
         <LyricsGuardNote text={customText} style={{ marginTop: "-8px" }} />
 
         {/* live preview */}

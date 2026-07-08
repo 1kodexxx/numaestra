@@ -16,7 +16,7 @@ import { useSeo } from "@shared/lib/seo";
 import type { GenreOption } from "@shared/lib/sunoPrompt";
 import { usePublicConfig } from "@shared/lib/usePublicConfig";
 import { theme } from "@shared/lib/theme";
-import { Button, TextField, useRipple, LyricsGuardNote, showToast } from "@shared/ui";
+import { Button, TextField, useRipple, LyricsGuardNote, ShortLyricsNote, showToast } from "@shared/ui";
 import { ContactModal } from "@widgets/contact-modal";
 import { FloatingPlayer } from "@widgets/floating-player";
 import { Footer } from "@widgets/footer";
@@ -976,6 +976,7 @@ function PromptBuilder({
             placeholder="Впишите строки или припев, которые должны прозвучать дословно..."
             surfaceColor={SURFACE}
           />
+          <ShortLyricsNote text={form.customText} />
           <LyricsGuardNote text={`${form.customText} ${form.details}`} />
         </div>
 
