@@ -4,27 +4,31 @@ export const SUNO_TAGS_MARKER = "#SUNO_TAGS#";
 export const SUNO_DESC_MARKER = "#SUNO_DESC#";
 export const SUNO_LYRICS_MARKER = "#SUNO_LYRICS#";
 
-// Порог «полного текста песни» — зеркало бэкенда (pkg/suno/prompt.go,
+// Пороги «полного текста песни» — зеркало бэкенда (pkg/suno/prompt.go,
 // IsCompleteSongLyrics). Короче порога — сервер вплетёт строки в песню
 // дословно, а остальной текст допишет нейросеть (Inspiration Mode).
+// Разметка [Verse]/[Куплет] снижает порог, но не отменяет его.
 const MIN_COMPLETE_LYRICS_CHARS = 400;
 const MIN_COMPLETE_LYRICS_LINES = 8;
+const MIN_STRUCTURED_LYRICS_CHARS = 200;
+const MIN_STRUCTURED_LYRICS_LINES = 4;
 
 /** Текст тянет на полную песню для Custom Mode (Suno поёт только его). */
 export function isCompleteSongLyrics(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
   const lower = t.toLowerCase();
-  if (
+  const structured =
     lower.includes("[verse") ||
     lower.includes("[chorus") ||
     lower.includes("[куплет") ||
-    lower.includes("[припев")
-  ) {
-    return true;
-  }
+    lower.includes("[припев");
   const lines = t.split("\n").filter((l) => l.trim() !== "").length;
-  return [...t].length >= MIN_COMPLETE_LYRICS_CHARS && lines >= MIN_COMPLETE_LYRICS_LINES;
+  const chars = [...t].length;
+  if (structured) {
+    return chars >= MIN_STRUCTURED_LYRICS_CHARS && lines >= MIN_STRUCTURED_LYRICS_LINES;
+  }
+  return chars >= MIN_COMPLETE_LYRICS_CHARS && lines >= MIN_COMPLETE_LYRICS_LINES;
 }
 
 export interface GenreOption {

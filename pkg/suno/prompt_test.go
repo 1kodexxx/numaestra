@@ -58,8 +58,12 @@ func TestEncodePromptWithLyrics_RoundTrip(t *testing.T) {
 	}
 }
 
+// fullStructuredLyrics — полный текст с разметкой, проходящий порог Custom Mode
+// (≥200 символов, ≥4 строк при наличии структуры).
+const fullStructuredLyrics = "[Verse 1]\nЭта строка куплета про папу и наши тёплые вечера дома\nВторая строка куплета про его добрые и сильные руки\n[Chorus]\nПапа, ты мой герой навсегда, мой текст\nС тобою рядом не страшны никакие года\n[Verse 2]\nПамять бережно хранит наши прогулки во дворе\nТы учил меня жить по совести и относиться по добре"
+
 func TestResolveMusicInput_CustomModeOnLyrics(t *testing.T) {
-	raw := EncodePromptWithLyrics("rap, russian lyrics", "описание", "[Verse]\nмой текст\n[Chorus]\nприпев")
+	raw := EncodePromptWithLyrics("rap, russian lyrics", "описание", fullStructuredLyrics)
 	in := ResolveMusicInput(raw, "", false)
 	if in.Lyrics == "" {
 		t.Fatal("ожидали Custom Mode: текст клиента в Lyrics")
@@ -159,8 +163,7 @@ func TestResolveMusicInput_EncodedInspiration(t *testing.T) {
 }
 
 func TestResolveMusicInput_LyricsCustomMode(t *testing.T) {
-	lyrics := "[Verse 1]\nСтрока\n[Chorus]\nПрипев"
-	in := ResolveMusicInput(lyrics, "rock", false)
+	in := ResolveMusicInput(fullStructuredLyrics, "rock", false)
 	if in.Lyrics == "" || in.Description != "" {
 		t.Errorf("ожидали Custom Mode: %+v", in)
 	}
@@ -220,8 +223,9 @@ func TestIsCompleteSongLyrics(t *testing.T) {
 		{"пустая строка", "", false},
 		{"одна фраза", "с любовью к папе", false},
 		{"короткий припев", "Папа, ты мой герой\nПапа, ты всегда со мной", false},
-		{"структура делает полным", "[Verse]\nСтрока\n[Chorus]\nПрипев", true},
-		{"куплет-маркер кириллицей", "[Куплет]\nСтрока", true},
+		{"структура, но одна строка — всё ещё обрубок", "[Припев]\nс любовью к папе", false},
+		{"короткая структура", "[Verse]\nСтрока\n[Chorus]\nПрипев", false},
+		{"полный структурированный текст", fullStructuredLyrics, true},
 		{"длинный текст без структуры", strings.Repeat(longLine+"\n", 10), true},
 		{"длинный, но мало строк", strings.Repeat(longLine+" ", 10), false},
 	}

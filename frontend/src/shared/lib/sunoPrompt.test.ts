@@ -213,9 +213,12 @@ describe("sunoPrompt", () => {
     expect(isCompleteSongLyrics("")).toBe(false);
     expect(isCompleteSongLyrics("с любовью к папе")).toBe(false);
     expect(isCompleteSongLyrics("Папа, ты мой герой\nПапа, ты всегда со мной")).toBe(false);
-    expect(isCompleteSongLyrics("[Verse]\nСтрока\n[Chorus]\nПрипев")).toBe(true);
-    expect(isCompleteSongLyrics("[Куплет]\nСтрока")).toBe(true);
+    // Структура без объёма — всё ещё обрубок.
+    expect(isCompleteSongLyrics("[Припев]\nс любовью к папе")).toBe(false);
+    expect(isCompleteSongLyrics("[Verse]\nСтрока\n[Chorus]\nПрипев")).toBe(false);
     const line = "Полноценная строка текста песни о самом дорогом человеке";
+    // Структура + объём → полный текст (порог ниже, чем без разметки).
+    expect(isCompleteSongLyrics("[Verse]\n" + (line + "\n").repeat(4))).toBe(true);
     expect(isCompleteSongLyrics((line + "\n").repeat(10))).toBe(true);
     expect(isCompleteSongLyrics((line + " ").repeat(10))).toBe(false);
   });

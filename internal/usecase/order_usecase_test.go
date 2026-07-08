@@ -193,8 +193,12 @@ func TestHandlePaymentSuccess_NotifiesAdmin(t *testing.T) {
 	}
 }
 
+// testFullLyrics — полный структурированный текст клиента, проходящий порог
+// Custom Mode (suno.IsCompleteSongLyrics: ≥200 символов и ≥4 строк при разметке).
+const testFullLyrics = "[Verse]\nМой текст куплета про самого родного человека на свете\nВторая строка куплета про тепло его сильных рук\n[Chorus]\nПрипев, который мы поём всей семьёй за столом\nПрипев, который останется с нами навсегда\n[Verse 2]\nПамять бережно хранит наши долгие прогулки\nИ уроки доброты, что ты подарил мне в детстве"
+
 func TestSunoInspirationBriefs_CustomLyrics_SameWordsNoVariantSuffix(t *testing.T) {
-	raw := suno.EncodePromptWithLyrics("rap, male vocals", "идея", "[Verse]\nмой текст\n[Chorus]\nприпев")
+	raw := suno.EncodePromptWithLyrics("rap, male vocals", "идея", testFullLyrics)
 	briefs := sunoInspirationBriefs(raw)
 	if len(briefs) != 2 {
 		t.Fatalf("ожидали 2 брифа (2 задачи × 2 клипа = 4 версии), получили %d", len(briefs))

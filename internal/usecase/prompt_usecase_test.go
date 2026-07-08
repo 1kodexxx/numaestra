@@ -140,7 +140,7 @@ func TestPromptUseCase_BuildFinalPrompt_CustomLyricsGoToLyricsChannel(t *testing
 	_ = repo.Create(context.Background(), cat)
 	uc := NewPromptUseCase(repo)
 
-	lyrics := "[Verse]\nМой текст\n[Chorus]\nПрипев"
+	lyrics := testFullLyrics
 	prompt, err := uc.BuildFinalPrompt(context.Background(), "bday", map[string]string{
 		"NAME":          "Иван",
 		"CUSTOM_LYRICS": lyrics,

@@ -366,23 +366,26 @@ func ResolveMusicInput(brief, fallbackStyle string, instrumental bool) MusicInpu
 	return in
 }
 
-// Порог «полного текста песни»: короче — считаем фразой/припевом, который надо
+// Пороги «полного текста песни»: короче — считаем фразой/припевом, который надо
 // вплести в песню, а не петь как весь текст. Полный текст (2 куплета + припев)
-// обычно ≥ 600 символов; 400/8 строк — консервативная нижняя граница.
+// обычно ≥ 600 символов; 400/8 строк — консервативная нижняя граница. Разметка
+// [Verse]/[Куплет] — сигнал осознанности, порог ниже, но объём обязателен:
+// «[Припев] + одна строка» — всё ещё обрубок, а не песня.
 const (
 	minCompleteLyricsRunes = 400
 	minCompleteLyricsLines = 8
+
+	minStructuredLyricsRunes = 200
+	minStructuredLyricsLines = 4
 )
 
 // IsCompleteSongLyrics — присланный текст тянет на ПОЛНУЮ песню для Custom Mode:
-// либо явная структура ([Verse]/[Куплет]...), либо достаточные объём и число строк.
+// достаточные объём и число строк; явная структура ([Verse]/[Куплет]...) снижает
+// порог, но не отменяет его.
 func IsCompleteSongLyrics(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return false
-	}
-	if IsStructuredLyricsText(s) {
-		return true
 	}
 	lines := 0
 	for _, ln := range strings.Split(s, "\n") {
@@ -390,7 +393,11 @@ func IsCompleteSongLyrics(s string) bool {
 			lines++
 		}
 	}
-	return utf8.RuneCountInString(s) >= minCompleteLyricsRunes && lines >= minCompleteLyricsLines
+	runes := utf8.RuneCountInString(s)
+	if IsStructuredLyricsText(s) {
+		return runes >= minStructuredLyricsRunes && lines >= minStructuredLyricsLines
+	}
+	return runes >= minCompleteLyricsRunes && lines >= minCompleteLyricsLines
 }
 
 // weaveVerbatimLines дополняет описание требованием дословно вставить строки
