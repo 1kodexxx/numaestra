@@ -3,6 +3,7 @@ import { Button, TextField } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
 import { useFocusTrap } from '@shared/lib/useFocusTrap'
 import { suggestEmailFix } from '@shared/lib/emailHint'
+import { usePublicConfig } from '@shared/lib/usePublicConfig'
 
 const ACCENT = theme.accent
 const TEXT2 = theme.text2
@@ -35,6 +36,7 @@ interface ContactModalProps {
 
 /** Email/phone capture + price summary, shown before redirecting to payment. */
 export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceKopecks, discountKopecks = 0, discountLabel, onClose, onSubmit }: ContactModalProps) {
+  const { demo_enabled: demoEnabled } = usePublicConfig()
   const titleId = useId()
   const trapRef = useFocusTrap(true)
   const [email, setEmail] = useState('')
@@ -106,12 +108,18 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
         }}
       >
         <div id={titleId} style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '6px' }}>
-          {loading ? 'Готовим демо…' : 'Получить бесплатное демо'}
+          {loading
+            ? demoEnabled ? 'Готовим демо…' : 'Создаём заказ…'
+            : demoEnabled ? 'Получить бесплатное демо' : 'Заказать песню'}
         </div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '28px' }}>
           {loading
-            ? 'Секунду — создаём заказ и открываем страницу с вашим демо.'
-            : 'Оставьте email — пришлём демо вашей песни. Оплата потом, только если понравится.'}
+            ? demoEnabled
+              ? 'Секунду — создаём заказ и открываем страницу с вашим демо.'
+              : 'Секунду — создаём заказ и открываем страницу оплаты.'
+            : demoEnabled
+              ? 'Оставьте email — пришлём демо вашей песни. Оплата потом, только если понравится.'
+              : 'Оставьте email — на него придёт ссылка на готовую песню. 4 версии за ~10 минут после оплаты.'}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
@@ -141,7 +149,9 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
           borderRadius: '16px', padding: '16px 20px',
           textAlign: 'center', marginBottom: '20px',
         }}>
-          <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>Полная песня — потом, если понравится</div>
+          <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>
+            {demoEnabled ? 'Полная песня — потом, если понравится' : '4 версии песни · готово за ~10 минут'}
+          </div>
           {hasDiscount ? (
             <>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '10px' }}>
@@ -198,14 +208,16 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
             fontSize: '12.5px', color: TEXT2, lineHeight: 1.45,
           }}>
             <span aria-hidden style={{ flexShrink: 0 }}>📧</span>
-            <span>Демо и ссылка на заказ придут на <b style={{ color: '#fff', wordBreak: 'break-all' }}>{email.trim()}</b> — проверьте, что адрес верный.</span>
+            <span>{demoEnabled ? 'Демо и ссылка на заказ придут' : 'Ссылка на заказ и готовая песня придут'} на <b style={{ color: '#fff', wordBreak: 'break-all' }}>{email.trim()}</b> — проверьте, что адрес верный.</span>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: '10px' }}>
           <Button variant="text" size="lg" onClick={onClose} disabled={loading} style={{ flex: 1 }}>Отмена</Button>
           <Button size="lg" onClick={go} loading={loading} disabled={!agree || loading} style={{ flex: 2 }}>
-            {loading ? 'Готовим демо…' : 'Слушать демо бесплатно →'}
+            {loading
+              ? demoEnabled ? 'Готовим демо…' : 'Создаём заказ…'
+              : demoEnabled ? 'Слушать демо бесплатно →' : 'Продолжить →'}
           </Button>
         </div>
       </div>

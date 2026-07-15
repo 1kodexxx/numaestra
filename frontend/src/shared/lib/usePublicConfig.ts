@@ -5,6 +5,7 @@ const FALLBACK: PublicConfig = {
   price_kopecks: 99_000,
   price_label: '990 ₽',
   old_price_label: '2000 ₽',
+  demo_enabled: false,
   // Держите в синхроне с domain.CurrentConsentDocVersion: при сбое /public/config
   // фронт отправит эту версию, и она должна совпасть с серверной валидацией.
   consent_doc_version: '2026-06-29',

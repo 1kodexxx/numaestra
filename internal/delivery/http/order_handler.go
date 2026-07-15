@@ -41,6 +41,9 @@ type OrderHandler struct {
 	storage domain.TrackStorage
 	// presignTTL — срок действия presigned-ссылки на трек (если presign включён).
 	presignTTL time.Duration
+	// demoEnabled — запускать ли бесплатное демо при создании заказа.
+	// false (дефолт) → воронка «оплата сразу», demo_status остаётся none.
+	demoEnabled bool
 }
 
 func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.Client, webhookAllowedNets []*net.IPNet) *OrderHandler {
@@ -50,6 +53,13 @@ func NewOrderHandler(uc *usecase.OrderUseCase, log *slog.Logger, rk *robokassa.C
 		rk:                 rk,
 		webhookAllowedNets: webhookAllowedNets,
 	}
+}
+
+// WithDemoEnabled включает запуск бесплатного демо при создании заказа
+// (DEMO_ENABLED). Если не вызван — демо не запускается.
+func (h *OrderHandler) WithDemoEnabled(enabled bool) *OrderHandler {
+	h.demoEnabled = enabled
+	return h
 }
 
 // WithIdempotency подключает Redis-стор идемпотентности к POST /api/v1/orders.
@@ -288,8 +298,11 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	// постановки не влияет ни на заказ, ни на оплату — клиент в худшем случае
 	// просто не увидит демо и оплатит как обычно. clientIP — для суточного
 	// лимита демо на IP (защита от выжигания дневного бюджета одним источником).
-	if err := h.uc.TriggerDemo(r.Context(), order.ID(), clientIP(r)); err != nil {
-		h.log.Warn("не удалось поставить задачу демо", "order_id", order.ID(), "err", err)
+	// При выключенных демо (DEMO_ENABLED=false) заказ идёт по воронке «оплата сразу».
+	if h.demoEnabled {
+		if err := h.uc.TriggerDemo(r.Context(), order.ID(), clientIP(r)); err != nil {
+			h.log.Warn("не удалось поставить задачу демо", "order_id", order.ID(), "err", err)
+		}
 	}
 
 	// Бесплатный заказ (промокод 100% скидки): Robokassa отклоняет 0 ₽ — применяем оплату сразу.

@@ -88,17 +88,40 @@ function SectionTitle({ kicker, title }: { kicker: string; title: string }) {
 
 export function HowItWorksPage() {
   const navigate = useNavigate()
-  const { price_label } = usePublicConfig()
+  const { price_label, demo_enabled } = usePublicConfig()
   const revealRef = useScrollReveal<HTMLDivElement>()
 
-  const steps = useMemo(
+  const steps = useMemo(() => {
+    const payStep = {
+      icon: '💳',
+      title: demo_enabled ? 'Понравилось — оплатите' : 'Оплатите один раз',
+      text: `Один платёж — ${price_label}, без подписок и доплат. Безопасно через Robokassa; сумму определяет сервер. После оплаты запускается полная генерация.`,
+    }
+    if (demo_enabled) {
+      return STEPS.map((s, i) => (i === 4 ? payStep : s))
+    }
+    // Воронка без демо: 5 шагов, email-шаг без обещания демо.
+    return [
+      STEPS[0],
+      STEPS[1],
+      {
+        ...STEPS[2],
+        text: 'Без регистрации. На почту придёт ссылка на готовый трек, а заказ откроется на странице статуса.',
+      },
+      payStep,
+      STEPS[5],
+    ]
+  }, [price_label, demo_enabled])
+
+  const tech = useMemo(
     () =>
-      STEPS.map((s, i) =>
-        i === 4
-          ? { ...s, text: `Один платёж — ${price_label}, без подписок и доплат. Безопасно через Robokassa; сумму определяет сервер. После оплаты запускается полная генерация.` }
-          : s,
-      ),
-    [price_label],
+      demo_enabled
+        ? TECH
+        : [
+            { icon: '🎧', title: 'Примеры до заказа', text: 'В каталоге — реальные готовые песни по разным поводам: послушайте уровень до оплаты.' },
+            ...TECH.slice(1),
+          ],
+    [demo_enabled],
   )
 
   // FAQ — держите в синхроне с faqItems() на бэкенде (seo_inject.go): там те же
@@ -106,18 +129,23 @@ export function HowItWorksPage() {
   const faq = useMemo(
     () => [
       { q: 'Сколько стоит песня на заказ?', a: `Один платёж ${price_label} за 4 уникальные версии трека. Без подписок, доплат и скрытых платежей.` },
-      { q: 'Можно ли послушать песню до оплаты?', a: 'Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось.' },
+      demo_enabled
+        ? { q: 'Можно ли послушать песню до оплаты?', a: 'Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось.' }
+        : { q: 'Можно ли послушать примеры до заказа?', a: 'Да — в каталоге собраны примеры готовых песен по разным поводам. Ваша песня создаётся по вашему брифу: имена, история и детали вплетаются в уникальный текст и музыку.' },
       { q: 'Сколько времени занимает создание песни?', a: 'Около 10 минут после оплаты. Нейросеть создаёт сразу 4 версии — вы выбираете лучшую.' },
       { q: 'Нужна ли регистрация?', a: 'Нет. Достаточно описать повод и оставить email — ссылка на готовый трек придёт на почту.' },
       { q: 'В каком виде я получу песню?', a: '4 готовые версии в полном качестве, без водяного знака. Слушайте онлайн, скачивайте и делитесь — ссылки остаются у вас навсегда.' },
     ],
-    [price_label],
+    [price_label, demo_enabled],
   )
 
   useSeo({
-    title: 'Как это работает — демо бесплатно, песня за 10 минут | Numaestra',
-    description:
-      `Как Numaestra создаёт персональную песню: соберите запрос, послушайте бесплатное демо и оплатите, только если понравилось. 4 версии трека за ~10 минут, один платёж ${price_label}, без регистрации.`,
+    title: demo_enabled
+      ? 'Как это работает — демо бесплатно, песня за 10 минут | Numaestra'
+      : 'Как это работает — песня на заказ за 10 минут | Numaestra',
+    description: demo_enabled
+      ? `Как Numaestra создаёт персональную песню: соберите запрос, послушайте бесплатное демо и оплатите, только если понравилось. 4 версии трека за ~10 минут, один платёж ${price_label}, без регистрации.`
+      : `Как Numaestra создаёт персональную песню: соберите запрос, оплатите один раз — и нейросеть выдаст 4 уникальные версии трека за ~10 минут. Один платёж ${price_label}, без регистрации и подписок.`,
   })
 
   return (
@@ -136,11 +164,19 @@ export function HowItWorksPage() {
             Как это работает
           </span>
         </div>
-        <h1 style={{ fontSize: 'clamp(27px, 5.4vw, 42px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.08, marginBottom: '14px' }}>
-          Сначала послушайте,<br /><span className="gradient-text-flow">потом платите</span>
-        </h1>
+        {demo_enabled ? (
+          <h1 style={{ fontSize: 'clamp(27px, 5.4vw, 42px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.08, marginBottom: '14px' }}>
+            Сначала послушайте,<br /><span className="gradient-text-flow">потом платите</span>
+          </h1>
+        ) : (
+          <h1 style={{ fontSize: 'clamp(27px, 5.4vw, 42px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.08, marginBottom: '14px' }}>
+            Ваша история —<br /><span className="gradient-text-flow">ваша песня</span>
+          </h1>
+        )}
         <p style={{ fontSize: '15px', color: TEXT2, lineHeight: 1.6, maxWidth: 500, margin: '0 auto 22px' }}>
-          Соберите запрос, получите бесплатное демо своей будущей песни и оплатите, только если понравилось. Полные 4 версии — за ~10 минут.
+          {demo_enabled
+            ? 'Соберите запрос, получите бесплатное демо своей будущей песни и оплатите, только если понравилось. Полные 4 версии — за ~10 минут.'
+            : 'Соберите запрос, оплатите один раз — и нейросеть напишет песню по вашей истории. Полные 4 версии на выбор — за ~10 минут.'}
         </p>
 
         {/* декоративный эквалайзер */}
@@ -165,14 +201,14 @@ export function HowItWorksPage() {
         </div>
 
         <div className="hero-enter-d2" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px' }}>
-          <MetricChip icon="🆓" label="Демо бесплатно" />
+          {demo_enabled ? <MetricChip icon="🆓" label="Демо бесплатно" /> : <MetricChip icon="💳" label="Один платёж" />}
           <MetricChip icon="⚡" label="~10 минут" />
           <MetricChip icon="🎵" label="4 версии" />
           <MetricChip icon="🔓" label="Без регистрации" />
         </div>
       </div>
 
-      {/* ═══ Demo-first баннер ═══ */}
+      {/* ═══ Баннер-оффер (demo-first либо «4 версии») ═══ */}
       <div
         data-reveal
         className="reveal reveal-scale"
@@ -187,16 +223,27 @@ export function HowItWorksPage() {
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           <div className="float-y" style={{ fontSize: '34px', flexShrink: 0 }}>🎧</div>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontSize: '16px', fontWeight: 800, marginBottom: '4px' }}>Никакого риска для вас</div>
-            <div style={{ fontSize: '13.5px', color: TEXT2, lineHeight: 1.55 }}>
-              Демо-фрагмент собирается <b style={{ color: '#fff' }}>до оплаты</b>. Не понравилось — просто не платите. Понравилось — получаете полную песню без водяного знака.
-            </div>
+            {demo_enabled ? (
+              <>
+                <div style={{ fontSize: '16px', fontWeight: 800, marginBottom: '4px' }}>Никакого риска для вас</div>
+                <div style={{ fontSize: '13.5px', color: TEXT2, lineHeight: 1.55 }}>
+                  Демо-фрагмент собирается <b style={{ color: '#fff' }}>до оплаты</b>. Не понравилось — просто не платите. Понравилось — получаете полную песню без водяного знака.
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '16px', fontWeight: 800, marginBottom: '4px' }}>4 версии — вы точно найдёте свою</div>
+                <div style={{ fontSize: '13.5px', color: TEXT2, lineHeight: 1.55 }}>
+                  За один платёж нейросеть создаёт <b style={{ color: '#fff' }}>4 разные версии</b> вашей песни: два текста × две музыкальные интерпретации. Примеры готовых работ — в каталоге.
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* ═══ Алгоритм ═══ */}
-      <SectionTitle kicker="Маршрут" title="От идеи до песни — 6 шагов" />
+      <SectionTitle kicker="Маршрут" title={`От идеи до песни — ${steps.length} шагов`} />
       <ol className="how-steps-timeline" style={{ marginBottom: '52px' }}>
         {steps.map((s, i) => (
           <li
@@ -244,7 +291,7 @@ export function HowItWorksPage() {
       <div
         style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px', marginBottom: '52px' }}
       >
-        {TECH.map((t, i) => (
+        {tech.map((t, i) => (
           <div
             key={i}
             data-reveal
@@ -278,7 +325,9 @@ export function HowItWorksPage() {
         {[
           { value: '~10', unit: 'минут', label: 'до готовых версий' },
           { value: '4', unit: 'версии', label: 'на один заказ' },
-          { value: '0 ₽', unit: '', label: 'за демо до оплаты' },
+          demo_enabled
+            ? { value: '0 ₽', unit: '', label: 'за демо до оплаты' }
+            : { value: '1', unit: 'платёж', label: 'без подписок и доплат' },
           { value: '30+', unit: 'поводов', label: 'и свой конструктор' },
         ].map((m, i) => (
           <div key={i} style={{
@@ -317,8 +366,10 @@ export function HowItWorksPage() {
       {/* ═══ CTA ═══ */}
       <div data-reveal className="reveal reveal-up" style={{ textAlign: 'center', margin: '8px 0 16px' }}>
         <div style={{ fontSize: '18px', fontWeight: 800, marginBottom: '6px', letterSpacing: '-0.02em' }}>Соберите свою песню</div>
-        <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '18px' }}>Демо бесплатно — рискуете только парой минут</div>
-        <Button size="lg" onClick={() => navigate('/')}>Начать бесплатно →</Button>
+        <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '18px' }}>
+          {demo_enabled ? 'Демо бесплатно — рискуете только парой минут' : 'Пара минут на бриф — и через ~10 минут песня готова'}
+        </div>
+        <Button size="lg" onClick={() => navigate('/')}>{demo_enabled ? 'Начать бесплатно →' : 'Создать песню →'}</Button>
         <div style={{ fontSize: '12px', color: TEXT3, marginTop: '12px' }}>
           4 версии · готово за ~10 минут · {price_label} без подписок
         </div>

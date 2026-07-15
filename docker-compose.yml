@@ -20,8 +20,10 @@ x-app-env: &app-env
   PRICE_KOPECKS: ${PRICE_KOPECKS:-99000}
   # Зачёркнутая «старая» цена на витрине; 0 = скрыть.
   OLD_PRICE_KOPECKS: ${OLD_PRICE_KOPECKS:-200000}
-  # Демо (бесплатный фрагмент): длина/интро и антифрод-лимиты. Дефолты совпадают
-  # с дефолтами в коде — меняются через .env без пересборки.
+  # Демо (бесплатный фрагмент): глобальный выключатель, длина/интро и
+  # антифрод-лимиты. Дефолты совпадают с дефолтами в коде — меняются через .env
+  # без пересборки. Демо выключено: ~3 оплаты на 100 демо, воронка «оплата сразу».
+  DEMO_ENABLED: ${DEMO_ENABLED:-false}
   DEMO_CLIP_SECONDS: ${DEMO_CLIP_SECONDS:-45}
   DEMO_INTRO_SKIP_SECONDS: ${DEMO_INTRO_SKIP_SECONDS:-8}
   DEMO_DAILY_LIMIT: ${DEMO_DAILY_LIMIT:-200}

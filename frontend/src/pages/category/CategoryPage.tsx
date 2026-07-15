@@ -705,10 +705,12 @@ export function CategoryPage() {
         </div>
       )}
       <Button size="lg" fullWidth disabled={!wizard || wizardLoading} onClick={openContact}>
-        Создать песню — демо бесплатно →
+        {publicConfig.demo_enabled ? "Создать песню — демо бесплатно →" : "Создать песню →"}
       </Button>
       <div style={{ fontSize: "12px", color: TEXT3, textAlign: "center", marginTop: "8px" }}>
-        Оплата только после демо, если понравится
+        {publicConfig.demo_enabled
+          ? "Оплата только после демо, если понравится"
+          : "4 версии на выбор · готово за ~10 минут"}
       </div>
     </div>
   );

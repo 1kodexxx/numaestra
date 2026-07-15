@@ -447,8 +447,13 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
           })}
         </div>
 
-        {/* Бесплатное демо до оплаты: премиальный плеер + «приготовление». */}
-        {ps === 'pending' && <DemoPlayer status={order.demo_status} url={order.demo_url} startedAt={order.updated_at} />}
+        {/* Бесплатное демо до оплаты: премиальный плеер + «приготовление».
+            При status='none' не рендерим: с выключенными демо (DEMO_ENABLED=false)
+            новые заказы демо не получают, и «готовим демо…» было бы обманом.
+            Старые заказы с демо продолжают показывать плеер как раньше. */}
+        {ps === 'pending' && order.demo_status !== 'none' && (
+          <DemoPlayer status={order.demo_status} url={order.demo_url} startedAt={order.updated_at} />
+        )}
 
         {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
         {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
@@ -464,6 +469,10 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
             ) : demoInFlight ? (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
                 ⏳ Демо готовится дольше обычного. Можно оплатить сейчас — на заказ это не влияет, вы получите 4 полные версии. Или подождите: демо появится выше само.
+              </div>
+            ) : order.demo_status === 'none' ? (
+              <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+                После оплаты нейросеть создаст 4 версии вашей песни за ~10 минут — ссылка придёт на почту.
               </div>
             ) : (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>

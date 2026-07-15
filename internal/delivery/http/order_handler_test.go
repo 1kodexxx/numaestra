@@ -87,6 +87,44 @@ func TestHandler_CreateOrder_Success(t *testing.T) {
 	}
 }
 
+// recordingQueue фиксирует постановку демо-задач для проверки гейта DEMO_ENABLED.
+type recordingQueue struct {
+	hQueue
+	demoEnqueued int
+}
+
+func (q *recordingQueue) EnqueueDemoTask(_ context.Context, _ uuid.UUID) error {
+	q.demoEnqueued++
+	return nil
+}
+
+// Демо выключено (дефолт) → задача демо не ставится; включено через
+// WithDemoEnabled(true) → ставится. Заказ создаётся успешно в обоих случаях.
+func TestHandler_CreateOrder_DemoGate(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		queue := &recordingQueue{}
+		repo := newHOrderRepo()
+		uc := usecase.NewOrderUseCase(repo, nil, queue, nil, nil, notify.NewLogNotifier(discardLogger()), nil, usecase.NewNoopPromptUseCase(), 150000, hTxManager{}, discardLogger())
+		rk := robokassa.New(hMerchant, hPass1, hPass2, "", true)
+		h := NewOrderHandler(uc, discardLogger(), rk, nil).WithDemoEnabled(enabled)
+
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(validOrderBody("")))
+		rec := httptest.NewRecorder()
+		h.Routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("enabled=%v: ожидали 201, получили %d (%s)", enabled, rec.Code, rec.Body.String())
+		}
+		want := 0
+		if enabled {
+			want = 1
+		}
+		if queue.demoEnqueued != want {
+			t.Errorf("enabled=%v: демо-задач поставлено %d, ожидали %d", enabled, queue.demoEnqueued, want)
+		}
+	}
+}
+
 func TestHandler_CreateOrder_IgnoresClientAmount(t *testing.T) {
 	_, router, _ := newTestHandler(t)
 

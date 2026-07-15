@@ -348,7 +348,8 @@ func run(ctx context.Context) error {
 	orderHandler := apphttp.NewOrderHandler(orderUC, log, rkClient, webhookAllowedNets).
 		WithIdempotency(idempotency.NewStore(rdb)).
 		WithRedis(rdb).
-		WithTrackStorage(s3Client, cfg.S3.PresignTTL)
+		WithTrackStorage(s3Client, cfg.S3.PresignTTL).
+		WithDemoEnabled(cfg.Demo.Enabled)
 	categoryHandler := apphttp.NewCategoryHandler(promptUC, log).WithRedis(rdb)
 	genreHandler := apphttp.NewGenreHandler(genreUC, log).WithRedis(rdb)
 	exampleHandler := apphttp.NewExampleHandler(exampleUC, log).WithRedis(rdb)
@@ -391,7 +392,8 @@ func run(ctx context.Context) error {
 	}
 	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log).
 		WithReviews(reviewUC).
-		WithExamples(exampleUC)
+		WithExamples(exampleUC).
+		WithDemoEnabled(cfg.Demo.Enabled)
 
 	router := newRouter(log, orderHandler, categoryHandler, genreHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, promoHandler, adminPromoHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
@@ -484,7 +486,7 @@ func newRouter(
 
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
-	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks, cfg.Pricing.OldPriceKopecks).Routes())
+	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks, cfg.Pricing.OldPriceKopecks, cfg.Demo.Enabled).Routes())
 	r.Mount("/api/v1/genres", genreHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
 	r.Mount("/api/v1/reviews", reviewHandler.Routes())

@@ -162,6 +162,7 @@ function Hero({
   priceLabel: string;
   oldPriceLabel?: string;
 }) {
+  const { demo_enabled } = usePublicConfig();
   return (
     <div
       style={{
@@ -266,10 +267,13 @@ function Hero({
           }}
         >
           Подарок на свадьбу, юбилей или признание в любви, который тронет до
-          слёз. Послушайте демо бесплатно — платите, только если понравилось.
+          слёз.{" "}
+          {demo_enabled
+            ? "Послушайте демо бесплатно — платите, только если понравилось."
+            : "Один платёж — и через ~10 минут у вас 4 версии песни на выбор."}
         </p>
 
-        {/* trust pills — первый акцентный про бесплатное демо */}
+        {/* trust pills — первый акцентный (демо, если включено) */}
         <div
           className="hero-enter-d3"
           style={{
@@ -281,8 +285,10 @@ function Hero({
           }}
         >
           {[
-            { t: "🎧 Демо бесплатно", accent: true },
-            { t: "4 версии на выбор", accent: false },
+            demo_enabled
+              ? { t: "🎧 Демо бесплатно", accent: true }
+              : { t: "🎧 4 версии на выбор", accent: true },
+            ...(demo_enabled ? [{ t: "4 версии на выбор", accent: false }] : []),
             { t: "Готово за 10 минут", accent: false },
             {
               t: `${priceLabel} · без подписок`,
@@ -691,6 +697,7 @@ function PromptBuilder({
   onApplyPromo: () => void;
   onClearPromo: () => void;
 }) {
+  const { demo_enabled } = usePublicConfig();
   const toggleMulti = (
     key: "moods",
     val: string,
@@ -1070,10 +1077,12 @@ function PromptBuilder({
           </div>
         )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
-          Создать песню — демо бесплатно →
+          {demo_enabled ? "Создать песню — демо бесплатно →" : "Создать песню →"}
         </Button>
         <div style={{ fontSize: "12px", color: TEXT3, textAlign: "center" }}>
-          Оплата только после демо, если понравится
+          {demo_enabled
+            ? "Оплата только после демо, если понравится"
+            : "4 версии на выбор · готово за ~10 минут"}
         </div>
       </div>
     </div>

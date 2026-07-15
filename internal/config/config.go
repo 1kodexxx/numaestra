@@ -159,6 +159,11 @@ type PricingConfig struct {
 
 // DemoConfig — защита расхода кредитов на бесплатные демо + параметры обработки.
 type DemoConfig struct {
+	// Enabled — глобальный выключатель бесплатных демо. false → новые заказы
+	// идут по воронке «оплата сразу», уже сгенерированные демо продолжают
+	// отдаваться. Выключено по данным: ~3 оплаты на 100 демо — бесплатное демо
+	// притягивало нецелевой трафик. Вернуть: DEMO_ENABLED=true.
+	Enabled bool
 	// DailyLimit — максимум демо в сутки (глобально). 0 = без лимита.
 	DailyLimit int
 	// TokenReserve — сколько токенов аккаунта бронируется под платные заказы:
@@ -246,6 +251,7 @@ func Load() (*Config, error) {
 			OldPriceKopecks: getInt64Env("OLD_PRICE_KOPECKS", 200000),
 		},
 		Demo: DemoConfig{
+			Enabled: getBoolEnv("DEMO_ENABLED", false),
 			// По умолчанию — разумные значения: 200 демо/сутки, бронь 10 токенов
 			// под платные, 1 демо на email в 24 ч. Можно отключить любую защиту нулём.
 			DailyLimit:    int(getInt64Env("DEMO_DAILY_LIMIT", 200)),
