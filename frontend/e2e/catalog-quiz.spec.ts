@@ -24,7 +24,9 @@ test.describe('Каталог → конструктор → контакты', 
 
     await page.getByRole('button', { name: /Создать песню/i }).click()
 
-    const dialog = page.getByRole('dialog', { name: /Получить бесплатное демо|Готовим демо/i })
+    // Заголовок модалки зависит от demo_enabled (/public/config): «Заказать песню»
+    // в воронке «оплата сразу», «Получить бесплатное демо» — если демо включено.
+    const dialog = page.getByRole('dialog', { name: /Заказать песню|Создаём заказ|Получить бесплатное демо|Готовим демо/i })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByLabel('Email')).toBeVisible()
   })

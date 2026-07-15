@@ -2,10 +2,10 @@ module github.com/numaestra/numaestra
 
 go 1.25.0
 
-// Сборка ведётся на 1.26.4: закрывает CVE стандартной библиотеки
-// (GO-2026-5037 crypto/x509, GO-2026-5039 net/textproto). go-директива остаётся
-// 1.25.0 как минимальная языковая версия.
-toolchain go1.26.4
+// Сборка ведётся на 1.26.5: закрывает CVE стандартной библиотеки
+// (GO-2026-5037 crypto/x509, GO-2026-5039 net/textproto, GO-2026-5856
+// crypto/tls ECH). go-директива остаётся 1.25.0 как минимальная языковая версия.
+toolchain go1.26.5
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0

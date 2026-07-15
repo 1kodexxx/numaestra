@@ -22,7 +22,7 @@ RUN cd frontend && npm run build
 # Результат: /app/web/out/ — index.html + assets/
 
 # ── Stage 2: Build Go binary (embeds web/out) ────────────────────────────────
-FROM golang:1.26.4-alpine AS builder
+FROM golang:1.26.5-alpine AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
