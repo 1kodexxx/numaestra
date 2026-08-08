@@ -395,3 +395,78 @@ func TestSEOInjector_PreviewBotSkipsNoindex(t *testing.T) {
 		t.Error("Googlebot должен видеть noindex на приватной странице шеринга")
 	}
 }
+
+// --- SEO при платном демо ---
+
+// newPaidDemoSEO — инжектор с ценой заказа 990 ₽ и платным демо 50 ₽.
+func newPaidDemoSEO(pb *stubPromptBuilder) *SEOInjector {
+	return NewSEOInjector([]byte(seoTestTemplate), pb, 99000, discardAdminLogger()).
+		WithDemoEnabled(true).
+		WithDemoPrice(5000, 99000)
+}
+
+func TestSEOInjector_HowItWorks_ПлатноеДемоВТекстах(t *testing.T) {
+	html := newPaidDemoSEO(&stubPromptBuilder{}).Render(context.Background(), "/how-it-works", "https://numaestra.ru")
+
+	// Обе суммы воронки и итог должны быть названы: иначе страница читается как
+	// «плати дважды», а поисковый сниппет обещает не то.
+	for _, want := range []string{"50 ₽", "940 ₽", "990 ₽"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("в тексте /how-it-works нет суммы %q", want)
+		}
+	}
+	if strings.Contains(html, "бесплатное демо") {
+		t.Error("остался текст про бесплатное демо при включённой цене")
+	}
+	if !strings.Contains(html, `"@type":"FAQPage"`) {
+		t.Error("FAQPage-разметка потерялась")
+	}
+}
+
+func TestSEOInjector_Category_ПлатноеДемоВТексте(t *testing.T) {
+	pb := &stubPromptBuilder{wizard: domain.RestoreCategory(domain.CategorySnapshot{ID: "wedding", Title: "Свадьба"})}
+	html := newPaidDemoSEO(pb).Render(context.Background(), "/category/wedding", "https://numaestra.ru")
+
+	if !strings.Contains(html, "50 ₽") || !strings.Contains(html, "940 ₽") {
+		t.Error("на странице категории должны быть обе суммы воронки")
+	}
+	if strings.Contains(html, "бесплатно послушать демо") {
+		t.Error("остался текст про бесплатное демо")
+	}
+}
+
+// При нулевой цене (или цене не дешевле заказа) тексты обязаны остаться
+// «бесплатными» — иначе витрина пообещает платёж, которого сервер не выставит.
+func TestSEOInjector_ДемоБесплатноКогдаЦенаНеЗадана(t *testing.T) {
+	cases := []struct {
+		name       string
+		demo, full int64
+	}{
+		{"нулевая цена демо", 0, 99000},
+		{"демо не дешевле заказа", 99000, 99000},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inj := NewSEOInjector([]byte(seoTestTemplate), &stubPromptBuilder{}, tc.full, discardAdminLogger()).
+				WithDemoEnabled(true).
+				WithDemoPrice(tc.demo, tc.full)
+			html := inj.Render(context.Background(), "/how-it-works", "https://numaestra.ru")
+
+			if !strings.Contains(html, "бесплатн") {
+				t.Error("при незаданной цене демо тексты должны остаться про бесплатное демо")
+			}
+		})
+	}
+}
+
+// Выключенные демо — воронка «оплата сразу»: демо не должно упоминаться вовсе.
+func TestSEOInjector_БезДемоТекстыБезУпоминаний(t *testing.T) {
+	inj := NewSEOInjector([]byte(seoTestTemplate), &stubPromptBuilder{}, 99000, discardAdminLogger()).
+		WithDemoEnabled(false).
+		WithDemoPrice(5000, 99000)
+	html := inj.Render(context.Background(), "/how-it-works", "https://numaestra.ru")
+
+	if strings.Contains(html, "демо за 50") || strings.Contains(html, "бесплатное демо") {
+		t.Error("при DEMO_ENABLED=false тексты не должны обещать демо")
+	}
+}

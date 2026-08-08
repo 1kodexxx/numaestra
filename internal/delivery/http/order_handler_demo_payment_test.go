@@ -195,3 +195,110 @@ func TestPublicStatus_НеРаскрываетПлатёжныеСсылки(t *
 		t.Errorf("demo_payment_status = %v, ожидался pending", got)
 	}
 }
+
+// --- GET /{id}/demo-payment-url ---
+
+// getDemoPaymentURL — запрос ссылки на оплату демо с токеном доступа заказа.
+func getDemoPaymentURL(router http.Handler, orderID, token string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/"+orderID+"/demo-payment-url", nil)
+	if token != "" {
+		req.Header.Set("X-Access-Token", token)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestGetDemoPaymentURL_ОтдаётСсылкуНаОплатуДемо(t *testing.T) {
+	h, router, _ := newDemoPaymentHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	rec := getDemoPaymentURL(router, order.ID().String(), order.AccessToken())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("разбор ответа: %v", err)
+	}
+	if body["payment_url"] == "" {
+		t.Error("payment_url пуст — клиенту нечем оплатить демо")
+	}
+	// Ссылка должна вести на счёт ДЕМО, а не на основной.
+	if !strings.Contains(body["payment_url"], fmt.Sprintf("InvId=%d", order.DemoInvoiceID())) {
+		t.Errorf("ссылка ведёт не на счёт демо (InvId=%d): %s", order.DemoInvoiceID(), body["payment_url"])
+	}
+}
+
+func TestGetDemoPaymentURL_ТребуетТокенДоступа(t *testing.T) {
+	h, router, _ := newDemoPaymentHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	rec := getDemoPaymentURL(router, order.ID().String(), "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("без токена ожидали 401, получили %d", rec.Code)
+	}
+}
+
+func TestGetDemoPaymentURL_ОплаченноеДемоОтдаётConflict(t *testing.T) {
+	h, router, _ := newDemoPaymentHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	if err := h.uc.HandleDemoPaymentSuccess(t.Context(), order.DemoInvoiceID(), hDemoPrice); err != nil {
+		t.Fatalf("оплата демо: %v", err)
+	}
+
+	rec := getDemoPaymentURL(router, order.ID().String(), order.AccessToken())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("для оплаченного демо ожидали 409, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// Заказ без второго счёта (легаси / бесплатное демо) платить за демо не может.
+func TestGetDemoPaymentURL_БезСчётаНаДемоОтдаётConflict(t *testing.T) {
+	h, router, _ := newTestHandler(t) // без WithDemoPrice
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	rec := getDemoPaymentURL(router, order.ID().String(), order.AccessToken())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("ожидали 409, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDemoPaymentURL_НекорректныйIDОтдаёт400(t *testing.T) {
+	h, router, _ := newDemoPaymentHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	rec := getDemoPaymentURL(router, "не-uuid", order.AccessToken())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("ожидали 400, получили %d", rec.Code)
+	}
+}
+
+// Ссылка на доплату за песню выставляется на ОСТАТОК: после зачёта демо в ней
+// должна стоять разница, иначе клиент заплатит 50 ₽ дважды.
+func TestGetPaymentURL_ПослеОплатыДемоВыставленНаОстаток(t *testing.T) {
+	h, router, _ := newDemoPaymentHandler(t)
+	order := mustCreate(t, h, "user@example.com", "", "Бриф")
+
+	if err := h.uc.HandleDemoPaymentSuccess(t.Context(), order.DemoInvoiceID(), hDemoPrice); err != nil {
+		t.Fatalf("оплата демо: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/"+order.ID().String()+"/payment-url", nil)
+	req.Header.Set("X-Access-Token", order.AccessToken())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ожидали 200, получили %d (%s)", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("разбор ответа: %v", err)
+	}
+	if !strings.Contains(body["payment_url"], "OutSum=940") {
+		t.Errorf("ожидали счёт на остаток 940 ₽, получили: %s", body["payment_url"])
+	}
+}
