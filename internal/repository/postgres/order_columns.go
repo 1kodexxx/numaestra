@@ -17,4 +17,7 @@ const orderSelectColumns = `
 	created_at, updated_at, paid_at, completed_at,
 	COALESCE(demo_status, 'none') AS demo_status, COALESCE(demo_url, '') AS demo_url,
 	demo_account_id,
-	COALESCE(demo_clips, '[]'::jsonb) AS demo_clips`
+	COALESCE(demo_clips, '[]'::jsonb) AS demo_clips,
+	COALESCE(demo_invoice_id, 0) AS demo_invoice_id,
+	COALESCE(demo_amount_kopecks, 0) AS demo_amount_kopecks,
+	COALESCE(demo_payment_status, 'pending') AS demo_payment_status`

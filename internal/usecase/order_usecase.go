@@ -92,7 +92,11 @@ type OrderUseCase struct {
 	// priceKopecks — фиксированная серверная цена заказа (4 версии песни).
 	// Клиент не может повлиять на сумму — иначе её можно занизить и пройти
 	// сверку в вебхуке оплаты (см. CreateOrder).
-	priceKopecks     int64
+	priceKopecks int64
+	// demoPriceKopecks — цена платного демо (вторая платёжная полоса заказа).
+	// Засчитывается в счёт песни: к доплате идёт priceKopecks минус эта сумма.
+	// 0 → демо бесплатное, второй счёт не выставляется.
+	demoPriceKopecks int64
 	tx               TransactionManager
 	paymentVerifier  PaymentVerifier   // nil → сверка платежей отключена
 	demoLimiter      DemoLimiter       // nil → лимиты демо отключены
@@ -154,6 +158,14 @@ func (uc *OrderUseCase) WithPaymentVerifier(v PaymentVerifier) *OrderUseCase {
 func (uc *OrderUseCase) WithDemoGuards(limiter DemoLimiter, tokenReserve int) *OrderUseCase {
 	uc.demoLimiter = limiter
 	uc.demoTokenReserve = tokenReserve
+	return uc
+}
+
+// WithDemoPrice задаёт цену платного демо (DEMO_PRICE_KOPECKS). При ненулевом
+// значении каждый заказ получает второй счёт Robokassa на эту сумму, а к доплате
+// за песню остаётся цена заказа минус она. 0 → демо бесплатное (старое поведение).
+func (uc *OrderUseCase) WithDemoPrice(kopecks int64) *OrderUseCase {
+	uc.demoPriceKopecks = kopecks
 	return uc
 }
 
@@ -271,6 +283,17 @@ func (uc *OrderUseCase) CreateOrder(ctx context.Context, email, phone, brief, ca
 	}
 	if referralCode != "" {
 		order.SetReferralCode(strings.TrimSpace(referralCode))
+	}
+
+	// Вторая платёжная полоса — счёт на демо. Выставляем строго дешевле заказа:
+	// иначе после зачёта демо к доплате осталось бы 0 и песню было бы нечем
+	// запустить. Заказ дешевле цены демо (щедрый промокод) идёт одним платежом.
+	if uc.demoPriceKopecks > 0 && order.AmountKopecks() > uc.demoPriceKopecks {
+		demoInvoiceID, err := uc.orderRepo.NextInvoiceID(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("получение invoice_id для демо: %w", err)
+		}
+		order.SetDemoPayment(demoInvoiceID, uc.demoPriceKopecks)
 	}
 
 	// Атомарно: сначала IncrementUses (SQL WHERE current_uses < max_uses), затем Create.
@@ -395,14 +418,109 @@ func (uc *OrderUseCase) HandlePaymentSuccess(ctx context.Context, invoiceID int6
 
 	// Подпись вебхука уже проверена в слое доставки, но это не гарантирует,
 	// что оплачена именно сумма заказа. Сверяем явно, чтобы исключить подмену суммы.
-	if paidKopecks != order.AmountKopecks() {
-		uc.log.Warn("сумма оплаты не совпадает с суммой заказа",
+	// Сверяем с ОСТАТКОМ: если демо уже оплачено, его 50 ₽ зачтены и счёт на песню
+	// выставлен на разницу — ожидать полную сумму здесь означало бы отклонять
+	// легитимную доплату.
+	if paidKopecks != order.RemainingKopecks() {
+		uc.log.Warn("сумма оплаты не совпадает с суммой к доплате",
 			"order_id", order.ID(), "invoice_id", invoiceID,
-			"expected_kopecks", order.AmountKopecks(), "paid_kopecks", paidKopecks)
+			"expected_kopecks", order.RemainingKopecks(), "paid_kopecks", paidKopecks,
+			"amount_kopecks", order.AmountKopecks(), "demo_paid", order.DemoPaid())
 		return ErrPaymentAmountMismatch
 	}
 
 	return uc.applyPaymentSuccess(ctx, order, "webhook")
+}
+
+// InvoiceKind различает, к какой платёжной полосе заказа относится InvId из
+// вебхука Robokassa: основной счёт за песню или счёт за демо.
+type InvoiceKind string
+
+const (
+	InvoiceKindMain InvoiceKind = "main"
+	InvoiceKindDemo InvoiceKind = "demo"
+)
+
+// ResolveInvoice находит заказ по InvId и сообщает, какая из двух платёжных полос
+// им оплачивается. Сначала проверяется основной счёт, затем демо: оба InvId берутся
+// из одной последовательности, поэтому пересечься не могут и порядок роли не играет.
+func (uc *OrderUseCase) ResolveInvoice(ctx context.Context, invoiceID int64) (*domain.Order, InvoiceKind, error) {
+	order, err := uc.orderRepo.GetByInvoiceID(ctx, invoiceID)
+	if err == nil {
+		return order, InvoiceKindMain, nil
+	}
+	if !errors.Is(err, domain.ErrOrderNotFound) {
+		return nil, "", fmt.Errorf("поиск заказа по invoice_id: %w", err)
+	}
+
+	order, err = uc.orderRepo.GetByDemoInvoiceID(ctx, invoiceID)
+	if err != nil {
+		// ErrOrderNotFound пробрасываем как есть: вызывающий отвечает Robokassa OK,
+		// чтобы она не ретраила заведомо неактивируемый InvId.
+		return nil, "", err
+	}
+	return order, InvoiceKindDemo, nil
+}
+
+// HandleDemoPaymentSuccess фиксирует оплату демо и запускает его генерацию.
+// Вторая платёжная полоса заказа: основной payment_status не трогается — заказ
+// остаётся pending до доплаты за песню.
+func (uc *OrderUseCase) HandleDemoPaymentSuccess(ctx context.Context, invoiceID int64, paidKopecks int64) error {
+	order, err := uc.orderRepo.GetByDemoInvoiceID(ctx, invoiceID)
+	if err != nil {
+		return fmt.Errorf("поиск заказа по demo_invoice_id: %w", err)
+	}
+
+	// Платёжное окно — как у основного счёта: сверхстарый вебхук с валидной
+	// подписью это признак реплея, а не медленного банка.
+	if age := time.Since(order.CreatedAt()); age > maxPaymentWindow {
+		uc.log.Warn("вебхук демо отклонён: платёжное окно истекло",
+			"order_id", order.ID(), "demo_invoice_id", invoiceID,
+			"order_age", age.Round(time.Minute))
+		return ErrPaymentWindowExpired
+	}
+
+	if paidKopecks != order.DemoAmountKopecks() {
+		uc.log.Warn("сумма оплаты демо не совпадает",
+			"order_id", order.ID(), "demo_invoice_id", invoiceID,
+			"expected_kopecks", order.DemoAmountKopecks(), "paid_kopecks", paidKopecks)
+		return ErrPaymentAmountMismatch
+	}
+
+	// Идемпотентность: Robokassa повторяет доставку до получения OK{InvId}.
+	// Повторный вебхук по уже оплаченному демо — успех, а не ошибка.
+	if order.DemoPaid() {
+		uc.log.Info("оплата демо уже подтверждена — идемпотентно ОК",
+			"order_id", order.ID(), "demo_invoice_id", invoiceID)
+		return nil
+	}
+
+	if err := order.MarkDemoPaid(); err != nil {
+		return fmt.Errorf("переход статуса оплаты демо: %w", err)
+	}
+
+	// Условный апдейт (WHERE demo_payment_status='pending') — та же защита от гонки
+	// параллельных доставок, что и в основной полосе: задачу демо ставит победитель.
+	applied, err := uc.orderRepo.ApplyDemoPaymentSuccess(ctx, order)
+	if err != nil {
+		return fmt.Errorf("сохранение оплаты демо: %w", err)
+	}
+	if !applied {
+		uc.log.Info("оплата демо уже обработана параллельной доставкой",
+			"order_id", order.ID(), "demo_invoice_id", invoiceID)
+		return nil
+	}
+
+	uc.log.Info("демо оплачено — ставим задачу генерации",
+		"order_id", order.ID(), "demo_invoice_id", invoiceID, "paid_kopecks", paidKopecks)
+
+	// Ошибка постановки не откатывает оплату: демо подхватит recovery-крон, а
+	// деньги клиента уже зачтены в остаток к доплате.
+	if err := uc.queue.EnqueueDemoTask(ctx, order.ID()); err != nil {
+		uc.log.Error("не удалось поставить задачу демо после оплаты",
+			"order_id", order.ID(), "err", err)
+	}
+	return nil
 }
 
 // AdminConfirmPayment помечает заказ оплаченным без вебхука Robokassa.
@@ -1159,6 +1277,11 @@ func (uc *OrderUseCase) ReconcilePendingPayments(ctx context.Context) error {
 	}
 
 	for _, order := range orders {
+		// Сначала сверяем счёт за демо: он оплачивается первым, и его потерянный
+		// вебхук оставляет клиента без демо при списанных деньгах. Основной счёт
+		// заказа при этом ещё pending, поэтому заказ попадает в эту же выборку.
+		uc.reconcileDemoPayment(ctx, order)
+
 		kopecks, paid, err := uc.paymentVerifier.GetPaidAmountKopecks(ctx, order.InvoiceID())
 		if err != nil {
 			uc.log.Warn("сверка платежа: ошибка опроса Robokassa",
@@ -1190,6 +1313,44 @@ func (uc *OrderUseCase) ReconcilePendingPayments(ctx context.Context) error {
 			"order_id", order.ID(), "invoice_id", order.InvoiceID())
 	}
 	return nil
+}
+
+// reconcileDemoPayment сверяет счёт за демо с Robokassa для одного заказа.
+// Симметрична сверке основного счёта: если 50 ₽ списаны, а вебхук не дошёл, демо
+// никогда не стартует и клиент остаётся с оплаченным, но не выданным фрагментом.
+// Best-effort: любые ошибки только логируются — основную сверку они не блокируют.
+func (uc *OrderUseCase) reconcileDemoPayment(ctx context.Context, order *domain.Order) {
+	if !order.HasDemoPayment() || order.DemoPaid() {
+		return
+	}
+
+	kopecks, paid, err := uc.paymentVerifier.GetPaidAmountKopecks(ctx, order.DemoInvoiceID())
+	if err != nil {
+		uc.log.Warn("сверка платежа за демо: ошибка опроса Robokassa",
+			"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID(), "err", err)
+		return
+	}
+	if !paid {
+		return
+	}
+
+	if err := uc.HandleDemoPaymentSuccess(ctx, order.DemoInvoiceID(), kopecks); err != nil {
+		if errors.Is(err, ErrPaymentAmountMismatch) {
+			uc.log.Error("сверка платежа за демо: оплачена ИНАЯ сумма — требуется ручной разбор",
+				"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID(),
+				"paid_kopecks", kopecks, "demo_kopecks", order.DemoAmountKopecks())
+			return
+		}
+		if errors.Is(err, ErrPaymentWindowExpired) {
+			return
+		}
+		uc.log.Error("сверка платежа за демо: не удалось активировать демо",
+			"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID(), "err", err)
+		return
+	}
+
+	uc.log.Warn("сверка платежа за демо: найдено оплаченное демо без вебхука — запущено",
+		"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID())
 }
 
 // RecoverFreePendingOrders находит бесплатные заказы (amount=0), застрявшие в
@@ -1272,6 +1433,17 @@ func (uc *OrderUseCase) GenerateDemo(ctx context.Context, orderID uuid.UUID) err
 
 	// Оплаченному заказу демо не нужно — полная генерация уже идёт/сделает своё.
 	if order.PaymentStatus() != domain.PaymentStatusPending {
+		return nil
+	}
+
+	// Демо платное: генерируем только после подтверждённой оплаты его счёта.
+	// Барьер стоит здесь, а не только на входе в очередь, потому что задача может
+	// прийти повторно (retry Asynq) или из recovery-крона — кредиты Suno не должны
+	// тратиться на неоплаченный заказ ни по одному из этих путей. Заказы без
+	// демо-счёта (легаси, бесплатное демо) проходят как раньше.
+	if order.HasDemoPayment() && !order.DemoPaid() {
+		uc.log.Info("демо не запущено: счёт за демо не оплачен",
+			"order_id", orderID, "demo_invoice_id", order.DemoInvoiceID())
 		return nil
 	}
 	if order.DemoStatus() == domain.DemoStatusProcessing || order.DemoStatus() == domain.DemoStatusReady {

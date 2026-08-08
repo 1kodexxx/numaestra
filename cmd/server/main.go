@@ -48,6 +48,16 @@ import (
 	"github.com/numaestra/numaestra/web"
 )
 
+// demoPriceKopecks возвращает цену платного демо с учётом общего выключателя
+// демо. При DEMO_ENABLED=false возвращается 0 — второй счёт не выставляется и
+// заказ оплачивается одним платежом на полную сумму, как в pay-first воронке.
+func demoPriceKopecks(cfg *config.Config) int64 {
+	if !cfg.Demo.Enabled {
+		return 0
+	}
+	return cfg.Demo.PriceKopecks
+}
+
 // runMode перечисляет допустимые значения APP_MODE.
 type runMode string
 
@@ -208,7 +218,10 @@ func run(ctx context.Context) error {
 	orderUC := usecase.NewOrderUseCase(orderRepo, accountRepo, queuePublisher, musicProvider, s3Client, notifier, llmClient, promptUC, cfg.Pricing.PriceKopecks, txManager, log).
 		WithPromoRepo(promoRepo).
 		WithPaymentVerifier(rkClient).
-		WithDemoGuards(demolimit.New(rdb, cfg.Demo.DailyLimit, cfg.Demo.PerEmailHours, cfg.Demo.PerIPDaily), cfg.Demo.TokenReserve)
+		WithDemoGuards(demolimit.New(rdb, cfg.Demo.DailyLimit, cfg.Demo.PerEmailHours, cfg.Demo.PerIPDaily), cfg.Demo.TokenReserve).
+		// Цена демо подключается только при включённых демо: иначе второй счёт не
+		// выставляется и заказ оплачивается одним платежом на полную сумму.
+		WithDemoPrice(demoPriceKopecks(cfg))
 	if cfg.Demo.ClipEnabled {
 		orderUC.WithDemoClip(democlip.New(cfg.Demo.FfmpegPath, cfg.Demo.ClipSeconds, cfg.Demo.IntroSkipSeconds, cfg.Demo.Watermark))
 	}
@@ -393,7 +406,8 @@ func run(ctx context.Context) error {
 	seoInjector := apphttp.NewSEOInjector(indexHTML, promptUC, cfg.Pricing.PriceKopecks, log).
 		WithReviews(reviewUC).
 		WithExamples(exampleUC).
-		WithDemoEnabled(cfg.Demo.Enabled)
+		WithDemoEnabled(cfg.Demo.Enabled).
+		WithDemoPrice(demoPriceKopecks(cfg), cfg.Pricing.PriceKopecks)
 
 	router := newRouter(log, orderHandler, categoryHandler, genreHandler, exampleHandler, reviewHandler, adminHandler, adminAuthHandler, promoHandler, adminPromoHandler, seoHandler, seoInjector, healthChecker, cfg, adminSessionSecret, metricsNets, spaFS, imagesFS)
 
@@ -486,7 +500,8 @@ func newRouter(
 
 	r.Mount("/api/v1/orders", orderHandler.Routes())
 	r.Mount("/api/v1/categories", categoryHandler.Routes())
-	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks, cfg.Pricing.OldPriceKopecks, cfg.Demo.Enabled).Routes())
+	r.Mount("/api/v1/public", apphttp.NewPublicHandler(cfg.Pricing.PriceKopecks, cfg.Pricing.OldPriceKopecks, cfg.Demo.Enabled).
+		WithDemoPrice(demoPriceKopecks(cfg)).Routes())
 	r.Mount("/api/v1/genres", genreHandler.Routes())
 	r.Mount("/api/v1/examples", exampleHandler.Routes())
 	r.Mount("/api/v1/reviews", reviewHandler.Routes())

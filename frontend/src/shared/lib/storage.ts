@@ -22,13 +22,25 @@ export const orderStorage = {
     localStorage.setItem(ORDER_ID_KEY, id)
     localStorage.setItem(ACCESS_TOKEN_KEY, token)
   },
-  saveInvoiceOrder(invoiceId: number, orderId: string) {
+  // У заказа два счёта Robokassa: за демо и за саму песню. kind сохраняется
+  // суффиксом '#demo', чтобы страница возврата понимала, что именно оплачено, не
+  // спрашивая API. Основной платёж пишется без суффикса — формат совпадает с
+  // прежним, поэтому карты, сохранённые до платного демо, читаются как есть.
+  saveInvoiceOrder(invoiceId: number, orderId: string, kind: 'main' | 'demo' = 'main') {
     const map = readInvoiceMap()
-    map[String(invoiceId)] = orderId
+    map[String(invoiceId)] = kind === 'demo' ? `${orderId}#demo` : orderId
     localStorage.setItem(INVOICE_MAP_KEY, JSON.stringify(map))
   },
   getOrderIdByInvoice(invoiceId: number): string | null {
-    return readInvoiceMap()[String(invoiceId)] ?? null
+    return this.getInvoiceEntry(invoiceId)?.orderId ?? null
+  },
+  // getInvoiceEntry отдаёт заказ вместе с видом платежа по номеру счёта.
+  getInvoiceEntry(invoiceId: number): { orderId: string; kind: 'main' | 'demo' } | null {
+    const raw = readInvoiceMap()[String(invoiceId)]
+    if (!raw) return null
+    const [orderId, suffix] = raw.split('#')
+    if (!orderId) return null
+    return { orderId, kind: suffix === 'demo' ? 'demo' : 'main' }
   },
   getOrderId(): string | null {
     return localStorage.getItem(ORDER_ID_KEY)

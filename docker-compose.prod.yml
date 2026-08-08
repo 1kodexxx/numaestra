@@ -12,6 +12,36 @@
 #
 # Тег образа — через IMAGE_TAG (по умолчанию latest); CD передаёт sha коммита,
 # что даёт неизменяемые деплои и простой откат на конкретный коммит.
+# Параметры воронки закреплены здесь ЛИТЕРАЛАМИ (x-funnel ниже), а не через
+# ${VAR:-default}. Причина: оверрей применяется вторым и перебивает как базовый
+# файл, так и подстановку из .env сервера. Значения в .env накапливались годами и
+# успели устареть (старая цена 2 000 ₽, DEMO_ENABLED=false со времён отключения
+# бесплатных демо), а править их можно только руками по SSH — мимо пайплайна.
+# Держа их в git, мы получаем: источник истины в репозитории, ревью изменения цены
+# в PR и доставку обычным CD без ручных шагов на сервере.
+#
+# Цена демо ОБЯЗАНА быть строго меньше PRICE_KOPECKS: иначе после зачёта к доплате
+# останется 0 и запускать генерацию песни будет нечем (сервер это проверяет и
+# просто не выставит второй счёт).
+x-funnel: &funnel
+  # Итоговая цена заказа — 990 ₽ (демо входит в неё, а не добавляется сверху).
+  PRICE_KOPECKS: "99000"
+  # Зачёркнутая «старая» цена на витрине.
+  OLD_PRICE_KOPECKS: "200000"
+  # Воронка: 50 ₽ за демо → 940 ₽ доплаты. false = один платёж на всю сумму.
+  DEMO_ENABLED: "true"
+  DEMO_PRICE_KOPECKS: "5000"
+  # Лимиты — страховка расхода кредитов Suno от аномалий, а не защита от абуза:
+  # платное демо самоокупается, поэтому пороги на email/IP мягкие (0 = без лимита).
+  DEMO_DAILY_LIMIT: "200"
+  DEMO_TOKEN_RESERVE: "10"
+  DEMO_PER_EMAIL_HOURS: "0"
+  DEMO_PER_IP_DAILY: "20"
+  DEMO_CLIP_ENABLED: "true"
+  DEMO_CLIP_SECONDS: "45"
+  DEMO_INTRO_SKIP_SECONDS: "8"
+  DEMO_WATERMARK: "true"
+
 services:
   postgres:
     restart: unless-stopped
@@ -23,8 +53,14 @@ services:
     image: ghcr.io/1kodexxx/numaestra:${IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
+    # Ключи мержатся поверх environment базового файла — здесь только воронка,
+    # все остальные переменные (секреты, DSN, SMTP) по-прежнему идут из .env.
+    environment: *funnel
 
   worker:
     image: ghcr.io/1kodexxx/numaestra:${IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
+    # Воркер считает те же суммы (реконсиляция платежей, recovery демо) —
+    # расхождение конфигурации между app и worker дало бы разные остатки.
+    environment: *funnel

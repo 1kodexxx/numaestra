@@ -4,7 +4,7 @@ import { markPaidPending } from '@shared/lib/paidPending'
 import { Button } from '@shared/ui'
 import { theme } from '@shared/lib/theme'
 import { GOALS, reachGoal } from '@shared/lib/analytics'
-import { resolveOrderId } from './resolveOrderId'
+import { resolveOrderId, resolvePayment, type InvoiceKind } from './resolveOrderId'
 
 const ACCENT = theme.accent
 const TEXT2 = theme.text2
@@ -20,18 +20,26 @@ export function OrderSuccessPage() {
   // resolving — пока не знаем, какой заказ открывать (идёт резолв по InvId).
   const [resolving, setResolving] = useState(true)
   const [manualId, setManualId] = useState('')
+  // Оплата демо — первый шаг воронки: заказ остаётся неоплаченным, и объявлять
+  // «запускаем создание песни» рано. Текст и переход зависят от вида платежа.
+  const [kind, setKind] = useState<InvoiceKind>('main')
 
   const params = new URLSearchParams(window.location.search)
   const invId = params.get('InvId')
 
   useEffect(() => {
     let cancelled = false
-    resolveOrderId(invId).then(id => {
+    resolvePayment(invId).then(({ orderId: id, kind: k }) => {
       if (cancelled) return
       setOrderId(id)
+      setKind(k)
       setResolving(false)
       reachGoal(GOALS.PAYMENT_SUCCESS, { order_id: id ?? undefined })
-      if (id) markPaidPending(id)
+      // markPaidPending включает на странице статуса режим «подтверждаем оплату»
+      // и ждёт перехода заказа в paid. После оплаты одного лишь демо заказ в paid
+      // не перейдёт, поэтому помечаем только основной платёж — иначе страница
+      // статуса зависла бы в бесконечном ожидании.
+      if (id && k === 'main') markPaidPending(id)
     })
     return () => { cancelled = true }
   }, [invId])
@@ -44,10 +52,18 @@ export function OrderSuccessPage() {
     return () => clearInterval(t)
   }, [resolving, orderId])
 
+  // ?paid=1 переводит страницу статуса в режим ожидания подтверждения оплаты —
+  // для демо это неверно (заказ ещё ждёт доплаты), поэтому у него свой флаг
+  // ?demo_paid=1: он запускает ту же быструю синхронизацию с Robokassa, но не
+  // показывает «подтверждаем оплату».
+  const statusHref = orderId
+    ? `/status/${orderId}?${kind === 'main' ? 'paid' : 'demo_paid'}=1`
+    : ''
+
   useEffect(() => {
     if (resolving || !orderId || seconds > 0) return
-    navigate(`/status/${orderId}?paid=1`, { replace: true })
-  }, [seconds, resolving, orderId, navigate])
+    navigate(statusHref, { replace: true })
+  }, [seconds, resolving, orderId, statusHref, navigate])
 
   const panelStyle = { background: theme.surface, border: `1px solid ${BORDER}`, borderRadius: '24px', padding: '40px 36px', textAlign: 'center' as const }
 
@@ -87,21 +103,25 @@ export function OrderSuccessPage() {
   return (
     <div className="fade-in" style={{ maxWidth: 480, margin: '0 auto', padding: '64px 24px' }}>
       <div className="modal-panel interactive-card" style={panelStyle}>
-        <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
-        <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '8px' }}>Оплата прошла!</div>
+        <div style={{ fontSize: '48px', marginBottom: '16px' }}>{kind === 'demo' ? '🎧' : '✓'}</div>
+        <div style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '8px' }}>
+          {kind === 'demo' ? 'Готовим ваше демо!' : 'Оплата прошла!'}
+        </div>
         <div style={{ fontSize: '14px', color: TEXT2, lineHeight: 1.6, marginBottom: '20px' }}>
           {resolving
             ? 'Подтверждаем платёж и находим ваш заказ…'
-            : `Мы подтверждаем платёж и запускаем создание песни. Перенаправим на страницу статуса через ${seconds} с…`}
+            : kind === 'demo'
+              ? `Оплата принята — нейросеть уже пишет фрагмент вашей песни. Через пару минут он появится на странице заказа. Перенаправим туда через ${seconds} с…`
+              : `Мы подтверждаем платёж и запускаем создание песни. Перенаправим на страницу статуса через ${seconds} с…`}
         </div>
         <div className="spin-anim" style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.07)', borderTopColor: ACCENT, margin: '0 auto 24px' }} />
         <Button
           size="lg"
           fullWidth
           disabled={resolving || !orderId}
-          onClick={() => orderId && navigate(`/status/${orderId}?paid=1`, { replace: true })}
+          onClick={() => orderId && navigate(statusHref, { replace: true })}
         >
-          К статусу заказа →
+          {kind === 'demo' ? 'К демо →' : 'К статусу заказа →'}
         </Button>
       </div>
     </div>

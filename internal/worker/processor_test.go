@@ -390,6 +390,29 @@ func (r *wOrderRepo) GetByInvoiceID(_ context.Context, inv int64) (*domain.Order
 	}
 	return domain.RestoreOrder(r.orders[id]), nil
 }
+func (r *wOrderRepo) GetByDemoInvoiceID(_ context.Context, inv int64) (*domain.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.orders {
+		if s.DemoInvoiceID != 0 && s.DemoInvoiceID == inv {
+			return domain.RestoreOrder(s), nil
+		}
+	}
+	return nil, domain.ErrOrderNotFound
+}
+func (r *wOrderRepo) ApplyDemoPaymentSuccess(_ context.Context, o *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur, ok := r.orders[o.ID()]
+	if !ok {
+		return false, domain.ErrOrderNotFound
+	}
+	if cur.DemoPaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	r.put(o)
+	return true, nil
+}
 func (r *wOrderRepo) SetAdminFeedback(_ context.Context, id uuid.UUID, feedback string, at time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

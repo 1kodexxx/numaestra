@@ -88,17 +88,36 @@ function SectionTitle({ kicker, title }: { kicker: string; title: string }) {
 
 export function HowItWorksPage() {
   const navigate = useNavigate()
-  const { price_label, demo_enabled } = usePublicConfig()
+  const {
+    price_label,
+    demo_enabled,
+    demo_price_label: demoPrice,
+    remaining_price_label: remainingPrice,
+  } = usePublicConfig()
+  // Платное демо: сервер прислал цену. Тексты называют суммы обоих шагов и
+  // подчёркивают зачёт — иначе воронка читалась бы как «плати дважды».
+  const demoPaid = demo_enabled && Boolean(demoPrice)
   const revealRef = useScrollReveal<HTMLDivElement>()
 
   const steps = useMemo(() => {
     const payStep = {
       icon: '💳',
-      title: demo_enabled ? 'Понравилось — оплатите' : 'Оплатите один раз',
-      text: `Один платёж — ${price_label}, без подписок и доплат. Безопасно через Robokassa; сумму определяет сервер. После оплаты запускается полная генерация.`,
+      title: demoPaid
+        ? `Понравилось — доплатите ${remainingPrice}`
+        : demo_enabled ? 'Понравилось — оплатите' : 'Оплатите один раз',
+      text: demoPaid
+        ? `${demoPrice} за демо уже зачтены, поэтому доплата — ${remainingPrice}, а суммарно ${price_label}. Без подписок и скрытых списаний. Безопасно через Robokassa; сумму определяет сервер. После оплаты запускается полная генерация.`
+        : `Один платёж — ${price_label}, без подписок и доплат. Безопасно через Robokassa; сумму определяет сервер. После оплаты запускается полная генерация.`,
     }
     if (demo_enabled) {
-      return STEPS.map((s, i) => (i === 4 ? payStep : s))
+      const demoStep = demoPaid
+        ? {
+            icon: '🎧',
+            title: `Послушайте демо за ${demoPrice}`,
+            text: `Через пару минут после оплаты на странице заказа соберётся фрагмент — самый яркий момент вашей будущей песни. ${demoPrice} идут в счёт песни, а не сверх неё.`,
+          }
+        : STEPS[3]
+      return STEPS.map((s, i) => (i === 3 ? demoStep : i === 4 ? payStep : s))
     }
     // Воронка без демо: 5 шагов, email-шаг без обещания демо.
     return [
@@ -111,17 +130,26 @@ export function HowItWorksPage() {
       payStep,
       STEPS[5],
     ]
-  }, [price_label, demo_enabled])
+  }, [price_label, demo_enabled, demoPaid, demoPrice, remainingPrice])
 
   const tech = useMemo(
     () =>
-      demo_enabled
+      demoPaid
+        ? [
+            {
+              icon: '🎧',
+              title: `Демо за ${demoPrice} до полной оплаты`,
+              text: `Фрагмент собирается до основного платежа — вы слышите результат заранее и не покупаете «вслепую». ${demoPrice} идут в счёт песни, поэтому суммарно вы платите ${price_label}.`,
+            },
+            ...TECH.slice(1),
+          ]
+        : demo_enabled
         ? TECH
         : [
             { icon: '🎧', title: 'Примеры до заказа', text: 'В каталоге — реальные готовые песни по разным поводам: послушайте уровень до оплаты.' },
             ...TECH.slice(1),
           ],
-    [demo_enabled],
+    [demo_enabled, demoPaid, demoPrice, price_label],
   )
 
   // FAQ — держите в синхроне с faqItems() на бэкенде (seo_inject.go): там те же
@@ -129,23 +157,33 @@ export function HowItWorksPage() {
   const faq = useMemo(
     () => [
       { q: 'Сколько стоит песня на заказ?', a: `Один платёж ${price_label} за 4 уникальные версии трека. Без подписок, доплат и скрытых платежей.` },
-      demo_enabled
-        ? { q: 'Можно ли послушать песню до оплаты?', a: 'Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось.' }
-        : { q: 'Можно ли послушать примеры до заказа?', a: 'Да — в каталоге собраны примеры готовых песен по разным поводам. Ваша песня создаётся по вашему брифу: имена, история и детали вплетаются в уникальный текст и музыку.' },
+      ...(demoPaid
+        ? [
+            { q: 'Можно ли послушать песню до полной оплаты?', a: `Да. Сначала вы платите ${demoPrice} и слушаете демо — самый яркий фрагмент вашей будущей песни. Понравилось — доплачиваете ${remainingPrice} и получаете 4 полные версии.` },
+            { q: 'Почему демо платное?', a: `Символические ${demoPrice} отсекают случайные заявки и позволяют держать цену песни низкой. Эти деньги не сгорают: они идут в счёт песни, поэтому итого вы платите ровно ${price_label}, а не больше.` },
+            { q: `Вернут ли ${demoPrice}, если песня не понравилась?`, a: `Доплачивать вы не обязаны — дальше демо можно не идти. ${demoPrice} покрывают генерацию самого демо, поэтому не возвращаются; полная цена песни при этом остаётся ${price_label}.` },
+          ]
+        : demo_enabled
+          ? [{ q: 'Можно ли послушать песню до оплаты?', a: 'Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось.' }]
+          : [{ q: 'Можно ли послушать примеры до заказа?', a: 'Да — в каталоге собраны примеры готовых песен по разным поводам. Ваша песня создаётся по вашему брифу: имена, история и детали вплетаются в уникальный текст и музыку.' }]),
       { q: 'Сколько времени занимает создание песни?', a: 'Около 10 минут после оплаты. Нейросеть создаёт сразу 4 версии — вы выбираете лучшую.' },
       { q: 'Нужна ли регистрация?', a: 'Нет. Достаточно описать повод и оставить email — ссылка на готовый трек придёт на почту.' },
       { q: 'В каком виде я получу песню?', a: '4 готовые версии в полном качестве, без водяного знака. Слушайте онлайн, скачивайте и делитесь — ссылки остаются у вас навсегда.' },
     ],
-    [price_label, demo_enabled],
+    [price_label, demo_enabled, demoPaid, demoPrice, remainingPrice],
   )
 
   useSeo({
-    title: demo_enabled
-      ? 'Как это работает — демо бесплатно, песня за 10 минут | Numaestra'
-      : 'Как это работает — песня на заказ за 10 минут | Numaestra',
-    description: demo_enabled
-      ? `Как Numaestra создаёт персональную песню: соберите запрос, послушайте бесплатное демо и оплатите, только если понравилось. 4 версии трека за ~10 минут, один платёж ${price_label}, без регистрации.`
-      : `Как Numaestra создаёт персональную песню: соберите запрос, оплатите один раз — и нейросеть выдаст 4 уникальные версии трека за ~10 минут. Один платёж ${price_label}, без регистрации и подписок.`,
+    title: demoPaid
+      ? `Как это работает — демо за ${demoPrice}, песня за 10 минут | Numaestra`
+      : demo_enabled
+        ? 'Как это работает — демо бесплатно, песня за 10 минут | Numaestra'
+        : 'Как это работает — песня на заказ за 10 минут | Numaestra',
+    description: demoPaid
+      ? `Как Numaestra создаёт персональную песню: соберите запрос, послушайте демо за ${demoPrice} и доплатите ${remainingPrice}, только если понравилось. Итого ${price_label} за 4 версии трека, без регистрации и подписок.`
+      : demo_enabled
+        ? `Как Numaestra создаёт персональную песню: соберите запрос, послушайте бесплатное демо и оплатите, только если понравилось. 4 версии трека за ~10 минут, один платёж ${price_label}, без регистрации.`
+        : `Как Numaestra создаёт персональную песню: соберите запрос, оплатите один раз — и нейросеть выдаст 4 уникальные версии трека за ~10 минут. Один платёж ${price_label}, без регистрации и подписок.`,
   })
 
   return (
@@ -174,9 +212,11 @@ export function HowItWorksPage() {
           </h1>
         )}
         <p style={{ fontSize: '15px', color: TEXT2, lineHeight: 1.6, maxWidth: 500, margin: '0 auto 22px' }}>
-          {demo_enabled
-            ? 'Соберите запрос, получите бесплатное демо своей будущей песни и оплатите, только если понравилось. Полные 4 версии — за ~10 минут.'
-            : 'Соберите запрос, оплатите один раз — и нейросеть напишет песню по вашей истории. Полные 4 версии на выбор — за ~10 минут.'}
+          {demoPaid
+            ? `Соберите запрос, послушайте демо своей будущей песни за ${demoPrice} и доплатите ${remainingPrice}, только если понравилось. Суммарно ${price_label} — демо идёт в счёт песни.`
+            : demo_enabled
+              ? 'Соберите запрос, получите бесплатное демо своей будущей песни и оплатите, только если понравилось. Полные 4 версии — за ~10 минут.'
+              : 'Соберите запрос, оплатите один раз — и нейросеть напишет песню по вашей истории. Полные 4 версии на выбор — за ~10 минут.'}
         </p>
 
         {/* декоративный эквалайзер */}
@@ -201,7 +241,9 @@ export function HowItWorksPage() {
         </div>
 
         <div className="hero-enter-d2" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px' }}>
-          {demo_enabled ? <MetricChip icon="🆓" label="Демо бесплатно" /> : <MetricChip icon="💳" label="Один платёж" />}
+          {demoPaid
+            ? <MetricChip icon="🎧" label={`Демо за ${demoPrice}`} />
+            : demo_enabled ? <MetricChip icon="🆓" label="Демо бесплатно" /> : <MetricChip icon="💳" label="Один платёж" />}
           <MetricChip icon="⚡" label="~10 минут" />
           <MetricChip icon="🎵" label="4 версии" />
           <MetricChip icon="🔓" label="Без регистрации" />
@@ -223,7 +265,14 @@ export function HowItWorksPage() {
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           <div className="float-y" style={{ fontSize: '34px', flexShrink: 0 }}>🎧</div>
           <div style={{ flex: 1, minWidth: 220 }}>
-            {demo_enabled ? (
+            {demoPaid ? (
+              <>
+                <div style={{ fontSize: '16px', fontWeight: 800, marginBottom: '4px' }}>Вы рискуете только {demoPrice}</div>
+                <div style={{ fontSize: '13.5px', color: TEXT2, lineHeight: 1.55 }}>
+                  Демо-фрагмент собирается <b style={{ color: '#fff' }}>до основной оплаты</b>. Не понравилось — просто не доплачиваете. Понравилось — доплачиваете {remainingPrice} и получаете полную песню без водяного знака. Итого {price_label}: {demoPrice} идут в счёт песни, а не сверх неё.
+                </div>
+              </>
+            ) : demo_enabled ? (
               <>
                 <div style={{ fontSize: '16px', fontWeight: 800, marginBottom: '4px' }}>Никакого риска для вас</div>
                 <div style={{ fontSize: '13.5px', color: TEXT2, lineHeight: 1.55 }}>
@@ -325,9 +374,11 @@ export function HowItWorksPage() {
         {[
           { value: '~10', unit: 'минут', label: 'до готовых версий' },
           { value: '4', unit: 'версии', label: 'на один заказ' },
-          demo_enabled
-            ? { value: '0 ₽', unit: '', label: 'за демо до оплаты' }
-            : { value: '1', unit: 'платёж', label: 'без подписок и доплат' },
+          demoPaid
+            ? { value: demoPrice ?? '', unit: '', label: 'за демо, в счёт песни' }
+            : demo_enabled
+              ? { value: '0 ₽', unit: '', label: 'за демо до оплаты' }
+              : { value: '1', unit: 'платёж', label: 'без подписок и доплат' },
           { value: '30+', unit: 'поводов', label: 'и свой конструктор' },
         ].map((m, i) => (
           <div key={i} style={{
@@ -367,9 +418,15 @@ export function HowItWorksPage() {
       <div data-reveal className="reveal reveal-up" style={{ textAlign: 'center', margin: '8px 0 16px' }}>
         <div style={{ fontSize: '18px', fontWeight: 800, marginBottom: '6px', letterSpacing: '-0.02em' }}>Соберите свою песню</div>
         <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '18px' }}>
-          {demo_enabled ? 'Демо бесплатно — рискуете только парой минут' : 'Пара минут на бриф — и через ~10 минут песня готова'}
+          {demoPaid
+            ? `Демо за ${demoPrice} — и оно же идёт в счёт песни`
+            : demo_enabled ? 'Демо бесплатно — рискуете только парой минут' : 'Пара минут на бриф — и через ~10 минут песня готова'}
         </div>
-        <Button size="lg" onClick={() => navigate('/')}>{demo_enabled ? 'Начать бесплатно →' : 'Создать песню →'}</Button>
+        <Button size="lg" onClick={() => navigate('/')}>
+          {demoPaid
+            ? `Начать с демо за ${demoPrice} →`
+            : demo_enabled ? 'Начать бесплатно →' : 'Создать песню →'}
+        </Button>
         <div style={{ fontSize: '12px', color: TEXT3, marginTop: '12px' }}>
           4 версии · готово за ~10 минут · {price_label} без подписок
         </div>

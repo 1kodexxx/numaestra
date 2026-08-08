@@ -153,8 +153,8 @@ type Order struct {
 	paidAt      *time.Time
 	completedAt *time.Time
 
-	// Демо-фрагмент (бесплатный, до оплаты). Отдельная полоса, не пересекается
-	// с платёжной генерацией: пишется только через демо-поток.
+	// Демо-фрагмент (платный, до основной оплаты). Отдельная полоса, не
+	// пересекается с платёжной генерацией: пишется только через демо-поток.
 	demoStatus DemoStatus
 	demoURL    string
 	// demoAccountID — аккаунт, чей слот захвачен под текущее демо (processing).
@@ -165,6 +165,17 @@ type Order struct {
 	// платный поток догенерирует только недостающие. Лежат отдельно от tracks,
 	// поэтому до завершения заказа в выдачу API не попадают.
 	demoClips []Track
+
+	// --- Платёжная полоса демо (50 ₽, засчитываются в счёт песни) ---
+	// demoInvoiceID — собственный InvId Robokassa под платёж за демо. 0 означает
+	// «демо-платежа нет»: заказ создан до введения платного демо или бесплатен по
+	// промокоду 100% — такой оплачивается одним платежом на полную сумму.
+	demoInvoiceID int64
+	// demoAmountKopecks — снапшот цены демо на момент создания заказа. Сверка
+	// суммы в вебхуке идёт по нему, поэтому смена тарифа не ломает выставленные счета.
+	demoAmountKopecks int64
+	// demoPaymentStatus — статус платежа за демо, независимый от paymentStatus.
+	demoPaymentStatus PaymentStatus
 }
 
 // NewOrder создаёт новый заказ в статусе "ожидает оплаты".
@@ -206,6 +217,7 @@ func NewOrder(invoiceID int64, customerEmail, customerPhone, brief, categoryID, 
 		paymentStatus:     PaymentStatusPending,
 		generationStatus:  GenerationStatusNew,
 		demoStatus:        DemoStatusNone,
+		demoPaymentStatus: PaymentStatusPending,
 		accessToken:       token,
 		consentGivenAt:    &consentAt,
 		consentDocVersion: consentDocVersion,
@@ -260,6 +272,9 @@ type OrderSnapshot struct {
 	DemoURL               string
 	DemoAccountID         *uuid.UUID
 	DemoClips             []Track
+	DemoInvoiceID         int64
+	DemoAmountKopecks     int64
+	DemoPaymentStatus     PaymentStatus
 }
 
 // RestoreOrder восстанавливает агрегат из снапшота хранилища.
@@ -284,8 +299,20 @@ func RestoreOrder(s OrderSnapshot) *Order {
 		referralCode:          s.ReferralCode,
 		createdAt:             s.CreatedAt, updatedAt: s.UpdatedAt, paidAt: s.PaidAt, completedAt: s.CompletedAt,
 		demoStatus: normalizeDemoStatus(s.DemoStatus), demoURL: s.DemoURL, demoAccountID: s.DemoAccountID,
-		demoClips: s.DemoClips,
+		demoClips:         s.DemoClips,
+		demoInvoiceID:     s.DemoInvoiceID,
+		demoAmountKopecks: s.DemoAmountKopecks,
+		demoPaymentStatus: normalizeDemoPaymentStatus(s.DemoPaymentStatus),
 	}
+}
+
+// normalizeDemoPaymentStatus защищает от пустого значения у заказов, созданных до
+// миграции 0025 (колонки не было) — трактуем как «демо не оплачено».
+func normalizeDemoPaymentStatus(s PaymentStatus) PaymentStatus {
+	if s == "" {
+		return PaymentStatusPending
+	}
+	return s
 }
 
 // normalizeDemoStatus защищает от пустого значения у старых заказов (до миграции
@@ -334,6 +361,32 @@ func (o *Order) DemoStatus() DemoStatus             { return o.demoStatus }
 func (o *Order) DemoURL() string                    { return o.demoURL }
 func (o *Order) DemoAccountID() *uuid.UUID          { return o.demoAccountID }
 func (o *Order) DemoClips() []Track                 { return o.demoClips }
+func (o *Order) DemoInvoiceID() int64               { return o.demoInvoiceID }
+func (o *Order) DemoAmountKopecks() int64           { return o.demoAmountKopecks }
+func (o *Order) DemoPaymentStatus() PaymentStatus   { return o.demoPaymentStatus }
+
+// HasDemoPayment сообщает, что у заказа есть отдельный платёж за демо. false —
+// легаси-заказ (до платного демо) или бесплатный по промокоду: такой оплачивается
+// одним платежом на полную сумму.
+func (o *Order) HasDemoPayment() bool { return o.demoInvoiceID != 0 }
+
+// DemoPaid сообщает, что демо оплачено и его можно генерировать.
+func (o *Order) DemoPaid() bool { return o.demoPaymentStatus == PaymentStatusPaid }
+
+// RemainingKopecks — сумма к доплате за песню. Уплаченные за демо деньги идут в
+// зачёт: клиент платит 50 ₽ за демо и 940 ₽ доплаты, суммарно ровно цену заказа.
+// Пока демо не оплачено, к доплате стоит полная сумма — так заказ остаётся
+// оплачиваемым одним платежом, если клиент пропустил демо-платёж или тот не прошёл.
+func (o *Order) RemainingKopecks() int64 {
+	if !o.DemoPaid() {
+		return o.amountKopecks
+	}
+	remaining := o.amountKopecks - o.demoAmountKopecks
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
 
 // SameCustomer сообщает, что два заказа принадлежат одному клиенту (один email
 // или один телефон). Используется для доступа к «соседним» заказам по любому
@@ -652,7 +705,39 @@ func (o *Order) Snapshot() OrderSnapshot {
 		DemoURL:               o.demoURL,
 		DemoAccountID:         o.demoAccountID,
 		DemoClips:             o.demoClips,
+		DemoInvoiceID:         o.demoInvoiceID,
+		DemoAmountKopecks:     o.demoAmountKopecks,
+		DemoPaymentStatus:     o.demoPaymentStatus,
 	}
+}
+
+// --- Платёжная полоса демо ---
+
+// SetDemoPayment привязывает к заказу отдельный счёт на демо. Вызывается один раз
+// при создании заказа, до сохранения. Нулевая сумма трактуется как «демо-платежа
+// нет» — заказ пойдёт по одноплатёжной воронке.
+func (o *Order) SetDemoPayment(invoiceID, amountKopecks int64) {
+	if invoiceID == 0 || amountKopecks <= 0 {
+		return
+	}
+	o.demoInvoiceID = invoiceID
+	o.demoAmountKopecks = amountKopecks
+	o.demoPaymentStatus = PaymentStatusPending
+}
+
+// MarkDemoPaid фиксирует оплату демо по уведомлению Robokassa. Идемпотентность
+// обеспечивает вызывающий слой: повторный вебхук получает ErrOrderAlreadyPaid и
+// трактует его как успех.
+func (o *Order) MarkDemoPaid() error {
+	if o.demoPaymentStatus == PaymentStatusPaid {
+		return ErrOrderAlreadyPaid
+	}
+	if o.demoPaymentStatus != PaymentStatusPending {
+		return ErrInvalidPaymentTransition
+	}
+	o.demoPaymentStatus = PaymentStatusPaid
+	o.touch()
+	return nil
 }
 
 // --- Демо-фрагмент (отдельная полоса, не пересекается с оплатой/генерацией) ---
@@ -741,6 +826,12 @@ type OrderRepository interface {
 	Create(ctx context.Context, order *Order) error
 	GetByID(ctx context.Context, id uuid.UUID) (*Order, error)
 	GetByInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
+
+	// GetByDemoInvoiceID находит заказ по InvId платежа за демо (вторая платёжная
+	// полоса). Вебхук Robokassa резолвит InvId сначала по основной полосе, затем
+	// по демо — оба идентификатора берутся из одной последовательности и не пересекаются.
+	GetByDemoInvoiceID(ctx context.Context, invoiceID int64) (*Order, error)
+
 	Update(ctx context.Context, order *Order) error
 
 	// UpdatePromo сохраняет промо-скидку заказа (amount/original/discount/promo_code_id)
@@ -755,6 +846,12 @@ type OrderRepository interface {
 	// applied=false, если заказ уже был оплачен (например, параллельной доставкой
 	// вебхука). Это защищает от гонки двойной генерации без отдельной version-колонки.
 	ApplyPaymentSuccess(ctx context.Context, order *Order) (applied bool, err error)
+
+	// ApplyDemoPaymentSuccess идемпотентно и атомарно фиксирует оплату демо:
+	// переводит demo_payment_status в paid ТОЛЬКО если он ещё 'pending'.
+	// applied=false означает, что оплату уже провела параллельная доставка вебхука —
+	// задачу генерации демо ставит лишь выигравший вызов.
+	ApplyDemoPaymentSuccess(ctx context.Context, order *Order) (applied bool, err error)
 	ListByCustomerEmail(ctx context.Context, email string, limit, offset int) ([]*Order, error)
 	ListByCustomerPhone(ctx context.Context, phone string, limit, offset int) ([]*Order, error)
 

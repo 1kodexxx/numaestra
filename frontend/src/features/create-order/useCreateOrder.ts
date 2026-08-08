@@ -27,7 +27,12 @@ export function useCreateOrder() {
       const idempotencyKey = orderStorage.getOrCreateIdempotencyKey()
       const result = await orderApi.create(payload, idempotencyKey)
       orderStorage.saveOrder(result.id, result.access_token)
-      orderStorage.saveInvoiceOrder(result.invoice_id, result.id)
+      orderStorage.saveInvoiceOrder(result.invoice_id, result.id, 'main')
+      // Второй счёт — за демо. Сохраняем сразу, чтобы возврат с его оплаты
+      // открыл нужный заказ и понял вид платежа без обращения к API.
+      if (result.demo_invoice_id) {
+        orderStorage.saveInvoiceOrder(result.demo_invoice_id, result.id, 'demo')
+      }
       reachGoal(GOALS.ORDER_SUBMIT, { category_id: payload.category_id || 'custom' })
       // Ключ идемпотентности чистим при ФАКТИЧЕСКОМ уходе со страницы (pagehide),
       // а не сразу: если редирект почему-то не случится (заблокирован, ошибка),

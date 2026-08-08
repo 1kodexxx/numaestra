@@ -157,13 +157,19 @@ type PricingConfig struct {
 	OldPriceKopecks int64
 }
 
-// DemoConfig — защита расхода кредитов на бесплатные демо + параметры обработки.
+// DemoConfig — параметры платного демо: цена, защита расхода кредитов, обработка.
 type DemoConfig struct {
-	// Enabled — глобальный выключатель бесплатных демо. false → новые заказы
-	// идут по воронке «оплата сразу», уже сгенерированные демо продолжают
-	// отдаваться. Выключено по данным: ~3 оплаты на 100 демо — бесплатное демо
-	// притягивало нецелевой трафик. Вернуть: DEMO_ENABLED=true.
+	// Enabled — глобальный выключатель демо. false → новые заказы идут по воронке
+	// «оплата сразу» одним платежом, уже сгенерированные демо продолжают отдаваться.
+	//
+	// История: бесплатное демо давало ~3 оплаты на 100 демо и притягивало нецелевой
+	// трафик, поэтому его отключали. Возвращено в платном виде (PriceKopecks) —
+	// символический платёж отсекает халявщиков, а деньги идут в зачёт песни.
 	Enabled bool
+	// PriceKopecks — цена демо в копейках. Засчитывается в счёт песни: клиент
+	// платит её вперёд, а к доплате остаётся цена заказа минус эта сумма.
+	// 0 = демо бесплатное (историческое поведение).
+	PriceKopecks int64
 	// DailyLimit — максимум демо в сутки (глобально). 0 = без лимита.
 	DailyLimit int
 	// TokenReserve — сколько токенов аккаунта бронируется под платные заказы:
@@ -251,13 +257,16 @@ func Load() (*Config, error) {
 			OldPriceKopecks: getInt64Env("OLD_PRICE_KOPECKS", 200000),
 		},
 		Demo: DemoConfig{
-			Enabled: getBoolEnv("DEMO_ENABLED", false),
-			// По умолчанию — разумные значения: 200 демо/сутки, бронь 10 токенов
-			// под платные, 1 демо на email в 24 ч. Можно отключить любую защиту нулём.
+			Enabled: getBoolEnv("DEMO_ENABLED", true),
+			// Цена демо — 50 ₽, идут в зачёт песни (к доплате остаётся 940 ₽).
+			PriceKopecks: getInt64Env("DEMO_PRICE_KOPECKS", 5000),
+			// Лимиты остаются страховкой расхода кредитов Suno, но платёж уже сам по
+			// себе отсекает нецелевой трафик — пороги на email/IP подняты, чтобы не
+			// мешать заплатившему клиенту (например, дарит песни нескольким людям).
 			DailyLimit:    int(getInt64Env("DEMO_DAILY_LIMIT", 200)),
 			TokenReserve:  int(getInt64Env("DEMO_TOKEN_RESERVE", 10)),
-			PerEmailHours: int(getInt64Env("DEMO_PER_EMAIL_HOURS", 24)),
-			PerIPDaily:    int(getInt64Env("DEMO_PER_IP_DAILY", 5)),
+			PerEmailHours: int(getInt64Env("DEMO_PER_EMAIL_HOURS", 0)),
+			PerIPDaily:    int(getInt64Env("DEMO_PER_IP_DAILY", 20)),
 
 			ClipEnabled:      getBoolEnv("DEMO_CLIP_ENABLED", true),
 			ClipSeconds:      int(getInt64Env("DEMO_CLIP_SECONDS", 45)),
