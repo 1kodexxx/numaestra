@@ -82,6 +82,12 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USERNAME }}
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.short_sha }}
+          # Пакеты GHCR приватны по умолчанию, поэтому анонимный docker pull с
+          # сервера отвечает "denied". Логинимся токеном самого workflow: у него
+          # есть packages:read (см. permissions выше), он живёт только до конца
+          # job'а и не требует хранить долгоживущий PAT на сервере.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -89,10 +95,17 @@ jobs:
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
+          SSH_OPTS=(-i ~/.ssh/id_deploy -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new)
+
+          # Токен уходит по stdin, а не аргументом: аргументы видны в списке
+          # процессов сервера любому пользователю, stdin — нет.
+          echo "==> Логин на сервере в ghcr.io"
+          printf '%s' "$GHCR_TOKEN" | ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+            "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+
           # Небольшой ретрай на случай кратковременного сетевого сбоя до сервера.
           for attempt in 1 2 3; do
-            if ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new \
-              "$SSH_USER@$SSH_HOST" \
+            if ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
               "set -e; cd ~/numaestra; git pull --ff-only origin main; IMAGE_TAG='$IMAGE_TAG' bash deploy/deploy.sh"; then
               echo "Деплой успешен (попытка $attempt)"
               exit 0
