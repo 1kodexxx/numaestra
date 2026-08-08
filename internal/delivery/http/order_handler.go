@@ -174,6 +174,7 @@ func (h *OrderHandler) Routes() chi.Router {
 		r.Get("/", h.ListOrders)
 		r.Get("/{id}", h.GetOrder)
 		r.Get("/{id}/payment-url", h.GetPaymentURL)
+		r.Get("/{id}/demo-payment-url", h.GetDemoPaymentURL)
 		r.Post("/{id}/apply-promo", h.ApplyPromo)
 		r.Post("/{id}/share/revoke", h.RevokeShare)
 		r.Post("/{id}/share/restore", h.RestoreShare)
@@ -221,8 +222,45 @@ type OrderResponse struct {
 	PaymentStatus    string `json:"payment_status"`
 	GenerationStatus string `json:"generation_status"`
 	AmountKopecks    int64  `json:"amount_kopecks"`
-	PaymentURL       string `json:"payment_url"`
-	AccessToken      string `json:"access_token"`
+	// PaymentURL — ссылка на оплату песни. Сумма в ней равна RemainingKopecks:
+	// после оплаченного демо это доплата, а не полная цена.
+	PaymentURL string `json:"payment_url"`
+	// RemainingKopecks — сколько осталось доплатить за песню с учётом зачёта демо.
+	RemainingKopecks int64 `json:"remaining_kopecks"`
+	// --- Платёжная полоса демо ---
+	// DemoInvoiceID — отдельный InvId Robokassa для счёта за демо. Фронт хранит
+	// соответствие InvId → заказ локально, чтобы после возврата с оплаты открыть
+	// нужный заказ без обращения к API.
+	DemoInvoiceID int64 `json:"demo_invoice_id,omitempty"`
+	// DemoAmountKopecks — цена демо (0 = демо-платежа у заказа нет).
+	DemoAmountKopecks int64 `json:"demo_amount_kopecks,omitempty"`
+	// DemoPaymentStatus — pending|paid|failed|refunded. Пусто для заказов без демо-счёта.
+	DemoPaymentStatus string `json:"demo_payment_status,omitempty"`
+	// DemoPaymentURL — ссылка на оплату демо. Первый шаг воронки: клиент платит
+	// её, слушает фрагмент и лишь затем доплачивает остаток.
+	DemoPaymentURL string `json:"demo_payment_url,omitempty"`
+	AccessToken    string `json:"access_token"`
+}
+
+// newOrderResponse собирает ответ по заказу вместе с обеими платёжными ссылками.
+func (h *OrderHandler) newOrderResponse(order *domain.Order) OrderResponse {
+	resp := OrderResponse{
+		ID:               order.ID().String(),
+		InvoiceID:        order.InvoiceID(),
+		PaymentStatus:    string(order.PaymentStatus()),
+		GenerationStatus: string(order.GenerationStatus()),
+		AmountKopecks:    order.AmountKopecks(),
+		RemainingKopecks: order.RemainingKopecks(),
+		PaymentURL:       h.buildPaymentURL(order),
+		AccessToken:      order.AccessToken(),
+	}
+	if order.HasDemoPayment() {
+		resp.DemoInvoiceID = order.DemoInvoiceID()
+		resp.DemoAmountKopecks = order.DemoAmountKopecks()
+		resp.DemoPaymentStatus = string(order.DemoPaymentStatus())
+		resp.DemoPaymentURL = h.buildDemoPaymentURL(order)
+	}
+	return resp
 }
 
 // --- Обработчики ---
@@ -294,12 +332,11 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Запускаем бесплатное демо в фоне (best-effort, отдельная полоса). Ошибка
-	// постановки не влияет ни на заказ, ни на оплату — клиент в худшем случае
-	// просто не увидит демо и оплатит как обычно. clientIP — для суточного
-	// лимита демо на IP (защита от выжигания дневного бюджета одним источником).
-	// При выключенных демо (DEMO_ENABLED=false) заказ идёт по воронке «оплата сразу».
-	if h.demoEnabled {
+	// Демо платное: задачу ставит вебхук об оплате его счёта, а не создание заказа.
+	// Здесь демо запускается только в бесплатном режиме (DEMO_PRICE_KOPECKS=0) и
+	// для заказов без демо-счёта — best-effort, ошибка не влияет ни на заказ, ни на
+	// оплату. clientIP — для суточного лимита демо на IP.
+	if h.demoEnabled && !order.HasDemoPayment() && order.AmountKopecks() > 0 {
 		if err := h.uc.TriggerDemo(r.Context(), order.ID(), clientIP(r)); err != nil {
 			h.log.Warn("не удалось поставить задачу демо", "order_id", order.ID(), "err", err)
 		}
@@ -327,17 +364,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	paymentURL := h.buildPaymentURL(order)
-
-	respondJSON(w, http.StatusCreated, OrderResponse{
-		ID:               order.ID().String(),
-		InvoiceID:        order.InvoiceID(),
-		PaymentStatus:    string(order.PaymentStatus()),
-		GenerationStatus: string(order.GenerationStatus()),
-		AmountKopecks:    order.AmountKopecks(),
-		PaymentURL:       paymentURL,
-		AccessToken:      order.AccessToken(),
-	})
+	respondJSON(w, http.StatusCreated, h.newOrderResponse(order))
 }
 
 // markWebhookSeen помечает InvId как обработанный (быстрый replay-намёк). Источник
@@ -381,7 +408,14 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 	// Источник истины — payment_status в БД, а не один лишь Redis-нонс: нонс мог
 	// проставиться по сбою/коллизии, а заказ остаться pending — слепое «OK» по
 	// нонсу тогда потеряло бы оплату. Поэтому грузим заказ и решаем по факту.
-	order, dbErr := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID)
+	//
+	// У заказа две платёжные полосы (счёт за демо и счёт за песню), и Robokassa
+	// присылает только InvId — ResolveInvoice сообщает, какая из них оплачена.
+	order, kind, dbErr := h.uc.ResolveInvoice(r.Context(), invoiceID)
+	if dbErr == nil && kind == usecase.InvoiceKindDemo {
+		h.handleDemoWebhook(w, r, order, invoiceID, invIdStr, outSum)
+		return
+	}
 	switch {
 	case dbErr == nil && order.PaymentStatus() == domain.PaymentStatusPaid:
 		// Уже оплачен — фиксируем нонс и отвечаем OK без повторной обработки.
@@ -439,6 +473,48 @@ func (h *OrderHandler) HandleRobokassaWebhook(w http.ResponseWriter, r *http.Req
 	w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
 }
 
+// handleDemoWebhook обрабатывает вебхук по счёту за демо (вторая платёжная полоса).
+// Отвечает Robokassa по тем же правилам, что и основная ветка: OK{InvId} на
+// успех и на реплей, 500 на транзиентные ошибки (чтобы доставка повторилась).
+func (h *OrderHandler) handleDemoWebhook(w http.ResponseWriter, r *http.Request, order *domain.Order, invoiceID int64, invIdStr, outSum string) {
+	// Реплей: демо уже оплачено — фиксируем нонс и отвечаем OK без повторной обработки.
+	if order.DemoPaid() {
+		h.markWebhookSeen(r.Context(), invIdStr)
+		h.log.Info("вебхук демо: уже оплачено (replay)", "demo_invoice_id", invoiceID)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
+		return
+	}
+
+	paidKopecks, err := robokassa.ParseAmountKopecks(outSum)
+	if err != nil {
+		h.log.Warn("некорректная сумма в вебхуке демо", "inv_id", invIdStr, "out_sum", outSum, "err", err)
+		respondError(w, r, http.StatusBadRequest, "некорректный формат OutSum")
+		return
+	}
+
+	if err := h.uc.HandleDemoPaymentSuccess(r.Context(), invoiceID, paidKopecks); err != nil {
+		if errors.Is(err, usecase.ErrPaymentAmountMismatch) {
+			h.log.Warn("отклонён вебхук демо: сумма не совпадает", "demo_invoice_id", invoiceID, "out_sum", outSum)
+			respondError(w, r, http.StatusBadRequest, "сумма оплаты не совпадает со стоимостью демо")
+			return
+		}
+		if errors.Is(err, usecase.ErrPaymentWindowExpired) {
+			h.log.Warn("отклонён вебхук демо: платёжное окно истекло", "demo_invoice_id", invoiceID)
+			respondError(w, r, http.StatusBadRequest, "платёжное окно заказа истекло")
+			return
+		}
+		h.log.Error("ошибка обработки вебхука оплаты демо", "demo_invoice_id", invoiceID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
+	}
+
+	h.markWebhookSeen(r.Context(), invIdStr)
+	h.log.Info("вебхук robokassa (демо) обработан", "demo_invoice_id", invoiceID, "out_sum", outSum)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK" + invIdStr)) //nolint:errcheck
+}
+
 type TrackResponse struct {
 	Index       int    `json:"index"`
 	AudioURL    string `json:"audio_url"`
@@ -458,14 +534,42 @@ type OrderDetailResponse struct {
 	// фронте. Пусто, пока заказ не оплачен.
 	PaidAt       string `json:"paid_at,omitempty"`
 	ShareRevoked bool   `json:"share_revoked"`
-	// Демо-фрагмент (до оплаты). DemoStatus: none|processing|ready|failed.
+	// Демо-фрагмент (до оплаты песни). DemoStatus: none|processing|ready|failed.
 	// DemoURL заполнен только при ready; фронт отдаёт его как стрим без скачивания.
 	DemoStatus string `json:"demo_status"`
 	DemoURL    string `json:"demo_url,omitempty"`
+	// --- Платёжные полосы: демо и остаток за песню ---
+	// AmountKopecks — полная цена заказа, RemainingKopecks — сколько осталось
+	// доплатить с учётом зачёта демо (990 и 940 в типовом сценарии).
+	AmountKopecks     int64  `json:"amount_kopecks"`
+	RemainingKopecks  int64  `json:"remaining_kopecks"`
+	DemoAmountKopecks int64  `json:"demo_amount_kopecks,omitempty"`
+	DemoPaymentStatus string `json:"demo_payment_status,omitempty"`
+	// DemoPaymentURL — ссылка на оплату демо; пусто, если демо уже оплачено или
+	// у заказа нет демо-счёта. PaymentURL — ссылка на доплату за песню; пусто для
+	// уже оплаченного заказа.
+	DemoPaymentURL string `json:"demo_payment_url,omitempty"`
+	PaymentURL     string `json:"payment_url,omitempty"`
 	// UpdatedAt — RFC3339 момент последнего изменения заказа. Пока заказ pending и
 	// демо в processing, это момент старта демо — серверный якорь прогресса демо на
 	// фронте (переживает перезагрузку, в отличие от привязки к монтированию).
 	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+// fillPaymentFields проставляет в ответ обе платёжные полосы заказа: полную цену,
+// остаток к доплате и ссылки на оплату. Ссылки отдаются только для неоплаченного
+// заказа — на оплаченном фронту платить уже нечего.
+func (h *OrderHandler) fillPaymentFields(resp *OrderDetailResponse, order *domain.Order) {
+	resp.AmountKopecks = order.AmountKopecks()
+	resp.RemainingKopecks = order.RemainingKopecks()
+	if order.HasDemoPayment() {
+		resp.DemoAmountKopecks = order.DemoAmountKopecks()
+		resp.DemoPaymentStatus = string(order.DemoPaymentStatus())
+	}
+	if order.PaymentStatus() == domain.PaymentStatusPending {
+		resp.DemoPaymentURL = h.buildDemoPaymentURL(order)
+		resp.PaymentURL = h.buildPaymentURL(order)
+	}
 }
 
 func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
@@ -499,7 +603,7 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		paidAt = t.Format(time.RFC3339)
 	}
 
-	respondJSON(w, http.StatusOK, OrderDetailResponse{
+	resp := OrderDetailResponse{
 		ID:                 order.ID().String(),
 		Brief:              order.Brief(),
 		PaymentStatus:      string(order.PaymentStatus()),
@@ -517,13 +621,29 @@ func (h *OrderHandler) GetOrder(w http.ResponseWriter, r *http.Request) {
 		// presign-режиме оставляем публичными (см. deploy/S3-PRESIGN.md).
 		DemoURL:   order.DemoURL(),
 		UpdatedAt: order.UpdatedAt().Format(time.RFC3339),
-	})
+	}
+	h.fillPaymentFields(&resp, order)
+
+	respondJSON(w, http.StatusOK, resp)
 }
 
-// buildPaymentURL формирует ссылку на оплату Robokassa для заказа.
+// buildPaymentURL формирует ссылку на оплату песни. Сумма — ОСТАТОК к доплате:
+// уплаченные за демо 50 ₽ зачтены, поэтому счёт выставляется на разницу, и
+// суммарно клиент платит ровно цену заказа.
 func (h *OrderHandler) buildPaymentURL(order *domain.Order) string {
-	outSum := robokassa.FormatAmount(order.AmountKopecks())
+	outSum := robokassa.FormatAmount(order.RemainingKopecks())
 	return h.rk.PaymentURL(outSum, order.InvoiceID(), "Генерация студийной песни Numaestra", order.CustomerEmail())
+}
+
+// buildDemoPaymentURL формирует ссылку на оплату демо-фрагмента (второй счёт
+// заказа). Пустая строка — у заказа нет демо-платежа (легаси/бесплатный заказ)
+// либо демо уже оплачено.
+func (h *OrderHandler) buildDemoPaymentURL(order *domain.Order) string {
+	if !order.HasDemoPayment() || order.DemoPaid() {
+		return ""
+	}
+	outSum := robokassa.FormatAmount(order.DemoAmountKopecks())
+	return h.rk.PaymentURL(outSum, order.DemoInvoiceID(), "Демо-фрагмент песни Numaestra", order.CustomerEmail())
 }
 
 // GetPaymentURL заново формирует ссылку на оплату для неоплаченного заказа —
@@ -559,6 +679,49 @@ func (h *OrderHandler) GetPaymentURL(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"payment_url": h.buildPaymentURL(order)})
+}
+
+// GetDemoPaymentURL отдаёт ссылку на оплату демо-фрагмента — первый шаг воронки,
+// а также повторная попытка, если оплата демо сорвалась. Доступ по X-Access-Token
+// (через requireOrderAccess). GET /api/v1/orders/{id}/demo-payment-url
+func (h *OrderHandler) GetDemoPaymentURL(w http.ResponseWriter, r *http.Request) {
+	owner := r.Context().Value(ctxKeyOrder).(*domain.Order)
+
+	orderID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, r, http.StatusBadRequest, "некорректный ID заказа")
+		return
+	}
+
+	order, err := h.uc.GetOrderForCustomer(r.Context(), owner, orderID)
+	if err != nil {
+		if errors.Is(err, domain.ErrOrderNotFound) {
+			respondError(w, r, http.StatusNotFound, "заказ не найден")
+			return
+		}
+		if errors.Is(err, domain.ErrOrderAccessDenied) {
+			respondError(w, r, http.StatusForbidden, "нет доступа к этому заказу")
+			return
+		}
+		h.log.Error("ошибка получения заказа для оплаты демо", "order_id", orderID, "err", err)
+		respondError(w, r, http.StatusInternalServerError, "внутренняя ошибка сервера")
+		return
+	}
+
+	if !order.HasDemoPayment() {
+		respondError(w, r, http.StatusConflict, "у заказа нет отдельной оплаты демо")
+		return
+	}
+	if order.DemoPaid() {
+		respondError(w, r, http.StatusConflict, "демо уже оплачено")
+		return
+	}
+	if order.PaymentStatus() != domain.PaymentStatusPending {
+		respondError(w, r, http.StatusConflict, "заказ уже оплачен — демо больше не нужно")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"payment_url": h.buildDemoPaymentURL(order)})
 }
 
 // ApplyPromo применяет промокод к уже созданному неоплаченному заказу и
@@ -632,19 +795,25 @@ func (h *OrderHandler) SyncPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Клиент возвращается на сайт и после оплаты демо, и после доплаты за песню —
+	// синхронизируем сначала демо-полосу, чтобы фрагмент начал генерироваться сразу,
+	// не дожидаясь вебхука или фоновой сверки.
+	demoSynced := h.syncDemoPayment(r.Context(), order)
+
 	if order.PaymentStatus() == domain.PaymentStatusPaid {
-		respondJSON(w, http.StatusOK, map[string]bool{"synced": true})
+		respondJSON(w, http.StatusOK, map[string]bool{"synced": true, "demo_synced": demoSynced})
 		return
 	}
 	if order.PaymentStatus() != domain.PaymentStatusPending {
-		respondJSON(w, http.StatusOK, map[string]bool{"synced": false})
+		respondJSON(w, http.StatusOK, map[string]bool{"synced": false, "demo_synced": demoSynced})
 		return
 	}
 
 	var paidKopecks int64
 	if h.rk.IsTestAutoPay() {
 		// Тестовый режим: пропускаем реальный запрос к Robokassa, используем сумму из БД.
-		paidKopecks = order.AmountKopecks()
+		// Именно остаток — счёт за песню выставлен на него, а не на полную цену.
+		paidKopecks = order.RemainingKopecks()
 	} else {
 		var paid bool
 		var err error
@@ -673,7 +842,45 @@ func (h *OrderHandler) SyncPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.log.Info("sync-payment: оплата подтверждена через OpStateExt", "order_id", orderID, "invoice_id", order.InvoiceID())
-	respondJSON(w, http.StatusOK, map[string]bool{"synced": true})
+	respondJSON(w, http.StatusOK, map[string]bool{"synced": true, "demo_synced": demoSynced})
+}
+
+// syncDemoPayment подтягивает статус оплаты демо из Robokassa при возврате клиента
+// на сайт — тот же «быстрый путь», что и для основного счёта, только для второй
+// полосы. Возвращает true, если демо оплачено (в том числе если это выяснилось
+// раньше). Best-effort: ошибки только логируются, основную синхронизацию не рвут.
+func (h *OrderHandler) syncDemoPayment(ctx context.Context, order *domain.Order) bool {
+	if !order.HasDemoPayment() {
+		return false
+	}
+	if order.DemoPaid() {
+		return true
+	}
+
+	paidKopecks := order.DemoAmountKopecks()
+	if !h.rk.IsTestAutoPay() {
+		var paid bool
+		var err error
+		paidKopecks, paid, err = h.rk.GetPaidAmountKopecks(ctx, order.DemoInvoiceID())
+		if err != nil {
+			h.log.Warn("sync-payment: не удалось проверить оплату демо",
+				"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID(), "err", err)
+			return false
+		}
+		if !paid {
+			return false
+		}
+	}
+
+	if err := h.uc.HandleDemoPaymentSuccess(ctx, order.DemoInvoiceID(), paidKopecks); err != nil {
+		h.log.Warn("sync-payment: оплата демо не применена",
+			"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID(), "err", err)
+		return false
+	}
+
+	h.log.Info("sync-payment: оплата демо подтверждена",
+		"order_id", order.ID(), "demo_invoice_id", order.DemoInvoiceID())
+	return true
 }
 
 type PublicShareResponse struct {
@@ -696,6 +903,15 @@ type PublicStatusResponse struct {
 	Tracks             []TrackResponse `json:"tracks,omitempty"`
 	DemoStatus         string          `json:"demo_status"`
 	DemoURL            string          `json:"demo_url,omitempty"`
+	// Суммы обеих платёжных полос, чтобы страница статуса без токена показывала
+	// корректный шаг воронки («оплатить демо 50 ₽» / «доплатить 940 ₽»).
+	// Платёжные ССЫЛКИ здесь сознательно не отдаются: они содержат email клиента,
+	// а этот эндпоинт открыт по одному лишь UUID заказа. За ссылкой фронт идёт в
+	// /payment-url и /demo-payment-url — они требуют X-Access-Token.
+	AmountKopecks     int64  `json:"amount_kopecks"`
+	RemainingKopecks  int64  `json:"remaining_kopecks"`
+	DemoAmountKopecks int64  `json:"demo_amount_kopecks,omitempty"`
+	DemoPaymentStatus string `json:"demo_payment_status,omitempty"`
 	// UpdatedAt — момент старта демо (пока pending+processing), якорь прогресса демо.
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
@@ -779,9 +995,24 @@ func (h *OrderHandler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 		// на pending-заказе, который активно опрашивается каждые 10с. Подпись меняла бы
 		// demo_url на каждом опросе и сбрасывала бы воспроизведение демо. demos/* при
 		// presign-режиме оставляем публичными (см. deploy/S3-PRESIGN.md).
-		DemoURL:   order.DemoURL(),
-		UpdatedAt: order.UpdatedAt().Format(time.RFC3339),
+		DemoURL:           order.DemoURL(),
+		AmountKopecks:     order.AmountKopecks(),
+		RemainingKopecks:  order.RemainingKopecks(),
+		DemoAmountKopecks: order.DemoAmountKopecks(),
+		DemoPaymentStatus: demoPaymentStatusOrEmpty(order),
+		UpdatedAt:         order.UpdatedAt().Format(time.RFC3339),
 	})
+}
+
+// demoPaymentStatusOrEmpty отдаёт статус оплаты демо только для заказов, у которых
+// демо-счёт действительно есть. Для легаси-заказов возвращается пустая строка —
+// иначе фронт принял бы «pending» за неоплаченное демо и предложил бы платить
+// за то, чего у заказа нет.
+func demoPaymentStatusOrEmpty(order *domain.Order) string {
+	if !order.HasDemoPayment() {
+		return ""
+	}
+	return string(order.DemoPaymentStatus())
 }
 
 type requestAccessLinkBody struct {
@@ -934,7 +1165,11 @@ func (h *OrderHandler) GetOrderByInvoice(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	order, err := h.uc.GetOrderByInvoiceID(r.Context(), invoiceID)
+	// Резолвим по обеим платёжным полосам: клиент возвращается на сайт и после
+	// оплаты демо, и после доплаты за песню, а Robokassa в обоих случаях передаёт
+	// только InvId. kind сообщает фронту, какой это был платёж, чтобы страница
+	// успеха не объявляла оплату песни после оплаты одного лишь демо.
+	order, kind, err := h.uc.ResolveInvoice(r.Context(), invoiceID)
 	if err != nil {
 		// Для этого endpoint'а 404 — основной сигнал перебора: легитимный
 		// пользователь приходит с реальным InvId. Объём логов ограничен сверху
@@ -945,7 +1180,10 @@ func (h *OrderHandler) GetOrderByInvoice(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]string{"id": order.ID().String()})
+	respondJSON(w, http.StatusOK, map[string]string{
+		"id":   order.ID().String(),
+		"kind": string(kind),
+	})
 }
 
 // parsePagination читает ?limit=&offset= из запроса.

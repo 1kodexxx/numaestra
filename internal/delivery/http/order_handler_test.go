@@ -1104,6 +1104,32 @@ func (r *hOrderRepo) ApplyPaymentSuccess(_ context.Context, o *domain.Order) (bo
 	return true, nil
 }
 
+func (r *hOrderRepo) GetByDemoInvoiceID(_ context.Context, inv int64) (*domain.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.orders {
+		if s.DemoInvoiceID != 0 && s.DemoInvoiceID == inv {
+			return domain.RestoreOrder(s), nil
+		}
+	}
+	return nil, domain.ErrOrderNotFound
+}
+
+func (r *hOrderRepo) ApplyDemoPaymentSuccess(_ context.Context, o *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cur, ok := r.orders[o.ID()]
+	if !ok {
+		return false, domain.ErrOrderNotFound
+	}
+	if cur.DemoPaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	snap := o.Snapshot()
+	r.orders[snap.ID] = snap
+	return true, nil
+}
+
 func (r *hOrderRepo) ListByCustomerEmail(_ context.Context, email string, _, _ int) ([]*domain.Order, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

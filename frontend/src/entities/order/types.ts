@@ -8,8 +8,25 @@ export interface Track {
   duration_sec: number
 }
 
+// Статус оплаты демо — вторая платёжная полоса заказа. Пусто/undefined означает,
+// что у заказа нет отдельного счёта на демо (легаси или бесплатный заказ).
+export type DemoPaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
+
+// Поля платного демо, общие для ответов создания заказа и его статуса.
+export interface DemoPaymentFields {
+  /** Сколько осталось доплатить за песню с учётом зачёта демо. */
+  remaining_kopecks?: number
+  /** Отдельный InvId Robokassa для счёта за демо. */
+  demo_invoice_id?: number
+  /** Цена демо; отсутствует, если демо-счёта у заказа нет. */
+  demo_amount_kopecks?: number
+  demo_payment_status?: DemoPaymentStatus
+  /** Ссылка на оплату демо; пусто, если демо уже оплачено или счёта нет. */
+  demo_payment_url?: string
+}
+
 // Ответ POST /api/v1/orders (создание)
-export interface CreateOrderResponse {
+export interface CreateOrderResponse extends DemoPaymentFields {
   id: string
   invoice_id: number
   payment_status: PaymentStatus
@@ -24,7 +41,7 @@ export interface CreateOrderResponse {
 export type DemoStatus = 'none' | 'processing' | 'ready' | 'failed' | 'limited'
 
 // Ответ GET /api/v1/orders/:id (детали)
-export interface OrderDetail {
+export interface OrderDetail extends DemoPaymentFields {
   id: string
   invoice_id: number
   payment_status: PaymentStatus
@@ -36,9 +53,11 @@ export interface OrderDetail {
   generation_progress?: number
   tracks_ready?: number
   share_revoked?: boolean
-  // Демо-фрагмент (бесплатный, до оплаты). demo_url заполнен только при ready.
+  // Демо-фрагмент (до оплаты песни). demo_url заполнен только при ready.
   demo_status?: DemoStatus
   demo_url?: string
+  /** Ссылка на доплату за песню; пусто для уже оплаченного заказа. */
+  payment_url?: string
   // Момент последнего изменения (RFC3339). Пока pending+demo processing — это старт
   // демо: серверный якорь прогресса демо, переживающий перезагрузку страницы.
   updated_at?: string

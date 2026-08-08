@@ -135,6 +135,32 @@ func (r *inMemOrderRepo) GetByInvoiceID(_ context.Context, invoiceID int64) (*do
 	return domain.RestoreOrder(r.orders[id]), nil
 }
 
+func (r *inMemOrderRepo) GetByDemoInvoiceID(_ context.Context, invoiceID int64) (*domain.Order, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, snap := range r.orders {
+		if snap.DemoInvoiceID != 0 && snap.DemoInvoiceID == invoiceID {
+			return domain.RestoreOrder(snap), nil
+		}
+	}
+	return nil, domain.ErrOrderNotFound
+}
+
+func (r *inMemOrderRepo) ApplyDemoPaymentSuccess(_ context.Context, order *domain.Order) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap, ok := r.orders[order.ID()]
+	if !ok {
+		return false, domain.ErrOrderNotFound
+	}
+	// Условный переход: только из pending (имитация WHERE demo_payment_status='pending').
+	if snap.DemoPaymentStatus != domain.PaymentStatusPending {
+		return false, nil
+	}
+	r.save(order)
+	return true, nil
+}
+
 func (r *inMemOrderRepo) SetAdminFeedback(_ context.Context, id uuid.UUID, feedback string, at time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

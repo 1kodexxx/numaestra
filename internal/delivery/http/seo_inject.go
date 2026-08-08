@@ -57,8 +57,12 @@ type SEOInjector struct {
 	rater       reviewRater     // nil → AggregateRating не добавляется
 	examples    exampleProvider // nil → /examples/{id} получает общий SEO главной
 	priceRubles string
-	demoEnabled bool // false → SEO-тексты без обещаний бесплатного демо
-	log         *slog.Logger
+	demoEnabled bool // false → SEO-тексты без упоминания демо (воронка «оплата сразу»)
+	// demoPriceRubles — цена демо, remainingRubles — сколько остаётся доплатить
+	// после него. Заполняются вместе через WithDemoPrice; пустые — демо бесплатное.
+	demoPriceRubles string
+	remainingRubles string
+	log             *slog.Logger
 }
 
 func NewSEOInjector(indexHTML []byte, promptUC usecase.PromptBuilder, priceKopecks int64, log *slog.Logger) *SEOInjector {
@@ -70,12 +74,28 @@ func NewSEOInjector(indexHTML []byte, promptUC usecase.PromptBuilder, priceKopec
 	}
 }
 
-// WithDemoEnabled переключает SEO-тексты на вариант с бесплатным демо
-// (DEMO_ENABLED). Без вызова тексты описывают воронку «оплата сразу».
+// WithDemoEnabled переключает SEO-тексты на вариант с демо (DEMO_ENABLED).
+// Без вызова тексты описывают воронку «оплата сразу» одним платежом.
 func (s *SEOInjector) WithDemoEnabled(enabled bool) *SEOInjector {
 	s.demoEnabled = enabled
 	return s
 }
+
+// WithDemoPrice задаёт цену платного демо: SEO-тексты начинают называть её и
+// сумму доплаты. priceKopecks — полная цена заказа. При нулевой или не дешевле
+// заказа цене демо описывается как бесплатное (историческое поведение).
+func (s *SEOInjector) WithDemoPrice(demoKopecks, priceKopecks int64) *SEOInjector {
+	if demoKopecks <= 0 || priceKopecks <= demoKopecks {
+		s.demoPriceRubles, s.remainingRubles = "", ""
+		return s
+	}
+	s.demoPriceRubles = fmt.Sprintf("%d", demoKopecks/100)
+	s.remainingRubles = fmt.Sprintf("%d", (priceKopecks-demoKopecks)/100)
+	return s
+}
+
+// demoPaid сообщает, что демо платное и его цену есть чем назвать в текстах.
+func (s *SEOInjector) demoPaid() bool { return s.demoPriceRubles != "" }
 
 // WithReviews включает AggregateRating (средняя оценка отзывов) в Organization-разметку на главной.
 func (s *SEOInjector) WithReviews(r reviewRater) *SEOInjector {
@@ -255,7 +275,10 @@ func (s *SEOInjector) dataFor(ctx context.Context, path, baseURL string) seoData
 	case path == "/how-it-works":
 		title := "Как это работает — песня на заказ за 10 минут | " + seoSiteName
 		description := "Как Numaestra создаёт персональную песню: соберите запрос, оплатите один раз — и нейросеть выдаст 4 уникальные версии трека за ~10 минут. Без регистрации и подписок."
-		if s.demoEnabled {
+		if s.demoEnabled && s.demoPaid() {
+			title = "Как это работает — демо за " + s.demoPriceRubles + " ₽, песня за 10 минут | " + seoSiteName
+			description = "Как Numaestra создаёт персональную песню: соберите запрос, послушайте демо своей будущей песни за " + s.demoPriceRubles + " ₽ и доплатите " + s.remainingRubles + " ₽, только если понравилось. Итого " + s.priceRubles + " ₽ за 4 версии трека, без регистрации и подписок."
+		} else if s.demoEnabled {
 			title = "Как это работает — демо бесплатно, песня за 10 минут | " + seoSiteName
 			description = "Как Numaestra создаёт персональную песню: соберите запрос, послушайте бесплатное демо и платите, только если понравилось. 4 версии трека за ~10 минут, без регистрации, один платёж."
 		}
@@ -340,7 +363,10 @@ func (s *SEOInjector) categoryData(ctx context.Context, id, baseURL string) seoD
 		// под длинный хвост запросов («песня на свадьбу», «первый танец» и т.п.).
 		fmt.Fprintf(&b, `<p>Подходит для случаев: %s.</p>`, text(strings.Join(tags, ", ")))
 	}
-	if s.demoEnabled {
+	if s.demoEnabled && s.demoPaid() {
+		fmt.Fprintf(&b, `<p>Сначала за %s ₽ вы слушаете демо своей будущей песни и доплачиваете %s ₽, только если понравилось. Итого %s ₽ за 4 уникальные версии — без подписок и скрытых платежей.</p>`,
+			s.demoPriceRubles, s.remainingRubles, s.priceRubles)
+	} else if s.demoEnabled {
 		fmt.Fprintf(&b, `<p>Перед оплатой можно бесплатно послушать демо — вы платите, только если песня понравилась. Цена: %s ₽ за 4 уникальные версии, один платёж, без подписок.</p>`, s.priceRubles)
 	} else {
 		fmt.Fprintf(&b, `<p>Цена: %s ₽ за 4 уникальные версии, один платёж, без подписок и доплат. Перед заказом можно послушать примеры готовых работ.</p>`, s.priceRubles)
@@ -571,7 +597,13 @@ func (s *SEOInjector) faqItems() []qa {
 	items := []qa{
 		{"Сколько стоит песня на заказ?", "Один платёж " + s.priceRubles + " ₽ за 4 уникальные версии трека. Без подписок, доплат и скрытых платежей."},
 	}
-	if s.demoEnabled {
+	if s.demoEnabled && s.demoPaid() {
+		items = append(items,
+			qa{"Можно ли послушать песню до полной оплаты?", "Да. Сначала вы платите " + s.demoPriceRubles + " ₽ и слушаете демо — самый яркий фрагмент вашей будущей песни. Понравилось — доплачиваете " + s.remainingRubles + " ₽ и получаете 4 полные версии."},
+			qa{"Почему демо платное?", "Символические " + s.demoPriceRubles + " ₽ отсекают случайные заявки и позволяют держать цену песни низкой. Эти деньги не сгорают: они идут в счёт песни, поэтому итого вы платите ровно " + s.priceRubles + " ₽, а не больше."},
+			qa{"Вернут ли " + s.demoPriceRubles + " ₽, если песня не понравилась?", "Доплачивать вы не обязаны — дальше демо можно не идти. " + s.demoPriceRubles + " ₽ покрывают генерацию самого демо, поэтому не возвращаются; полная цена песни при этом остаётся " + s.priceRubles + " ₽."},
+		)
+	} else if s.demoEnabled {
 		items = append(items, qa{"Можно ли послушать песню до оплаты?", "Да. После заполнения заявки мы бесплатно генерируем демо — самый яркий фрагмент будущей песни. Вы платите, только если понравилось."})
 	} else {
 		items = append(items, qa{"Можно ли послушать примеры до заказа?", "Да — в каталоге собраны примеры готовых песен по разным поводам. Ваша песня создаётся по вашему брифу: имена, история и детали вплетаются в уникальный текст и музыку."})
@@ -588,7 +620,10 @@ func (s *SEOInjector) faqItems() []qa {
 func (s *SEOInjector) howItWorksBody() string {
 	var b strings.Builder
 	b.WriteString(`<main><h1>Как это работает</h1>`)
-	if s.demoEnabled {
+	if s.demoEnabled && s.demoPaid() {
+		fmt.Fprintf(&b, `<p>Сначала послушайте, потом решайте. Соберите запрос (категория или конструктор: жанр, настроение, темп, вокал), опишите повод и оставьте email. Оплатите %s ₽ — и через пару минут на странице заказа появится демо: самый яркий фрагмент вашей будущей песни. Понравилось — доплачиваете %s ₽, и нейросеть выдаёт 4 уникальные версии без водяного знака за ~10 минут. Итого %s ₽: демо идёт в счёт песни, сверху платить не нужно. Слушайте, скачивайте и делитесь — ссылки остаются у вас навсегда.</p>`,
+			s.demoPriceRubles, s.remainingRubles, s.priceRubles)
+	} else if s.demoEnabled {
 		b.WriteString(`<p>Сначала послушайте, потом платите. Соберите запрос (категория или конструктор: жанр, настроение, темп, вокал), опишите повод и оставьте email. Через пару минут на странице заказа появится бесплатное демо — самый яркий фрагмент будущей песни. Понравилось — оплачиваете один раз, и нейросеть выдаёт 4 уникальные версии без водяного знака за ~10 минут. Слушайте, скачивайте и делитесь — ссылки остаются у вас навсегда.</p>`)
 	} else {
 		b.WriteString(`<p>Соберите запрос (категория или конструктор: жанр, настроение, темп, вокал), опишите повод и оставьте email. Оплачиваете один раз — и нейросеть выдаёт 4 уникальные версии вашей песни за ~10 минут. Перед заказом можно послушать примеры готовых работ в каталоге. Слушайте, скачивайте и делитесь — ссылки остаются у вас навсегда.</p>`)

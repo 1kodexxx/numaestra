@@ -25,6 +25,7 @@ func scanOrderSnapshot(row pgx.Row) (domain.OrderSnapshot, error) {
 		&snap.CreatedAt, &snap.UpdatedAt, &snap.PaidAt, &snap.CompletedAt,
 		&snap.DemoStatus, &snap.DemoURL, &snap.DemoAccountID,
 		&demoClipsJSON,
+		&snap.DemoInvoiceID, &snap.DemoAmountKopecks, &snap.DemoPaymentStatus,
 	)
 	if err != nil {
 		return domain.OrderSnapshot{}, fmt.Errorf("scan order: %w", err)
@@ -53,6 +54,7 @@ func scanOrderRows(rows pgx.Rows) ([]domain.OrderSnapshot, error) {
 			&snap.CreatedAt, &snap.UpdatedAt, &snap.PaidAt, &snap.CompletedAt,
 			&snap.DemoStatus, &snap.DemoURL, &snap.DemoAccountID,
 			&demoClipsJSON,
+			&snap.DemoInvoiceID, &snap.DemoAmountKopecks, &snap.DemoPaymentStatus,
 		); err != nil {
 			return nil, fmt.Errorf("scan order row: %w", err)
 		}

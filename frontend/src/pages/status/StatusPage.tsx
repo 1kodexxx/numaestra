@@ -84,12 +84,18 @@ export function StatusPage() {
   // Robokassa редиректит на SuccessURL с OutSum и InvId в query (если не /order/success).
   const returnedFromRobokassa = searchParams.has('OutSum') && searchParams.has('InvId')
   const confirmPayment = Boolean(active && (justPaid || returnedFromRobokassa || isPaidPending(active)))
+  // Возврат с оплаты демо: заказ остаётся неоплаченным, поэтому режим «подтверждаем
+  // оплату» не включаем — но синхронизацию с Robokassa запускаем, чтобы фрагмент
+  // пошёл в генерацию сразу, не дожидаясь вебхука.
+  const justPaidDemo = searchParams.get('demo_paid') === '1'
 
   useEffect(() => {
     if (active && (justPaid || returnedFromRobokassa)) markPaidPending(active)
   }, [active, justPaid, returnedFromRobokassa])
 
-  const { order, loading, error, canManage, pollingTooLong, refetch } = usePollOrderStatus(active, { confirmPayment })
+  const { order, loading, error, canManage, pollingTooLong, refetch } = usePollOrderStatus(active, {
+    confirmPayment: confirmPayment || justPaidDemo,
+  })
 
   useEffect(() => {
     if (order?.payment_status !== 'pending') clearPaidPending(order?.id ?? '')
@@ -362,6 +368,27 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
     }
   }
 
+  // Платное демо — первый шаг воронки. Пока его счёт не оплачен, показываем
+  // кнопку на 50 ₽; после оплаты она сменяется доплатой за песню на остаток.
+  // Заказы без демо-счёта (легаси, бесплатные по промокоду) сюда не попадают:
+  // demo_amount_kopecks у них отсутствует, и работает прежний одношаговый блок.
+  const demoPriceKopecks = order.demo_amount_kopecks ?? 0
+  const demoUnpaid = demoPriceKopecks > 0 && order.demo_payment_status === 'pending'
+  const remainingKopecks = order.remaining_kopecks ?? order.amount_kopecks
+  const rub = (kopecks: number) => `${Math.round(kopecks / 100)} ₽`
+
+  async function handlePayDemo() {
+    setPayError(null); setPaying(true)
+    try {
+      const token = orderStorage.getAccessToken() ?? undefined
+      const { payment_url } = await orderApi.demoPaymentUrl(order.id, token)
+      window.location.href = payment_url
+    } catch (err) {
+      setPayError(err instanceof Error ? err.message : 'Не удалось получить ссылку на оплату демо')
+      setPaying(false)
+    }
+  }
+
   return (
     <div className="fade-in">
       {justPaid && ps !== 'pending' && (
@@ -455,20 +482,45 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
           <DemoPlayer status={order.demo_status} url={order.demo_url} startedAt={order.updated_at} />
         )}
 
-        {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL). */}
-        {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
+        {/* Ожидание оплаты — только если клиент ещё не платил (не после SuccessURL).
+            Шаг 1 (демо не оплачено): кнопка на цену демо. Шаг 2 (демо оплачено):
+            доплата за песню на остаток. Заказы без демо-счёта идут одним шагом. */}
+        {ps === 'pending' && canManage && !awaitingPaymentConfirm && demoUnpaid && (
+          <div style={{ marginTop: '28px' }}>
+            <Button size="lg" fullWidth loading={paying} onClick={handlePayDemo}>
+              {`🎧 Послушать демо за ${rub(demoPriceKopecks)} →`}
+            </Button>
+            {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
+            <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+              Через пару минут вы услышите фрагмент своей будущей песни. Понравится — доплатите{' '}
+              {rub(order.amount_kopecks - demoPriceKopecks)} и получите 4 полные версии.
+              Эти {rub(demoPriceKopecks)} идут в счёт песни: суммарно — {rub(order.amount_kopecks)}, не больше.
+            </div>
+          </div>
+        )}
+
+        {ps === 'pending' && canManage && !awaitingPaymentConfirm && !demoUnpaid && (
           <div style={{ marginTop: '28px' }}>
             <Button size="lg" fullWidth loading={paying} disabled={payBlockedForDemo} onClick={handlePay}>
-              {payBlockedForDemo ? 'Готовим демо…' : 'Перейти к оплате →'}
+              {payBlockedForDemo
+                ? 'Готовим демо…'
+                : demoPriceKopecks > 0
+                  ? `Доплатить ${rub(remainingKopecks)} и получить песню →`
+                  : 'Перейти к оплате →'}
             </Button>
             {payError && <div style={{ fontSize: '13px', color: '#f87171', marginTop: '10px' }}>{payError}</div>}
             {payBlockedForDemo ? (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
-                🎧 Бесплатное демо почти готово — послушайте, и если понравится, оплатите. Вы получите именно эту песню.
+                🎧 Демо почти готово — послушайте, и если понравится, доплатите. Вы получите именно эту песню.
               </div>
             ) : demoInFlight ? (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
-                ⏳ Демо готовится дольше обычного. Можно оплатить сейчас — на заказ это не влияет, вы получите 4 полные версии. Или подождите: демо появится выше само.
+                ⏳ Демо готовится дольше обычного. Можно доплатить сейчас — на заказ это не влияет, вы получите 4 полные версии. Или подождите: демо появится выше само.
+              </div>
+            ) : demoPriceKopecks > 0 ? (
+              <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
+                {rub(demoPriceKopecks)} за демо уже зачтены — осталось доплатить {rub(remainingKopecks)}.
+                После оплаты нейросеть создаст 4 версии вашей песни за ~10 минут, ссылка придёт на почту.
               </div>
             ) : order.demo_status === 'none' ? (
               <div style={{ fontSize: '12px', color: TEXT3, marginTop: '10px' }}>
@@ -479,9 +531,15 @@ function OrderCard({ order, justPaid, confirmAwaitingPayment, canManage, polling
                 Первая попытка не прошла? Нажмите ещё раз — заказ сохранён.
               </div>
             )}
+          </div>
+        )}
 
-            {/* Промокод к уже созданному заказу: клиент мог создать заказ, а скидку
-                захотеть потом. Применяется к текущему заказу, сумма пересчитывается. */}
+        {/* Промокод к уже созданному заказу: клиент мог создать заказ, а скидку
+            захотеть потом. Применяется к текущему заказу, сумма пересчитывается.
+            Доступен на обоих шагах воронки — и до оплаты демо, и перед доплатой:
+            скидка уменьшает цену песни, а значит и остаток к доплате. */}
+        {ps === 'pending' && canManage && !awaitingPaymentConfirm && (
+          <div style={{ marginTop: '12px' }}>
             {promoMsg?.ok ? (
               <div style={{
                 marginTop: '12px', fontSize: '13px', color: '#4ade80',

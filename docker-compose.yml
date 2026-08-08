@@ -20,15 +20,20 @@ x-app-env: &app-env
   PRICE_KOPECKS: ${PRICE_KOPECKS:-99000}
   # Зачёркнутая «старая» цена на витрине; 0 = скрыть.
   OLD_PRICE_KOPECKS: ${OLD_PRICE_KOPECKS:-200000}
-  # Демо (бесплатный фрагмент): глобальный выключатель, длина/интро и
+  # Демо (платный фрагмент до основной оплаты): выключатель, цена, длина/интро и
   # антифрод-лимиты. Дефолты совпадают с дефолтами в коде — меняются через .env
-  # без пересборки. Демо выключено: ~3 оплаты на 100 демо, воронка «оплата сразу».
-  DEMO_ENABLED: ${DEMO_ENABLED:-false}
+  # без пересборки.
+  DEMO_ENABLED: ${DEMO_ENABLED:-true}
+  # Цена демо; засчитывается в счёт песни (990 − 50 = 940 ₽ к доплате).
+  # 0 = демо бесплатное. DEMO_ENABLED=false = демо нет, один платёж на всю сумму.
+  DEMO_PRICE_KOPECKS: ${DEMO_PRICE_KOPECKS:-5000}
   DEMO_CLIP_SECONDS: ${DEMO_CLIP_SECONDS:-45}
   DEMO_INTRO_SKIP_SECONDS: ${DEMO_INTRO_SKIP_SECONDS:-8}
   DEMO_DAILY_LIMIT: ${DEMO_DAILY_LIMIT:-200}
-  DEMO_PER_IP_DAILY: ${DEMO_PER_IP_DAILY:-5}
-  DEMO_PER_EMAIL_HOURS: ${DEMO_PER_EMAIL_HOURS:-24}
+  # Лимиты на email/IP ослаблены: платёж сам отсекает нецелевой трафик, а жёсткие
+  # пороги мешали бы заплатившему клиенту заказать вторую песню. 0 = без лимита.
+  DEMO_PER_IP_DAILY: ${DEMO_PER_IP_DAILY:-20}
+  DEMO_PER_EMAIL_HOURS: ${DEMO_PER_EMAIL_HOURS:-0}
   DEMO_TOKEN_RESERVE: ${DEMO_TOKEN_RESERVE:-10}
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
   SUNO_API_URL: ${SUNO_API_URL:-https://api.ttapi.io}

@@ -162,7 +162,10 @@ function Hero({
   priceLabel: string;
   oldPriceLabel?: string;
 }) {
-  const { demo_enabled } = usePublicConfig();
+  const { demo_enabled, demo_price_label, remaining_price_label } = usePublicConfig();
+  // Демо платное, когда сервер прислал его цену: тексты называют сумму вместо
+  // «бесплатно», иначе клиент увидел бы неожиданный счёт.
+  const demo_paid = demo_enabled && Boolean(demo_price_label);
   return (
     <div
       style={{
@@ -268,9 +271,11 @@ function Hero({
         >
           Подарок на свадьбу, юбилей или признание в любви, который тронет до
           слёз.{" "}
-          {demo_enabled
-            ? "Послушайте демо бесплатно — платите, только если понравилось."
-            : "Один платёж — и через ~10 минут у вас 4 версии песни на выбор."}
+          {demo_paid
+            ? `Послушайте демо за ${demo_price_label} — доплатите ${remaining_price_label}, только если понравилось.`
+            : demo_enabled
+              ? "Послушайте демо бесплатно — платите, только если понравилось."
+              : "Один платёж — и через ~10 минут у вас 4 версии песни на выбор."}
         </p>
 
         {/* trust pills — первый акцентный (демо, если включено) */}
@@ -285,9 +290,11 @@ function Hero({
           }}
         >
           {[
-            demo_enabled
-              ? { t: "🎧 Демо бесплатно", accent: true }
-              : { t: "🎧 4 версии на выбор", accent: true },
+            demo_paid
+              ? { t: `🎧 Демо за ${demo_price_label}`, accent: true }
+              : demo_enabled
+                ? { t: "🎧 Демо бесплатно", accent: true }
+                : { t: "🎧 4 версии на выбор", accent: true },
             ...(demo_enabled ? [{ t: "4 версии на выбор", accent: false }] : []),
             { t: "Готово за 10 минут", accent: false },
             {
@@ -697,7 +704,10 @@ function PromptBuilder({
   onApplyPromo: () => void;
   onClearPromo: () => void;
 }) {
-  const { demo_enabled } = usePublicConfig();
+  const { demo_enabled, demo_price_label, remaining_price_label } = usePublicConfig();
+  // Демо платное, когда сервер прислал его цену: тексты называют сумму вместо
+  // «бесплатно», иначе клиент увидел бы неожиданный счёт.
+  const demo_paid = demo_enabled && Boolean(demo_price_label);
   const toggleMulti = (
     key: "moods",
     val: string,
@@ -1077,12 +1087,16 @@ function PromptBuilder({
           </div>
         )}
         <Button size="lg" fullWidth disabled={!canSubmit} onClick={onSubmit}>
-          {demo_enabled ? "Создать песню — демо бесплатно →" : "Создать песню →"}
+          {demo_paid
+            ? `Создать песню — демо за ${demo_price_label} →`
+            : demo_enabled ? "Создать песню — демо бесплатно →" : "Создать песню →"}
         </Button>
         <div style={{ fontSize: "12px", color: TEXT3, textAlign: "center" }}>
-          {demo_enabled
-            ? "Оплата только после демо, если понравится"
-            : "4 версии на выбор · готово за ~10 минут"}
+          {demo_paid
+            ? `Доплата ${remaining_price_label} — только если демо понравится`
+            : demo_enabled
+              ? "Оплата только после демо, если понравится"
+              : "4 версии на выбор · готово за ~10 минут"}
         </div>
       </div>
     </div>

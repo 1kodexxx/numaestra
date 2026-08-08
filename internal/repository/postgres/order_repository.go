@@ -39,8 +39,8 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 
 	return runAtomic(ctx, r.pool, func(ctx context.Context, db dbConn) error {
 		queryOrder := `
-			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, consent_given_at, consent_doc_version, promo_code_id, original_amount_kopecks, discount_kopecks, referral_code, created_at, updated_at, paid_at, completed_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+			INSERT INTO orders (id, invoice_id, customer_email, customer_phone, brief, category_id, suno_prompt, amount_kopecks, currency, payment_status, generation_status, generation_phase, generation_progress, tracks_ready, assigned_account_id, failure_reason, access_token, consent_given_at, consent_doc_version, promo_code_id, original_amount_kopecks, discount_kopecks, referral_code, created_at, updated_at, paid_at, completed_at, demo_invoice_id, demo_amount_kopecks, demo_payment_status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
 		`
 		_, err := db.Exec(ctx, queryOrder,
 			snap.ID, snap.InvoiceID, snap.CustomerEmail, snap.CustomerPhone, snap.Brief,
@@ -53,6 +53,9 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 			nullableString(snap.ReferralCode),
 			snap.CreatedAt, snap.UpdatedAt,
 			snap.PaidAt, snap.CompletedAt,
+			// demo_invoice_id именно NULL (а не 0) при отсутствии демо-платежа:
+			// частичный уникальный индекс не должен ловить коллизию нулей.
+			nullableInt64(snap.DemoInvoiceID), snap.DemoAmountKopecks, snap.DemoPaymentStatus,
 		)
 		if err != nil {
 			return fmt.Errorf("insert order: %w", err)
@@ -200,6 +203,47 @@ func (r *OrderRepository) ApplyPaymentSuccess(ctx context.Context, order *domain
 	)
 	if err != nil {
 		return false, fmt.Errorf("apply payment success: %w", err)
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
+// GetByDemoInvoiceID находит заказ по InvId платежа за демо — вторая платёжная
+// полоса заказа. Используется вебхуком Robokassa после промаха по invoice_id.
+func (r *OrderRepository) GetByDemoInvoiceID(ctx context.Context, invoiceID int64) (*domain.Order, error) {
+	query := `SELECT ` + orderSelectColumns + ` FROM orders WHERE demo_invoice_id = $1`
+	snap, err := scanOrderSnapshot(r.conn(ctx).QueryRow(ctx, query, invoiceID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrOrderNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select order by demo invoice id: %w", err)
+	}
+
+	tracks, err := r.getTracksForOrder(ctx, snap.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get tracks for order: %w", err)
+	}
+	snap.Tracks = tracks
+
+	return domain.RestoreOrder(snap), nil
+}
+
+// ApplyDemoPaymentSuccess атомарно и идемпотентно помечает демо оплаченным.
+// Условие WHERE demo_payment_status = 'pending' играет ту же роль, что и в
+// ApplyPaymentSuccess: при двух параллельных доставках вебхука ровно одна
+// транзакция выполнит переход и поставит задачу генерации демо, остальные
+// получат applied=false и выйдут без второго расхода кредитов Suno.
+func (r *OrderRepository) ApplyDemoPaymentSuccess(ctx context.Context, order *domain.Order) (bool, error) {
+	snap := order.Snapshot()
+
+	query := `
+		UPDATE orders
+		SET demo_payment_status = $1, updated_at = $2
+		WHERE id = $3 AND demo_payment_status = 'pending'
+	`
+	cmd, err := r.conn(ctx).Exec(ctx, query, snap.DemoPaymentStatus, snap.UpdatedAt, snap.ID)
+	if err != nil {
+		return false, fmt.Errorf("apply demo payment success: %w", err)
 	}
 	return cmd.RowsAffected() > 0, nil
 }

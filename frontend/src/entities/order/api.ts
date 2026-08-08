@@ -33,8 +33,15 @@ export const orderApi = {
     return apiFetch<{ payment_url: string }>(`/orders/${id}/payment-url`, { accessToken })
   },
 
+  // Ссылка на оплату демо-фрагмента — первый шаг воронки и повтор при сбое оплаты.
+  demoPaymentUrl(id: string, accessToken?: string) {
+    return apiFetch<{ payment_url: string }>(`/orders/${id}/demo-payment-url`, { accessToken })
+  },
+
+  // demo_synced сообщает, что подтвердилась именно оплата демо: заказ при этом
+  // остаётся неоплаченным (synced=false), но фрагмент уже пошёл в генерацию.
   syncPayment(id: string, accessToken?: string) {
-    return apiFetch<{ synced: boolean }>(`/orders/${id}/sync-payment`, {
+    return apiFetch<{ synced: boolean; demo_synced?: boolean }>(`/orders/${id}/sync-payment`, {
       method: 'POST',
       accessToken,
     })
@@ -85,7 +92,9 @@ export const orderApi = {
 
   // Резолв UUID заказа по номеру счёта Robokassa (InvId).
   // Используется PaymentReturnPage на новом устройстве / в другом браузере.
+  // kind различает платёжные полосы заказа: 'demo' — оплата демо-фрагмента,
+  // 'main' — оплата (доплата) самой песни.
   getOrderIdByInvoice(invoiceId: number) {
-    return apiFetch<{ id: string }>(`/orders/by-invoice/${invoiceId}`)
+    return apiFetch<{ id: string; kind?: 'main' | 'demo' }>(`/orders/by-invoice/${invoiceId}`)
   },
 }

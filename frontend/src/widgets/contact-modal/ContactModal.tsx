@@ -36,7 +36,14 @@ interface ContactModalProps {
 
 /** Email/phone capture + price summary, shown before redirecting to payment. */
 export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceKopecks, discountKopecks = 0, discountLabel, onClose, onSubmit }: ContactModalProps) {
-  const { demo_enabled: demoEnabled } = usePublicConfig()
+  const {
+    demo_enabled: demoEnabled,
+    demo_price_label: demoPriceLabel,
+    remaining_price_label: remainingPriceLabel,
+  } = usePublicConfig()
+  // Демо платное, когда сервер прислал его цену. Тогда тексты называют сумму
+  // вместо «бесплатно» — иначе клиент увидел бы счёт, которого не ожидал.
+  const demoPaid = demoEnabled && Boolean(demoPriceLabel)
   const titleId = useId()
   const trapRef = useFocusTrap(true)
   const [email, setEmail] = useState('')
@@ -110,6 +117,7 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
         <div id={titleId} style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '6px' }}>
           {loading
             ? demoEnabled ? 'Готовим демо…' : 'Создаём заказ…'
+            : demoPaid ? `Послушать демо за ${demoPriceLabel}`
             : demoEnabled ? 'Получить бесплатное демо' : 'Заказать песню'}
         </div>
         <div style={{ fontSize: '14px', color: TEXT2, marginBottom: '28px' }}>
@@ -117,9 +125,11 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
             ? demoEnabled
               ? 'Секунду — создаём заказ и открываем страницу с вашим демо.'
               : 'Секунду — создаём заказ и открываем страницу оплаты.'
-            : demoEnabled
-              ? 'Оставьте email — пришлём демо вашей песни. Оплата потом, только если понравится.'
-              : 'Оставьте email — на него придёт ссылка на готовую песню. 4 версии за ~10 минут после оплаты.'}
+            : demoPaid
+              ? `Оставьте email — за ${demoPriceLabel} пришлём демо вашей песни. Понравится — доплатите ${remainingPriceLabel}; демо идёт в счёт песни.`
+              : demoEnabled
+                ? 'Оставьте email — пришлём демо вашей песни. Оплата потом, только если понравится.'
+                : 'Оставьте email — на него придёт ссылка на готовую песню. 4 версии за ~10 минут после оплаты.'}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
@@ -150,7 +160,9 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
           textAlign: 'center', marginBottom: '20px',
         }}>
           <div style={{ fontSize: '13px', color: TEXT2, marginBottom: '4px' }}>
-            {demoEnabled ? 'Полная песня — потом, если понравится' : '4 версии песни · готово за ~10 минут'}
+            {demoPaid
+              ? `Сначала демо за ${demoPriceLabel}, полная песня — потом`
+              : demoEnabled ? 'Полная песня — потом, если понравится' : '4 версии песни · готово за ~10 минут'}
           </div>
           {hasDiscount ? (
             <>
@@ -217,6 +229,7 @@ export function ContactModal({ loading, error, priceLabel, oldPriceLabel, priceK
           <Button size="lg" onClick={go} loading={loading} disabled={!agree || loading} style={{ flex: 2 }}>
             {loading
               ? demoEnabled ? 'Готовим демо…' : 'Создаём заказ…'
+              : demoPaid ? `Слушать демо за ${demoPriceLabel} →`
               : demoEnabled ? 'Слушать демо бесплатно →' : 'Продолжить →'}
           </Button>
         </div>
