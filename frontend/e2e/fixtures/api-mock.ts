@@ -3,17 +3,23 @@ import {
   ACCESS_TOKEN,
   ORDER_ID,
   completedOrder,
+  demoPaidOrder,
+  demoUnpaidOrder,
   pendingOrder,
   processingOrder,
   queuedOrder,
 } from '../../src/test/fixtures/orders'
 
-type OrderState = 'pending' | 'queued' | 'processing' | 'completed'
+type OrderState = 'pending' | 'demo-unpaid' | 'demo-paid' | 'queued' | 'processing' | 'completed'
 
 function orderForState(state: OrderState) {
   switch (state) {
     case 'pending':
       return pendingOrder()
+    case 'demo-unpaid':
+      return demoUnpaidOrder()
+    case 'demo-paid':
+      return demoPaidOrder()
     case 'queued':
       return queuedOrder()
     case 'processing':
@@ -43,6 +49,17 @@ export async function mockOrderApi(
   await page.route('**/api/v1/orders/**', async (route: Route) => {
     const url = route.request().url()
     const method = route.request().method()
+
+    // Отдельная ветка: '/demo-payment-url' НЕ содержит подстроку '/payment-url'
+    // (перед payment дефис, а не слеш), поэтому общий обработчик его не поймает.
+    if (method === 'GET' && url.includes('/demo-payment-url')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ payment_url: 'https://auth.robokassa.ru/pay/e2e-demo' }),
+      })
+      return
+    }
 
     if (method === 'GET' && url.includes('/payment-url')) {
       await route.fulfill({

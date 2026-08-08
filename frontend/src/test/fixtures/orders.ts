@@ -34,6 +34,46 @@ export function pendingOrder(): OrderDetail {
   }
 }
 
+/**
+ * Неоплаченный заказ с ВЫСТАВЛЕННЫМ счётом на демо — первый шаг платной воронки.
+ * Отличается от pendingOrder наличием demo_amount_kopecks: по нему страница
+ * статуса решает, показывать «Послушать демо за N ₽» или сразу «Перейти к оплате».
+ */
+export function demoUnpaidOrder(): OrderDetail {
+  return {
+    id: ORDER_ID,
+    invoice_id: 4242,
+    payment_status: 'pending',
+    generation_status: 'new',
+    amount_kopecks: 99_000,
+    // До оплаты демо к оплате стоит полная сумма: заказ можно закрыть одним платежом.
+    remaining_kopecks: 99_000,
+    demo_invoice_id: 4243,
+    demo_amount_kopecks: 5_000,
+    demo_payment_status: 'pending',
+    demo_status: 'none',
+    tracks: [],
+  }
+}
+
+/** Демо оплачено и готово — остаётся доплатить остаток за песню. */
+export function demoPaidOrder(): OrderDetail {
+  return {
+    id: ORDER_ID,
+    invoice_id: 4242,
+    payment_status: 'pending',
+    generation_status: 'new',
+    amount_kopecks: 99_000,
+    remaining_kopecks: 94_000,
+    demo_invoice_id: 4243,
+    demo_amount_kopecks: 5_000,
+    demo_payment_status: 'paid',
+    demo_status: 'ready',
+    demo_url: 'https://cdn.example.com/demo.mp3',
+    tracks: [],
+  }
+}
+
 export function processingOrder(): OrderDetail {
   return {
     id: ORDER_ID,

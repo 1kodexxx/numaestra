@@ -37,4 +37,26 @@ test.describe('Статус заказа — путь оплата → гене�
     await expect(page.getByText('Ожидание оплаты')).toBeVisible()
     await expect(page.getByRole('button', { name: /Перейти к оплате/ })).toBeVisible()
   })
+
+  // Шаг 1 платной воронки: демо ещё не оплачено — вместо оплаты песни предлагаем
+  // послушать фрагмент за 50 ₽. Полная цена в этот момент клиенту не выставляется.
+  test('заказ с неоплаченным демо предлагает послушать фрагмент за 50 ₽', async ({ page }) => {
+    await mockOrderApi(page, { initialState: 'demo-unpaid', finalState: 'demo-unpaid', pollsBeforeComplete: 99 })
+
+    await page.goto(statusUrl())
+
+    await expect(page.getByText('Ожидание оплаты')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Послушать демо за 50 ₽/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Перейти к оплате/ })).toHaveCount(0)
+  })
+
+  // Шаг 2: демо оплачено и готово — 50 ₽ зачтены, к доплате остаётся 940 ₽.
+  test('после оплаты демо предлагает доплатить остаток', async ({ page }) => {
+    await mockOrderApi(page, { initialState: 'demo-paid', finalState: 'demo-paid', pollsBeforeComplete: 99 })
+
+    await page.goto(statusUrl())
+
+    await expect(page.getByRole('button', { name: /Доплатить 940 ₽/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Послушать демо за/ })).toHaveCount(0)
+  })
 })
